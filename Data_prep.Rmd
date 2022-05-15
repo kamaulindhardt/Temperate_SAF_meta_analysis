@@ -11,7 +11,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 Packages to be installed
 ```{r}
-install.packages('tidygeocoder')
+# install.packages('tidygeocoder')
 ```
 
 Loading libraries
@@ -25,14 +25,14 @@ library(ggplot2)
 
 Loading data
 ```{r}
-data <- read_excel("DATA/SILVOARABLE_REVIEW_DATA_FOR_ANALYSIS.xlsx")
+data <- read_excel("DATA/SILVOARABLE_REVIEW_DATA_FOR_ANALYSIS.xlsx", sheet = "STUDY LOCATIONS")
 #View(data) 
 ```
 
 Adding latitude and longitude of study locations
 ```{r}
 data_lat_longs <- data %>%
-  geocode(`Location Specification`, method = 'osm', lat = latitude , long = longitude)
+  geocode(`Location Specification UPDATED MANUALLY`, method = 'osm', lat = latitude , long = longitude)
 
 View(data_lat_longs)
 ```
@@ -41,24 +41,23 @@ Listing studies with missing value in the Latitude column
 ```{r}
 loacation_missing <- data_lat_longs %>%
   filter_all(any_vars(is.na(latitude))) %>%
-  relocate(latitude, longitude, `Location Specification`, StLocation, n, Title)
+  relocate(latitude, longitude, `Location Specification`, `Location Specification UPDATED MANUALLY`, StLocation, n, Title)
 
 View(loacation_missing)
+
+# Replacing the observations that have missing values in 'Location Specification' with the information from the general 'Location' column
 
 # The 28 studies with missing information for the latitude location were then manually checked and edited where possible by re-visiting the papers. The previous lines of code was run again. 
 ```
 
-Replacing the observations that have missing values in 'Location Specification' with the information from the general 'Location' column
-```{r}
-data_lat_longs_no_missing %>%
-
-```
 
 Visualising the locations on a map
 ```{r}
 ggplot(data_lat_longs, aes(longitude, latitude), color = "grey99") +
   borders("world") + geom_point(color = "orange") +
-  #ggrepel::geom_label_repel(aes(label = n)) +
+  #ggrepel::geom_label_repel(aes(label =  `Location Specification UPDATED MANUALLY`)) +
   theme_void()
 ```
+
+
 
