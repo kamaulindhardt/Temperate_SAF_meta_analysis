@@ -641,7 +641,7 @@ ggplot(aes(x = reorder(CROP.OUTPUT.GROUP, count), y = count)) +
 Cereals only - split-up
 ```{r Splitting up the largest group of crops (Cereals)}
 # n of cereal crops and pct
-crops.data.cereals <- crops.data.n %>%
+crops.data.cereals <- crops.data %>%
   filter(CROP.OUTPUT.GROUP != "NA") %>% # excluding 41 records of 'NA'
   group_by(CROP.SPECIES) %>% 
   summarise(count = n()) %>%
@@ -788,8 +788,8 @@ Populus only - split-up
 trees.data.populus <- 
   trees.data %>%
   relocate(ID.P, ID.S,
-           TREE.SPECIES, TREE.FAMILY.GROUP) %>%
-  filter(TREE.FAMILY.GROUP == "Populus") %>%
+           TREE.SPECIES, TREE.GENUS.GROUP) %>%
+  filter(TREE.GENUS.GROUP == "Populus") %>%
   
   group_by(TREE.SPECIES) %>% 
   summarise(count = n()) %>% 
