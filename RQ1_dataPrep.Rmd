@@ -44,10 +44,19 @@ pacman::p_load(tidyverse,
                lubridate,       # for making time-scale analysis (e.g. publications per year)
                scales,
                zoo,
-               ggridges)        # for making nice ridgeline plots
+               ggridges,        # for making nice ridgeline plots
+               gitcreds)        # for GitHub syncronisation
 
   })
 ```
+
+Update GitHub credentials for efficient 'push' and 'pull' operations
+```{r Update GitHub credentials for efficient 'push' and 'pull' operations}
+# Run this function in order to update GitHub credentials for efficient 'push' and 'pull' operations
+
+# gitcreds_set()
+```
+
 
 Loading main database 
 ```{r Loading database 2.0, warning=FALSE, message=FALSE}

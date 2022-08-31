@@ -1,0 +1,227 @@
+---
+title: "random_notes"
+author: "Kamau Lindhardt, lbk125"
+date: "6/20/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+---
+title: "Literature_review_Sankey_diagram"
+author: "Kamau Lindhardt, lbk125"
+date: "6/17/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Packages
+
+```{r}
+library(readxl)
+library(tidyverse)
+#devtools::install_github("davidsjoberg/ggsankey")
+library(ggsankey)
+#install.packages("networkD3")
+library(networkD3)
+library(dplyr)
+library(ggplot2)
+```
+
+# Data
+
+```{r}
+SANKEY_DATAFRAMES <- read_excel("DATA/SANKEY_DATAFRAME_LITERATURE_REVIEW_PROCESS.xlsx",
+    sheet = "SANKEY_DATAFRAME", col_names = TRUE) 
+
+SANKEY_DATAFRAMES
+
+
+dataframe <- data.frame(
+  source=c("Literature_papers","Other_papers", "Total_papers", "Total_papers", "Total_papers", "Total_papers", "Total_papers"), 
+  target=c("Total_papers","Total_papers", "Excluded_dedublication", "Excluded_document_type", "Excluded_title_abstract_screening", "Excluded_full_text_screening", "Total_records_for_analysis"), 
+  value=c(2088,3, 162, 67, 895, 77, 10)
+  )
+
+```
+
+# Building long format data
+
+```{r}
+mtcars_df <- SANKEY_DATAFRAMES %>%
+  make_long(cyl, vs, am)
+
+
+df <- SANKEY_DATAFRAMES %>%
+  make_long(IN,TOTAL,EXCLUDE_1,ANALYSIS)
+
+df
+```
+
+```{r}
+ggplot(mtcars_df, aes(x = x, 
+               next_x = next_x, 
+               node = node, 
+               next_node = next_node,
+               fill = factor(node),
+               label = node)) +
+  geom_sankey(flow.alpha = 0.5, node.color = 1) +
+  geom_sankey_label(size = 3.5, color = 1, fill = "white") +
+  scale_fill_viridis_d() +
+  theme_sankey(base_size = 16) +
+  theme(legend.position = "none")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+nodes = data.frame("name" = 
+                     c("Literature sourced from databases",  # (Node 0) Input "papers"                  
+                      "Other literature",                    # (Node 1) Input "other"                    
+                      "",                                    # (Node 2) Total                           
+                      "Node D",                              # (Node 3) Excluded for duplication        
+                      "Node E",                              # (Node 4) Continued for the analysis      
+                      "Node F",                              # (Node 5) Continued for the analysis      
+                      "Node G"))                            # (Node 6) Excluded for document type      
+
+
+
+links = as.data.frame(matrix(c(
+  # The third number is the value of the node
+  # Each row represents a link. The first number
+  # represents the node being connected from. 
+  # the second number represents the node connected to.
+  
+  0, 2, 200, 
+  1, 2, 5, 
+  2, 3, 130, 
+  2, 4, 75, 
+  4, 5, 30,
+  4, 5, 20,
+  5, 6, 100),
+  byrow = TRUE, ncol = 3))
+
+names(links) = c("source", "target", "value")
+
+sankeyNetwork(Links = links, Nodes = nodes,
+              Source = "source", Target = "target",
+              Value = "value", NodeID = "name",
+             fontSize= 12, nodeWidth = 1) 
+```
+
+
+
+
+```{r}
+# Create an incidence matrix. Usually the flow goes from the row names to the column names.
+# Remember that our connection are directed since we are working with a flow.
+
+# A connection data frame is a list of flows with intensity for each flow
+links <- data.frame(
+  source=c("group_A","group_B", "group_C", "group_C", "group_C", "group_C"), 
+  target=c("group_C","group_C", "group_D", "group_E", "group_F", "group_G"), 
+  value=c(35, 595, 95, 159, 123, 99)
+  )
+ 
+# From these flows we need to create a node data frame: it lists every entities involved in the flow
+nodes <- data.frame(
+  name=c(as.character(links$source), 
+  as.character(links$target)) %>% unique()
+)
+ 
+# With networkD3, connection must be provided using id, not using real name like in the links dataframe.. So we need to reformat it.
+links$IDsource <- match(links$source, nodes$name)-1 
+links$IDtarget <- match(links$target, nodes$name)-1
+ 
+# Make the Network
+p <- sankeyNetwork(Links = links, Nodes = nodes,
+              Source = "IDsource", Target = "IDtarget",
+              Value = "value", NodeID = "name", 
+              fontSize= 12, nodeWidth = 1,
+              sinksRight=FALSE)
+p
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+# From these flows we need to create a node data frame: it lists every entities involved in the flow
+nodes_dataframe <- data.frame(
+  name=c(as.character(links_dataframe$source), 
+  as.character(links_dataframe$target)) %>% unique()
+)
+```
+
+# Building ready Sankey diagram dataframe
+
+```{r}
+# With networkD3, connection must be provided using id, not using real name like in the links dataframe.. So we need to reformat it.
+links_dataframe$IDsource <- match(links_dataframe$source, nodes_dataframe$name)-1 
+links_dataframe$IDtarget <- match(links_dataframe$target, nodes_dataframe$name)-1
+```
+
+# Making the required network
+
+```{r}
+# Make the Network
+p <- sankeyNetwork(Links = links_dataframe, Nodes = nodes_dataframe,
+              Source = "IDsource", Target = "IDtarget",
+              Value = "value", NodeID = "name", 
+              sinksRight=FALSE)
+p
+```
+
