@@ -1,0 +1,1999 @@
+---
+title: "RQ1_dataPrep"
+author: "Kamau Lindhardt, lbk125"
+date: "26/7/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Research Question 1
+
+1.	What are the current themes of knowledge abundance and scarcity as related to temperate silvoarable agroforestry systems? 
+  a.	Which silvoarable agroforestry systems, are highly represented and which a poorly represented?
+  b.	Which crop and tree species are highly represented and which a poorly represented?
+  c.	Which biodiversity and ecosystem services are highly represented and which a poorly represented in different systems?
+
+frequency of occurrences 
+
+Packages to be installed first
+```{r Installing the pacman package, warning=FALSE}
+# install.packages("pacman")
+```
+
+Loading packages and libraries
+```{r Loading other needed packages, warning=FALSE}
+suppressWarnings({ 
+
+# Applying the p_load function to load multiple add-on packages in one line of code.
+  
+pacman::p_load(tidyverse, 
+               readxl,
+               ggplot2,
+               ggpubr,
+               ggthemes,
+               ggsci,
+               wesanderson,    # for colour palettes
+               colorspace,     # for colour palettes
+               gt,             # for beautiful tables
+               DT,
+               cowplot,         # for making multi-plots side by side  
+               patchwork,       # for making multi-plots side by side
+               lubridate,       # for making time-scale analysis (e.g. publications per year)
+               scales,
+               zoo,
+               ggridges)        # for making nice ridgeline plots
+
+  })
+```
+
+Loading main database 
+```{r Loading database 2.0, warning=FALSE, message=FALSE}
+suppressWarnings({ 
+  
+database <- read_excel("DATA/DATABASE_2.0.xlsx", 
+    sheet = "MAIN_DATABASE_2.0") %>%
+    filter(INCLUDED == TRUE)
+
+})
+# View(database)
+```
+
+Defining number of independent studies and number of observations based on individual study sites
+```{r Number of studies and study sites}
+n_independent_studies <- database %>% 
+  distinct(ID.P) %>%
+  nrow()
+
+# n_independent_studies = 73 (16 aug. 2022)
+
+n_individual_study_sites <- database %>%
+  distinct(ID.P, ID.S) %>%
+  nrow()
+
+# n_individual_study_sites = 213 (16 aug. 2022)
+```
+
+Colour and design elements
+```{r Colours and colour palettes}
+# scales::show_col(ipsum_pal()(9))
+
+# Define colour palette for a single colors
+my_col_single = sequential_hcl(1, palette = "Terrain 2")
+
+my_cols_pal_four <-  qualitative_hcl(4, palette = "Dynamic")
+#wes_palette("Zissou1", 4, type = "continuous")
+
+my_cols_pal_six <- qualitative_hcl(6, palette = "Dynamic")
+#wes_palette("Zissou1", 6, type = "continuous")
+
+my_cols_pal_8 <- qualitative_hcl(8, palette = "Dynamic")
+
+my_cols_pal_7 <- qualitative_hcl(7, palette = "Dynamic")
+
+my_cols_pal_32 <- qualitative_hcl(32, palette = "Dynamic")
+
+my_cols_pal_100 <- diverging_hcl(100, palette = "Green-Orange")
+#wes_palette("Zissou1", 100, type = "continuous")
+
+```
+
+Function that sets the size of the figure margins
+```{r Figure margin size function}
+# Writing a small function that sets the size of the margin based on the number of characters in the leftmost x-axis category value. 
+# the function makes use of the number of characters in the dataset$column and adds an additional number of space based on what is specified in the function 
+
+margin_spacer <- function(x) {
+  # where x is the column in your dataset
+  left_length <- nchar(levels(factor(x)))[1]
+  if (left_length > 8) {
+    return((left_length - 8) * 10) # additional figure margin space is here set to 10, if the x-axis category is having > 8 characters. 
+  }
+  else
+    return(0)
+}
+```
+
+
+**Publications per year**
+
+```{r Publications per year}
+# -----------------------------------------------------------------------------------------------------------
+# preparing dataset
+pub.year.data <- 
+  database %>% 
+  filter(INCLUDED == TRUE) %>%
+  
+  select(ID.P, PUB.YR) %>%
+  mutate_if(is.character, as.numeric) %>%
+  distinct(ID.P,  PUB.YR) %>%
+  group_by(PUB.YR) %>%
+  summarise(no_studies = n()) %>%
+  mutate(no_studies_accum = cumsum(no_studies)) %>% # cumulative number of studies over time
+  arrange(desc(-PUB.YR)) %>%
+  mutate_if(is.integer, as.numeric)
+  #add_tally() %>%
+
+# -----------------------------------------------------------------------------------------------------------
+# adding date-time scales by transforming the year column into a POSIXct class
+  pub.year.data$yeardate <- as.POSIXct(as.yearmon(pub.year.data$PUB.YR, format = "%Y%"))
+  
+# -----------------------------------------------------------------------------------------------------------
+# generating plot 
+pub.year.plot <- 
+
+  labs(title = "Accumulated peer-reviewed publications over time",
+       caption = paste0("Total number of independent studies = ", n_independent_studies),
+       y = "Accumulated number of publications") 
+```
+
+Plotting accumulated number of studies over the years
+```{r PLOTTING - accumulated number of studies over the years}
+pub.year.plot <- 
+  pub.year.data %>%
+  ggplot() +
+  geom_col(aes(x = PUB.YR, y = no_studies, alpha = 0.9), fill = my_col_single) +
+  geom_step(aes(x = PUB.YR, y = no_studies_accum, alpha = 0.9), size = 0.5, col = "black") +
+    theme_bw() +
+  scale_x_continuous(breaks = pretty(pub.year.data$PUB.YR, n = 25), minor_breaks = 1, limits = c(1990, 2025)) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "none")  +
+  labs(title = "Accumulated peer-reviewed publications over time",
+       caption = paste0("Total number of independent studies = ", n_independent_studies),
+       y = "Accumulated number of publications") 
+
+pub.year.plot
+```
+
+
+**Publications and experiments per country**
+
+Most prevailing countries - where most studies (per independent study) have been conducted
+```{r Preparing dataset on publications and experiments per country}
+# using n_independent_studies  
+
+pub.country.paper <- 
+  database %>% 
+  filter(INCLUDED == TRUE) %>%
+  
+  select(ID.P, STUDY.LOC.COUNTRY) %>% # based on n_independent_studies
+  distinct(ID.P, STUDY.LOC.COUNTRY) %>%
+  group_by(STUDY.LOC.COUNTRY) %>%
+  summarise(no_studies = n()) %>% 
+  mutate(pct = (no_studies/sum(no_studies))) %>%
+  mutate_if(is.integer, as.numeric) %>%
+  arrange(desc(no_studies)) %>%
+  top_n(10, wt = no_studies)
+
+# using n_individual_sites  
+pub.country.sites <- 
+  database %>% 
+  filter(INCLUDED == TRUE) %>%
+  
+  select(ID.S, STUDY.LOC.COUNTRY) %>% # based on n_individual_sites
+  distinct(ID.S, STUDY.LOC.COUNTRY) %>%
+  group_by(STUDY.LOC.COUNTRY) %>%
+  summarise(no_studies = n()) %>% 
+  mutate(pct = (no_studies/sum(no_studies))) %>%
+  mutate_if(is.integer, as.numeric) %>%
+  arrange(desc(no_studies)) %>%
+  top_n(10, wt = no_studies)
+```
+
+```{r PLOTTING - Publications per country}
+pub.country.paper %>%
+ggplot(aes(x = reorder(STUDY.LOC.COUNTRY, no_studies), y = no_studies)) +
+    geom_col(fill = my_col_single, alpha = 0.8) +
+    theme_bw() +
+  theme(axis.text.x = element_text(angle = 0, hjust=1), legend.position = "none")  +
+  geom_text(aes(label=paste0(round(pct*100, 1),"%")), size = 3, vjust = 0, hjust = -0.5) +
+  ylim(c(0, 20)) +
+  labs(title = "Number of peer-reviewed publications for the top ten most represented countries",
+       caption = paste0("Total number of independent studies = ", n_independent_studies),
+       x = "", 
+       y = "Number of publications") +
+  coord_flip()
+```
+```{r PLOTTING - Study sites per country}
+pub.country.sites %>%
+ggplot(aes(x = reorder(STUDY.LOC.COUNTRY, no_studies), y = no_studies)) +
+    geom_col(fill = my_col_single, alpha = 0.8) +
+    theme_bw() +
+  theme(axis.text.x = element_text(angle = 0, hjust=1), legend.position = "none")  +
+  geom_text(aes(label=paste0(round(pct*100, 1),"%")), size = 3, vjust = 0, hjust = -0.5) +
+  ylim(c(0, 20)) +
+  labs(title = "Number of study sites for the top ten most represented countries",
+       caption = paste0("Total number of independent studies = ", n_independent_studies),
+       x = "", 
+       y = "Number of publications") +
+  coord_flip()
+```
+
+
+# RQ1: What are the current themes of knowledge abundance and scarcity as related to temperate silvoarable agroforestry systems? 
+
+## RQ1.a - Which silvoarable agroforestry systems, are highly represented and which a poorly represented?
+
+**Silvoarable system traits (agroforestry system types) represented in the database**
+
+*Preparing dataset*
+```{r Preparing data for silvoarable system traits analysis, tidy=TRUE}
+# using n_individual_study_sites because system traits vary between sites, as some studies include multiple sites with different species compositions and arrangements. 
+
+system.trait.data <- database %>% 
+  filter(INCLUDED == TRUE) %>%
+  
+    dplyr::mutate(ST.TYPE = case_when(
+      str_detect(ST.TYPE, "RBS") ~ "Riparian buffer strips",
+      str_detect(ST.TYPE, "SHB") ~ "Line belts *",
+      str_detect(ST.TYPE, "MIXED") ~ "Mixed systems",
+      str_detect(ST.TYPE, "TIMBER.ARABLE") ~ "Timber - Arable",
+      str_detect(ST.TYPE, "BIOMASS.ARABLE") ~ "Biomass - Arable",
+      str_detect(ST.TYPE, "NUT.ARABLE") ~ "Nut - Arable",
+      str_detect(ST.TYPE, "FRUIT.ARABLE") ~ "Fruit - Arable",
+      TRUE ~ as.character(as.character(ST.TYPE)))) %>%
+  
+  dplyr::mutate(ST.TYPE.PROD.TYPE = "x") %>%
+  dplyr::mutate(ST.TYPE.PROD.TYPE == case_when(
+      str_detect(ST.TYPE, "Timber - Arable") ~ "Biomass",
+      str_detect(ST.TYPE, "Biomass - Arable") ~ "Biomass",
+      str_detect(ST.TYPE, "Nut - Arable") ~ "Food",
+      str_detect(ST.TYPE, "Fruit - Arable") ~ "Food",
+      str_detect(ST.TYPE, "Riparian buffer strips") ~ "Multiple",
+      str_detect(ST.TYPE, "Line belts *") ~ "Multiple",
+      str_detect(ST.TYPE, "Mixed systems") ~ "Multiple",
+      TRUE ~ as.character(as.character(ST.TYPE.PROD.TYPE)))) %>%
+  
+  group_by(ST.TYPE) %>%
+  summarise(count = n()) %>% 
+  mutate(pct = (count/sum(count))) %>%
+  arrange(desc(-count)) %>%
+  #summarise(count = sum(count)) %>%
+  # filter(ST.TYPE != "NA")
+  # Order factor levels by number, putting "Other" to end
+  # Order factor levels by number, putting "NA" to next to end
+  dplyr::mutate(ST.TYPE = forcats::fct_rev(forcats::fct_inorder(ST.TYPE)),
+                ST.TYPE = forcats::fct_relevel(ST.TYPE, "NA", after = 8)) 
+  #  dplyr::mutate(ST.TYPE = forcats::fct_rev(forcats::fct_inorder(ST.TYPE)),
+  #              ST.TYPE = forcats::fct_relevel(ST.TYPE, "Mixed and other systems", after = 4))
+
+# Checking that the reordering worked
+levels(system.trait.data$ST.TYPE)
+
+```
+
+Barplot of silvoarable system traits
+```{r PLOTTING - Barplot of silvoarable system traits, tidy=TRUE}
+# using n_individual_study_sites because system traits vary between sites, as some studies include multiple sites with different species compositions and arrangements. 
+system.trait.plot <- 
+  system.trait.data %>%
+ggplot(aes(x = ST.TYPE, 
+           y = count)) +                    
+  geom_bar(stat = "identity",
+           fill = my_col_single,
+           alpha = 0.8) +
+  geom_text(aes(label=paste0(round(pct*100, 1),"%")), size=3, vjust = -2) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust=1), legend.position = "none")  +
+  ylim(c(0, 100)) +
+  labs(title = "Distribution of silvoarable system trait types",
+       subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
+       caption = paste0("* Line belts; shelterbelts, hedgerows and windbreaks. Total number of independent studies = ", n_independent_studies),
+       x = "Silvoarable system trait type",                       
+       y = "n (records)")
+
+system.trait.plot
+```
+
+Functional role (product type) of the tree component in SAF systems 
+```{r}
+system.trait.products <- database %>% 
+  filter(INCLUDED == TRUE) %>%
+  
+    dplyr::mutate(ST.TYPE = case_when(
+      str_detect(ST.TYPE, "RBS") ~ "Riparian buffer strips",
+      str_detect(ST.TYPE, "SHB") ~ "Line belts *",
+      str_detect(ST.TYPE, "MIXED") ~ "Mixed systems",
+      str_detect(ST.TYPE, "TIMBER.ARABLE") ~ "Timber - Arable",
+      str_detect(ST.TYPE, "BIOMASS.ARABLE") ~ "Biomass - Arable",
+      str_detect(ST.TYPE, "NUT.ARABLE") ~ "Nut - Arable",
+      str_detect(ST.TYPE, "FRUIT.ARABLE") ~ "Fruit - Arable",
+      TRUE ~ as.character(as.character(ST.TYPE)))) %>%
+  
+  mutate(ST.TYPE.PROD.TYPE = case_when(ST.TYPE == "Timber - Arable" ~ "Biomass",
+                                       ST.TYPE == "Biomass - Arable" ~ "Biomass",
+                                       ST.TYPE == "Riparian buffer strips" ~ "Biomass",
+                                       
+                                       ST.TYPE == "Nut - Arable" ~ "Food",
+                                       ST.TYPE == "Fruit - Arable" ~ "Food",
+                                       
+                                       ST.TYPE == "Line belts *" ~ "Nature + wind shelter",
+                                       
+                                       ST.TYPE == "Mixed systems" ~ "Mixed")) %>%
+  dplyr::group_by(ST.TYPE.PROD.TYPE) %>%
+  summarise(count = n()) %>%
+  add_tally(wt = count) %>%
+  mutate(pct = (count/n)) %>%
+  arrange(desc(-count)) %>%
+  filter(ST.TYPE.PROD.TYPE != "NA")
+```
+
+Plotting the functional role (product type) of tree component
+```{r}
+system.trait.products %>% 
+ggplot(aes(x = reorder(ST.TYPE.PROD.TYPE, count), y = count)) +                             
+  geom_bar(stat = "identity",
+           fill = my_col_single,
+           alpha = 0.8) +
+  geom_text(aes(label = paste0(round(pct*100, 1), "%")), size = 3, vjust = -2) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "none",
+        plot.margin = margin(l = 0 + margin_spacer(system.trait.products$ST.TYPE.PROD.TYPE)))  +
+  ylim(c(0, 150)) +
+  labs(title = "Frequency of tree functional types",
+       subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
+       caption = paste0("Total number of independent studies = ", n_independent_studies),
+       x = "Main function of tree component (product type)",                       
+       y = "n (records)")
+  
+```
+
+**Spatial arrangements (tree density, alley inter and intra row distance)**
+
+*Preparing dataset*
+```{r Preparing data for crop alley interrow spatial arrangements, tidy=TRUE}
+# using n_individual_study_sites because system traits vary between sites, as some studies include multiple sites with different species compositions and arrangements.
+
+spatial.arrange.data <- database %>% 
+  filter(INCLUDED == TRUE) %>%
+  
+  select(ID.P, ID.S,
+         CA.DIST.INTERROW, CA.DIST.INTERROW.MIN, CA.DIST.INTERROW.MAX,
+         CA.DIST.INTRAROW, ST.TYPE) %>%
+  mutate_at(vars(-c(ST.TYPE)), as.numeric) %>% # <- converting characters to numeric
+  # where there is no information in the single value interrow distance, then use the mean value of interrow min and interrow max
+  rowwise() %>%
+  mutate(avr_interrow = mean(c(CA.DIST.INTERROW.MIN, CA.DIST.INTERROW.MAX), na.rm = FALSE))
+
+# mutate(CA.DIST.INTERROW = ifelse(CA.DIST.INTERROW == "NA", avr_interrow, CA.DIST.INTERROW), .keep = "all") 
+
+# Using base R commands
+# Duplicate data
+  spatial.arrange.data_new <- spatial.arrange.data                           
+# Replace NA values
+spatial.arrange.data_new$CA.DIST.INTERROW[is.na(spatial.arrange.data_new$CA.DIST.INTERROW)] <- 
+  spatial.arrange.data_new$avr_interrow[is.na(spatial.arrange.data_new$CA.DIST.INTERROW)]  
+
+# Renaming to original 
+spatial.arrange.data <- spatial.arrange.data_new
+```
+
+
+Histogram of the interrow distance distribution
+```{r Histogram of the interrow distance distribution, warning=FALSE, tidy=TRUE}
+
+interrow <- 
+  spatial.arrange.data %>%
+  filter(CA.DIST.INTERROW != "NA")
+
+overall_mean_interrow <- mean(interrow$CA.DIST.INTERROW)
+
+#Plotting histogram and desity plot using the cowplot function
+
+# 1. Create the histogram plot
+p_histogram <- 
+  spatial.arrange.data %>%
+# Add the density curve on the same axis
+gghistogram(
+  x = "CA.DIST.INTERROW", y = "..count..",
+  add = "mean", col = "black", rug = TRUE,
+  fill = my_col_single,
+  alpha = 0.8,
+  binwidth = 5,
+  add_density = FALSE
+  ) +
+  scale_x_continuous(breaks = scales::pretty_breaks(n = 10)) +
+ # scale_y_continuous(breaks = scales::pretty_breaks(n = 10)) +
+  ylim(c(0, 30)) +
+  annotate("text",                        # Add text for mean
+           x = overall_mean_interrow * 2,
+           y = overall_mean_interrow * 1,
+           label = paste("Mean =", overall_mean_interrow),
+           col = my_col_single,
+           size = 4) +
+  labs(title = "Distribution of interrow distances for silvoarable alley cropping systems",
+       subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
+       caption = paste0("Total number of independent studies = ", n_independent_studies),
+       x = "Alley interrow distance (m)",
+       y = "Number of sites having a given interrow distance")
+
+# 2. Create the density plot with y-axis on the right
+# Remove x axis elements
+p_density <- 
+  spatial.arrange.data %>%
+  ggdensity(
+  x = "CA.DIST.INTERROW", 
+  colour = my_col_single,
+  alpha = 0
+) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.2)), position = "right")  +
+  theme_half_open(11, rel_small = 1) +
+  rremove("x.axis")+
+  rremove("xlab") +
+  rremove("x.text") +
+  rremove("x.ticks") +
+  rremove("legend") +
+  labs(y = "Density distribution of a given interrow distance")
+
+# 3. Align the two plots and then overlay them.
+aligned_plots <- cowplot::align_plots(p_histogram, p_density, align = "hv", axis = "tblr")
+
+histodensity.spatial.arrangements <- 
+  ggdraw(aligned_plots[[1]]) + draw_plot(aligned_plots[[2]])
+```
+
+```{r PLOTTING - the interrow distance distribution, warning=FALSE, tidy=TRUE}
+# using n_individual_study_sites because system traits vary between sites, as some studies include multiple sites with different species compositions and arrangements.
+
+histodensity.spatial.arrangements
+```
+Ridgeline plot of interrow distances for different SAF system trait types
+
+```{r}
+spatial.arrange.ridge.plot <- 
+  
+spatial.arrange.data %>%
+  dplyr::mutate(ST.TYPE = case_when(
+      str_detect(ST.TYPE, "RBS") ~ "Riparian buffer strips",
+      str_detect(ST.TYPE, "SHB") ~ "Line belts *",
+      str_detect(ST.TYPE, "MIXED") ~ "Mixed systems",
+      str_detect(ST.TYPE, "TIMBER.ARABLE") ~ "Timber - Arable",
+      str_detect(ST.TYPE, "BIOMASS.ARABLE") ~ "Biomass - Arable",
+      str_detect(ST.TYPE, "NUT.ARABLE") ~ "Nut - Arable",
+      str_detect(ST.TYPE, "FRUIT.ARABLE") ~ "Fruit - Arable",
+      TRUE ~ as.character(as.character(ST.TYPE)))) %>%
+  
+  drop_na(CA.DIST.INTERROW) %>%
+  dplyr::filter(CA.DIST.INTERROW <= 100) %>%
+  mutate(text = fct_reorder(ST.TYPE, -CA.DIST.INTERROW)) %>%
+  ggplot(aes(y = reorder(ST.TYPE, -CA.DIST.INTERROW), 
+             x = CA.DIST.INTERROW,  
+             fill = ST.TYPE)) +
+  geom_density_ridges(alpha = 0.6, 
+                      quantile_lines = TRUE, quantiles = 2) +
+  scale_fill_manual(
+    values = colorspace::qualitative_hcl(6, palette = "Dynamic")) +
+  theme_bw() +
+  labs(title = "Distribution of interrow distances across the different SAF system trait types",
+       subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
+       caption = paste0("* Line belts; shelterbelts, hedgerows and windbreaks. Total number of independent studies = ", n_independent_studies),
+       x = "Interrow distance [m]",
+       y = "SAF system trait type")
+
+#dplyr::mutate(ST.TYPE = fct_relevel(ST.TYPE, levels = "Nut - Arable", "Timber - Arable", "Mixed system", "Fruit - Arable", "Biomass - Arable", "Line belts *")) 
+spatial.arrange.ridge.plot
+```
+
+
+## RQ1.b	- Which crop and tree species are highly represented and which a poorly represented?
+
+**Crop species groups represented in the database**
+
+Generating broad categories of crop species - based on broad output product based on FAO, 2019. FAOSTAT database. http://www.fao.org/faostat/en/#data.
+
+*Preparing dataset*
+```{r Preparing data on annual crop groups, message=FALSE, tidy=TRUE}
+# using n_individual_study_sites because crop species vary between sites, as some studies include multiple sites with different species compositions and arrangements.
+
+crops.data <- 
+  read_excel("DATA/DATABASE_2.0.xlsx", 
+    sheet = "CROP_SPECIES") %>%
+  # Generating broad categories of crop species - based on broad output product 
+  # based on FAO, 2019. FAOSTAT database. http://www.fao.org/faostat/en/#data.
+    mutate(CROP.OUTPUT.GROUP = case_when(str_detect(CROP.SPECIES, "Triticum") ~ "CEREALS CROPS",
+                                         str_detect(CROP.SPECIES, "Zea") ~ "CEREALS CROPS",
+                                         str_detect(CROP.SPECIES, "Hordeum") ~ "CEREALS CROPS",
+                                         str_detect(CROP.SPECIES, "Secale") ~ "CEREALS CROPS",
+                                         str_detect(CROP.SPECIES, "Avena") ~ "CEREALS CROPS",
+                                         str_detect(CROP.SPECIES, "Sorghum") ~ "CEREALS CROPS",
+                                         str_detect(CROP.SPECIES, "Fagopyrum") ~ "CEREALS CROPS",
+                                         
+                                         str_detect(CROP.SPECIES, "Glycine") ~ "PULSES",
+                                         str_detect(CROP.SPECIES, "Pisum") ~ "PULSES",
+                                         str_detect(CROP.SPECIES, "Cicer") ~ "PULSES",
+                                         str_detect(CROP.SPECIES, "Lupinus") ~ "PULSES",
+                                         
+                                         str_detect(CROP.SPECIES, "Beta") ~ "SUGAR CROPS",
+                                         
+                                         str_detect(CROP.SPECIES, "Cucurbita") ~ "VEGETABLES CROPS",
+                                         str_detect(CROP.SPECIES, "UNSPECIFIED.VEGETABLES") ~ "VEGETABLES CROPS",
+                                         str_detect(CROP.SPECIES, "Asparagus") ~ "VEGETABLES CROPS",
+                                         str_detect(CROP.SPECIES, "Brassica oleracea") ~ "VEGETABLES CROPS",
+                                         str_detect(CROP.SPECIES, "Capsicum") ~ "VEGETABLES CROPS",
+                                         str_detect(CROP.SPECIES, "Citrullus") ~ "VEGETABLES CROPS",
+                                         str_detect(CROP.SPECIES, "Cucumis") ~ "VEGETABLES CROPS",
+                                         str_detect(CROP.SPECIES, "Lactuca") ~ "VEGETABLES CROPS",
+                                         str_detect(CROP.SPECIES, "Solanum lycopersicum") ~ "VEGETABLES CROPS",
+                                         
+                                         str_detect(CROP.SPECIES, "Brassica napus subsp. napus") ~ "OIL CROPS",
+                                         str_detect(CROP.SPECIES, "Helianthus") ~ "OIL CROPS",
+                                         str_detect(CROP.SPECIES, "Sinapsis") ~ "OIL CROPS",
+                                         str_detect(CROP.SPECIES, "Brassica alba") ~ "OIL CROPS",
+                                         
+                                         str_detect(CROP.SPECIES, "Ribes") ~ "FRUIT CROPS",
+                                         str_detect(CROP.SPECIES, "Rubus") ~ "FRUIT CROPS",
+                                         str_detect(CROP.SPECIES, "Aronia") ~ "FRUIT CROPS",
+                                         str_detect(CROP.SPECIES, "Fragaria") ~ "FRUIT CROPS",
+                                         
+                                         str_detect(CROP.SPECIES, "Solanum tuberosum") ~ "ROOTS AND TUBER CROPS",
+                                         
+                                         str_detect(CROP.SPECIES, "HERBS") ~ "OTHER CROPS FOR HUMAN CONS.",
+                                         str_detect(CROP.SPECIES, "	SP.BEEF.CATTLE") ~ "OTHER CROPS FOR HUMAN CONS.",
+                                         str_detect(CROP.SPECIES, "	SP.DAIRY.CATTLE") ~ "OTHER CROPS FOR HUMAN CONS.",
+                                         str_detect(CROP.SPECIES, "	SP.PIG") ~ "OTHER CROPS FOR HUMAN CONS.",
+                                         
+                                         str_detect(CROP.SPECIES, "Lolium") ~ "FORAGE CROPS",
+                                         str_detect(CROP.SPECIES, "Vicia") ~ "FORAGE CROPS",
+                                         str_detect(CROP.SPECIES, "Poa") ~ "FORAGE CROPS",
+                                         str_detect(CROP.SPECIES, "Festuca") ~ "FORAGE CROPS",
+                                         str_detect(CROP.SPECIES, "Medicago") ~ "FORAGE CROPS",
+                                         str_detect(CROP.SPECIES, "Panicum") ~ "FORAGE CROPS",
+                                         str_detect(CROP.SPECIES, "Trifolium") ~ "FORAGE CROPS",
+                                         str_detect(CROP.SPECIES, "HAY.FODDER") ~ "FORAGE CROPS",
+                                         str_detect(CROP.SPECIES, "UNSPECIFIED.CLOVERLAY") ~ "FORAGE CROPS",
+                                         
+                                         str_detect(CROP.SPECIES, "UNSPECIFIED.FALLOW") ~ "FALLOW")) 
+
+crops.data.aggr <- crops.data %>%
+  filter(CROP.OUTPUT.GROUP != "NA") %>% # excluding 41 records of 'NA'
+  group_by(CROP.OUTPUT.GROUP) %>% 
+  summarise(count = n()) %>%
+  add_tally(wt = count) %>%
+  mutate(pct = (count/n)) %>%
+  arrange(desc(-count))
+```
+
+Number of different crop species found in the dataset
+```{r}
+crops.data.species.unique <- crops.data %>% 
+  filter(!grepl("HAY|UNSPECIFIED|HERBS|SP|NA|NS", CROP.SPECIES)) %>% # excluding 'unreal' species
+  distinct(CROP.SPECIES) %>%
+  nrow()
+
+crops.data.species.unique
+```
+
+Number of different crop genera found in the dataset
+```{r}
+crops.data.genus.unique <- crops.data %>% 
+  filter(!grepl("HAY|UNSPECIFIED|HERBS|SP|NA|NS", CROP.SPECIES)) %>% # removing 'unreal' species
+# Generating broad categories of crop species - based on genus
+  separate(CROP.SPECIES, c("CROP.GENUS.GROUP", "CROP.SPECIES.GROUP"), "^\\S*\\K\\s+", remove = FALSE) %>%
+  select(ID.P, ID.S,
+         CROP.SPECIES, CROP.GENUS.GROUP, CROP.SPECIES.GROUP) %>%
+  distinct(CROP.GENUS.GROUP) %>%
+  nrow()
+
+crops.data.genus.unique
+```
+
+
+Print crop group data
+```{r Print crop group data, tidy=TRUE}
+datatable(head(crops.data.aggr, 10),
+          colnames = c('Crop group', 'Number of records', 'Total number of records', 'Percent'),
+          options = list(order = list(list(2, 'desc'))))
+```
+
+Barplot of annual crop group distribution
+```{r PLOTTING - Annual crop group distribution, tidy=TRUE}
+# using n_individual_study_sites because crop species vary between sites, as some studies include multiple sites with different species compositions and arrangements.
+
+crops.data.aggr.plot <- 
+  crops.data.aggr %>%
+ggplot(aes(x = reorder(CROP.OUTPUT.GROUP, count), y = count)) +                             
+  geom_bar(stat = "identity",
+           fill = my_col_single,
+           alpha = 0.8) +
+  geom_text(aes(label = paste0(round(pct*100, 1), "%")), size = 3, vjust = -2) +
+  labs(x = "Crop species",                       
+       y = "n (records)") + 
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "none",
+        plot.margin = margin(l = 0 + margin_spacer(crops.data.aggr$CROP.OUTPUT.GROUP)))  +
+  ylim(c(0, 350)) +
+  labs(title = "Distribution of aggregated crop species groups",
+       subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
+       caption = paste0("Total number of independent studies = ", n_independent_studies),
+       x = "Aggregated crop species groups")
+```
+
+Cereals only - split-up
+```{r Splitting up the largest group of crops (Cereals)}
+# n of cereal crops and pct
+crops.data.cereals <- crops.data.n %>%
+  filter(CROP.OUTPUT.GROUP != "NA") %>% # excluding 41 records of 'NA'
+  group_by(CROP.SPECIES) %>% 
+  summarise(count = n()) %>%
+  add_tally(wt = count) %>%
+  mutate(pct = (count/n)) %>%
+  arrange(desc(count)) %>%
+  filter(grepl("Triticum|Zea|Hordeum|Secale|Avena|Sorghum|Fagopyrum", CROP.SPECIES)) %>% # filtering only cereals
+  filter(count >= 10)
+
+```
+
+```{r Plot of the largest group of crops (Cereals)}
+crops.data.cereals.plot <- 
+  ggplot(data = crops.data.cereals,                          
+       aes(x = reorder(CROP.SPECIES, count), y = count)) +                             
+  geom_bar(stat = "identity",
+           fill = my_col_single,
+           alpha = 0.8) +
+  geom_text(aes(label = paste0(round(pct*100, 1), "%")), size = 3, vjust = -1) +
+  theme_bw(12) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "none", 
+        axis.title.x = element_blank(), axis.title.y = element_blank(),
+        plot.margin = margin(l = -30 + margin_spacer(crops.data.cereals$CROP.SPECIES)))  +
+  ylim(c(0, 200)) +
+  labs(title = "Cereal crop species")
+```
+
+Combining plots - in patchwork (like cowplot)
+
+```{r PLOTTING - combined plot of all crop groups and the largest group of crops (Cereals)}
+crops.plot <- 
+  ggdraw(crops.data.aggr.plot + theme_bw(12) + 
+           theme(axis.text.x = element_text(angle = 45, hjust = 1), axis.text.y = element_text(margin = margin(40, 40, 40, 40)),
+                 legend.position = "none")) + 
+  draw_plot(crops.data.cereals.plot, .20, .55, .3, .3) + # x, y, x, y
+  
+  draw_plot_label(
+    c("A", "B"),
+    c(.05, .25),   # x(A), x(B)
+    c(0.95, 0.85), # y(A), y(B)
+    size = 12
+  ) 
+
+
+crops.plot
+```
+
+
+**Tree species represented in the database**
+
+*Preparing dataset*
+```{r Preparing data on tree species groups, message=FALSE, warning=FALSE, tidy=TRUE}
+# using n_individual_study_sites because tree species vary between sites, as some studies include multiple sites with different species compositions and arrangements.
+
+suppressWarnings({ 
+
+trees.data <- 
+  read_excel("DATA/DATABASE_2.0.xlsx", 
+    sheet = "TREE_SPECIES") %>%
+  # Generating broad categories of tree species - based on families, genus and hybrids
+    separate(TREE.SPECIES, c("TREE.GENUS.GROUP", "TREE.SPECIES.GROUP"), "^\\S*\\K\\s+", remove = FALSE) %>% 
+    separate(TREE.GENUS.GROUP, c("TREE.HYBRID.SPEC.1", "TREE.HYBRID.SPEC.2"), "^\\S*\\K\\s+", remove = FALSE) %>%
+  
+    dplyr::mutate(TREE.GENUS.GROUP = case_when(
+      str_detect(TREE.GENUS.GROUP, '(?<![:alpha:])UNSPECIFIED(?![:alpha:])') ~ 'Unspecified trees', 
+      TRUE ~ as.character(as.character(TREE.GENUS.GROUP)))) 
+
+trees.data.aggr <- trees.data %>%
+  # Grouping and preparing the trees species group data for plotting
+  group_by(TREE.GENUS.GROUP) %>%
+  summarise(count = n()) %>% 
+  group_by(TREE.GENUS.GROUP = replace(TREE.GENUS.GROUP, count < 5, "Other species")) %>%
+  summarise(count = sum(count)) %>%
+  mutate(pct = (count/sum(count))) %>%
+  filter(TREE.GENUS.GROUP != "NA") %>%
+  arrange(desc(-count)) %>%
+  ## order factor levels by number, put "Other" to end
+  dplyr::mutate(TREE.GENUS.GROUP = forcats::fct_rev(forcats::fct_inorder(TREE.GENUS.GROUP)),
+                TREE.GENUS.GROUP = forcats::fct_relevel(TREE.GENUS.GROUP, "Other species", after = 16))
+
+# Checking that the reordering worked
+levels(trees.data.aggr$TREE.GENUS.GROUP)
+
+})
+```
+
+Number of different tree species found in the dataset
+```{r}
+tree.data.species.unique <- trees.data %>% 
+  filter(!grepl("spp.", TREE.SPECIES)) %>% # excluding 'spp.' species
+  distinct(TREE.SPECIES) %>%
+  nrow()
+
+tree.data.species.unique
+```
+
+Number of different tree genera found in the dataset
+```{r}
+tree.data.genus.unique <- trees.data %>% 
+  filter(!grepl("HAY|UNSPECIFIED|HERBS|SP|NA|NS", TREE.SPECIES)) %>% # removing 'unreal' species
+# Generating broad categories of tree species - based on families, genus and hybrids
+  separate(TREE.SPECIES, c("TREE.GENUS.GROUP", "TREE.SPECIES.GROUP"), "^\\S*\\K\\s+", remove = FALSE) %>%
+  select(ID.P, ID.S,
+         TREE.SPECIES, TREE.GENUS.GROUP, TREE.SPECIES.GROUP) %>%
+  distinct(TREE.GENUS.GROUP) %>%
+  nrow()
+
+tree.data.genus.unique
+```
+
+Print tree species group data
+```{r Print tree species group data, tidy=TRUE}
+# colnames is a character vector of length 5, and we replace it
+datatable(head(trees.data.aggr, 20),
+          colnames = c('Tree genus group (aggregated by genus)', 'Number of records', 'Proportions'),
+          options = list(order = list(list(2, 'desc'))))
+```
+
+Barplot of tree species group distribution
+```{r PLOTTING - Tree species group distribution, tidy=TRUE}
+# using n_individual_study_sites because crop species vary between sites, as some studies include multiple sites with different species compositions and arrangements.
+trees.data.aggr.plot <- 
+ggplot(data = trees.data.aggr,                          
+       aes(x = TREE.GENUS.GROUP,
+           y = count)) +                             
+  geom_bar(stat = "identity",
+           fill = my_col_single,
+           alpha = 0.8) +
+  geom_text(aes(label = paste0(round(pct*100, 1), "%")), size = 3, vjust = -2) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "none")  +
+  ylim(c(0, 120)) +
+  labs(title = "Distribution of aggregated tree family groups",
+       subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
+       caption = paste0("Total number of independent studies = ", n_independent_studies),
+       x = "Tree genus groups (agregated)",
+       y = "n(records)")
+
+trees.data.aggr.plot
+```
+
+Populus only - split-up
+```{r Splitting up the largest group of trees (Populus)}
+trees.data.populus <- 
+  trees.data %>%
+  relocate(ID.P, ID.S,
+           TREE.SPECIES, TREE.FAMILY.GROUP) %>%
+  filter(TREE.FAMILY.GROUP == "Populus") %>%
+  
+  group_by(TREE.SPECIES) %>% 
+  summarise(count = n()) %>% 
+  mutate(pct = (count/sum(count))) %>%
+  arrange(desc(-count)) %>%
+  filter(TREE.SPECIES != "NA") %>%
+  
+  filter(count >= 5)
+
+```
+
+
+
+## RQ1.c	- Which biodiversity and ecosystem services are highly represented and which a poorly represented in different systems?
+
+**Biodiversity indicators - distribution and abundance**
+
+*Preparing dataset*
+```{r Preparing the biodiversity dataset}
+# using n_independent_studies because biodiversity and ecosystem service related indicators do not (normally) vary between sites, because independent studies look at the same variables (biodiversity and ecosystem service) even if several individual study sites are used for the study. 
+
+biodiversity.data <- 
+  database %>% 
+  filter(INCLUDED == TRUE) %>%
+  # selecting Biodiversity columns
+  select(ID.P, ID.S, #ST.TYPE, MANAGEMENT
+         starts_with("BD")) %>%
+  mutate(across(matches("BD"), as.logical)) %>%
+  mutate_at(vars(-c(ID.P, ID.S)), tidyr::replace_na, 0) %>%   # <- Including NA's as 0 (FALSE)
+  mutate_if(is.logical, as.numeric) %>%
+  mutate_if(is.character, as.numeric) %>%
+  select(-c(ID.S)) %>%
+  distinct(ID.P, across(contains("BD"))) # including only independent studies and not separate study sites
+
+# sum the data using apply 
+biodiversity.sum.data <- 
+  data.frame(value = apply(biodiversity.data, MARGIN = 2, FUN = sum))
+
+
+biodiversity.sum.data$key = rownames(biodiversity.sum.data)
+
+biodiversity.plot.data <- 
+biodiversity.sum.data %>%
+  rename(count = value,
+         BD.SUB.INDICATORS =  key) %>%
+  filter(BD.SUB.INDICATORS == "BD.SUB.FLORAMACRO" |
+         BD.SUB.INDICATORS == "BD.SUB.FLORAMICRO" |
+         BD.SUB.INDICATORS == "BD.SUB.FAUNAMACRO" |
+         BD.SUB.INDICATORS == "BD.SUB.FAUNAMICRO" |
+         BD.SUB.INDICATORS == "BD.SUB.FUNGI" |
+         BD.SUB.INDICATORS == "BD.SUB.BACTERIA") %>%
+    # grouping of flora and fauna categories according to the defined data structures and data analysis framework
+  mutate(BD.GROUPS = case_when(str_detect(BD.SUB.INDICATORS, "BD.SUB.FLORAMACRO") ~ "FLORA",
+                               str_detect(BD.SUB.INDICATORS, "BD.SUB.FLORAMICRO") ~ "FLORA",
+                               
+                               str_detect(BD.SUB.INDICATORS, "BD.SUB.FAUNAMACRO") ~ "FAUNA",
+                               str_detect(BD.SUB.INDICATORS, "BD.SUB.FAUNAMICRO") ~ "FAUNA",
+                               
+                               str_detect(BD.SUB.INDICATORS, "BD.SUB.FUNGI") ~ "FUNGI",
+                               str_detect(BD.SUB.INDICATORS, "BD.SUB.BACTERIA") ~ "BACTERIA")) %>%
+  
+  # grouping, counting and preparing the biodiversity groups for plotting
+  group_by(BD.GROUPS) %>%
+  summarise(count = sum(count)) %>%
+  # the proportion of individual biodiversity-related indicators relative to the total number of papers: How many papers report in        biodiversity-related indicators
+  mutate(pct_of_total = (count/n_independent_studies)) %>%
+  arrange(desc(-count))
+  
+
+biodiversity.plot.data
+```
+
+Plotting biodiversity-related indicators reported by independent studies
+```{r PLOTTING - biodiversity-related indicators reported in papers}
+# using n_independent_studies because biodiversity and ecosystem service related indicators do not (normally) vary between sites, because independent studies look at the same variables (biodiversity and ecosystem service) even if several individual study sites are used for the study. 
+
+# total number of peer-reviewed papers reporting on biodiversity-related indicators
+total_n_BD <- biodiversity.sum.data %>%
+  filter(key == "BD")
+
+# plotting the biodiversity bar plots for independent studies
+biodiversity.plot.data %>%
+ggplot(aes(x = reorder(BD.GROUPS, -count), 
+           y = count)) +
+geom_bar(stat = "identity",
+         fill = my_col_single,
+         alpha = 0.8) + 
+  theme_bw() +
+  ylim(c(0, 30)) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "none")  +
+  geom_text(aes(label = paste0(round(pct_of_total*100, 1), "%")), size = 3, vjust = -2) +
+  labs(title = "Distribution of biodiversity-related indicators reported by peer-reviewed papers",
+       subtitle = paste("n (independent studies) reporting on biodiversity = ", total_n_BD),
+       caption = paste0("Total number of independent studies = ", n_independent_studies),
+       x = "Biodiversity-related indicators",
+       y = "n(records)")
+
+# Hence, out of the total number of papers 31 are recording on biodiversity-related indicators. The percentages however are based on the total number of papers (73): For instance, for fungi = (73/10) * 100 = 
+```
+
+
+**Ecosystem Services indicators - distribution and abundance**
+
+*Preparing dataset*
+```{r Preparing the ecosystem service data}
+# using n_independent_studies because biodiversity and ecosystem service related indicators do not (normally) vary between sites, because independent studies look at the same variables (biodiversity and ecosystem service) even if several individual study sites are used for the study. 
+
+ecosystem.data <- 
+  database %>% 
+  filter(INCLUDED == TRUE) %>%
+  # selecting Ecosystem services columns
+  select(ID.P, ID.S, #ST.TYPE, MANAGEMENT
+         starts_with("ES")) %>%
+  mutate(across(matches("ES"), as.logical)) %>%
+  mutate_at(vars(-c(ID.P, ID.S)), tidyr::replace_na, 0) %>%   # <- Including NA's as 0 (FALSE)
+  mutate_if(is.logical, as.numeric) %>%
+  mutate_if(is.character, as.numeric) %>%
+  select(-c(ID.S)) %>%
+  distinct(ID.P, across(contains("ES"))) # including only independent studies and not separate study sites
+
+# ---------------------------------------------------------------------------------------------------
+# total number of peer-reviewed papers reporting on ecosystem service-related indicators
+
+  
+# sum the data using apply
+ecosystem.sum.data2 <- 
+  data.frame(value = apply(ecosystem.data, MARGIN = 2, FUN = sum))
+
+ecosystem.sum.data2$key = rownames(ecosystem.sum.data2)
+
+
+total_n_ES <- ecosystem.sum.data2 %>%
+  filter(key == "ES")
+# --------------------------------------------------------------------------------------------------- 
+  
+ecosystem.data.renamed <- ecosystem.data %>%
+  rename("Food (yield)" = ES.SUB.PROV.FOOD,
+         "Feed" =  ES.SUB.PROV.FEED,
+         "Fibre" = ES.SUB.PROV.FIBRE,
+         "Fuel (firewood etc.)" = ES.SUB.PROV.FUEL,
+         "Genetic resources" = ES.SUB.PROV.GENRES,
+         "Biochemicals" = ES.SUB.PROV.BIOCHEM,
+         "Ornamentals" = ES.SUB.PROV.ORNA,
+         "Fresh water" = ES.SUB.PROV.WATFRESH,
+         
+         "Air regulation" = ES.SUB.REGU.AIR,
+         "Climate regulation" = ES.SUB.REGU.CLIMREG,
+         "Carbon sequestration" = ES.SUB.REGU.CSEQREG,
+         "Water regulation" = ES.SUB.REGU.WATREG,
+         "Nutrient leaching regulation" = ES.SUB.REGU.NUTRILE,
+         "Erosion regulation" = ES.SUB.REGU.EROREG,
+         "Water purification" = ES.SUB.REGU.WATPUR,
+         "Disease regulation" = ES.SUB.REGU.DISREG,
+         "Pest regulation" = ES.SUB.REGU.PESTREG,
+         "Polination regulation" = ES.SUB.REGU.POLREG,
+         "Natural hazards regulation" = ES.SUB.REGU.NATHAZREG,
+         
+         "Soil formation" = ES.SUB.SUPP.SOILFORM,
+         "Photosynthesis" = ES.SUB.SUPP.PHOTSYNT,
+         "Primary production" = ES.SUB.SUPP.PRIMPROD,
+         "Nutrient cycling" = ES.SUB.SUPP.NUTRICYC,
+         "Water cycling" = ES.SUB.SUPP.WATCYC,
+         
+         "Cultural diversity" = ES.SUB.CULT.CULTDIV,
+         "Spiritual value" = ES.SUB.CULT.SPIRITVAL,
+         "Knowledge systems" = ES.SUB.CULT.KNOWLSYS,
+         "Educational value" = ES.SUB.CULT.EDUVAL,
+         "Inspirational value" = ES.SUB.CULT.INSPIR,
+         "Aesthetic value" = ES.SUB.CULT.AESTVAL,
+         "Social relations" = ES.SUB.CULT.SOCREL,
+         "Sense of place" = ES.SUB.CULT.SENPLACE,
+         "Cultural heritage value" = ES.SUB.CULT.CULTHERIVAL,
+         "Recreational and ecotourism" = ES.SUB.CULT.RECRECOTOUR,
+         
+         "Provisioning ES" = ES.PROV,
+         "Regulating ES" = ES.REGU,
+         "Supporting ES" = ES.SUPP,
+         "Cultural ES" = ES.CULT,
+         "Ecosystem Services" = ES)
+  
+# ---------------------------------------------------------------------------------------------------   
+# sum the data using apply 
+
+ecosystem.sum.data <- 
+  data.frame(value = apply(ecosystem.data.renamed, MARGIN = 2, FUN = sum))
+
+
+ecosystem.sum.data$key = rownames(ecosystem.sum.data)
+
+# --------------------------------------------------------------------------------------------------- 
+
+ecosystem.plot.data <- 
+ecosystem.sum.data %>%
+  rename(count = value,
+         ES.INDICATORS =  key) %>%
+  filter(ES.INDICATORS == "Provisioning ES" |
+         ES.INDICATORS == "Regulating ES" |
+         ES.INDICATORS == "Supporting ES" |
+         ES.INDICATORS == "Cultural ES") %>%
+  # grouping, counting and preparing groups for plotting
+  group_by(ES.INDICATORS) %>%
+  summarise(count = sum(count)) %>%
+  # the proportion of individual ecosystem services-related indicators relative to the total number of papers: How many papers report on        ecosystem services-related indicators
+  mutate(pct_of_total = (count/n_independent_studies)) %>%
+  arrange(desc(-count))
+
+ecosystem.plot.data
+```
+
+Plotting the broad categories of ecosystem services reported by independent studies
+```{r PLOTTING - broad categories of ecosystem services}
+# using n_independent_studies because biodiversity and ecosystem service related indicators do not (normally) vary between sites, because independent studies look at the same variables (biodiversity and ecosystem service) even if several individual study sites are used for the study. 
+
+ecosystem.plot.broad <- 
+ecosystem.plot.data %>%
+ggplot(aes(x = reorder(ES.INDICATORS, -count), 
+           y = count,
+           fill = ES.INDICATORS)) +
+geom_bar(stat = "identity",
+         fill = my_cols_pal_four,
+         alpha = 0.8) +
+  theme_bw() +
+  ylim(c(0, 50)) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "none")  +
+  geom_text(aes(label = paste0(round(pct_of_total*100, 1), "%")), size = 3, vjust = -2) +
+  labs(title = "Distribution of ecosystem service indicators reported by peer-reviewed papers",
+       subtitle = paste("n (independent studies) reporting on ecosystem services = ", total_n_ES),
+       caption = paste0("Total number of independent studies = ", n_independent_studies),
+       x = "Ecosystem service categories",
+       y = "n(records)")
+
+ecosystem.plot.broad
+```
+
+Provision
+```{r Preparing provision data}
+# --------------------------------------------------------------------------------------------------- 
+total_n_prov_ES <- ecosystem.sum.data2 %>%
+  filter(key == "ES.PROV")
+# --------------------------------------------------------------------------------------------------- 
+
+
+ecosystem.prov.plot.data <- 
+ecosystem.sum.data %>%
+  rename(count = value,
+         ES.INDICATORS =  key) %>%
+  pivot_wider(names_from = ES.INDICATORS, values_from = count) %>%
+  select("Food (yield)", 
+         "Feed",
+         "Fibre",
+         "Fuel (firewood etc.)",
+         "Genetic resources", 
+         "Biochemicals",
+         "Ornamentals",
+         "Fresh water") %>%
+  pivot_longer(cols = everything(),
+               names_to = "ES.SUB.PROV.INDICATORS", 
+               values_to = "count") %>%
+  # grouping, counting and preparing groups for plotting
+  group_by(ES.SUB.PROV.INDICATORS) %>%
+  summarise(count = sum(count)) %>%
+  # the proportion of individual provisioning ecosystem services-related indicators relative to the total number of papers: How many    papers report on provisioning ecosystem services-related indicators
+  mutate(pct_of_total = (count/n_independent_studies)) %>%
+  arrange(desc(-count))
+```
+
+```{r PLOTTING - provision}
+ecosystem.prov.plot <- 
+ecosystem.prov.plot.data %>%
+ggplot(aes(x = reorder(ES.SUB.PROV.INDICATORS, -count), 
+           y = count,
+           fill = ES.SUB.PROV.INDICATORS)) +
+geom_bar(stat = "identity",
+         fill = my_cols_pal_four[4],
+         alpha = 0.8) +
+  theme_bw() +
+  ylim(c(0, 50)) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "none", 
+        axis.title.x=element_blank(), axis.title.y=element_blank(),
+        plot.margin = margin(l = 0 + margin_spacer(ecosystem.prov.plot.data$ES.SUB.PROV.INDICATORS)))  +
+  geom_text(aes(label = paste0(round(pct_of_total*100, 1), "%")), size = 3, vjust = -2) +
+  labs(title = "Provisioning ES",
+       subtitle = paste("n (independent studies) = ", total_n_prov_ES))
+       #caption = paste0("Total number of independent studies = ", n_independent_studies))
+```
+
+Supporting
+```{r Preparing supporting data}
+# --------------------------------------------------------------------------------------------------- 
+total_n_supp_ES <- ecosystem.sum.data2 %>%
+  filter(key == "ES.SUPP")
+# --------------------------------------------------------------------------------------------------- 
+
+ecosystem.supp.plot.data <- 
+ecosystem.sum.data %>%
+  rename(count = value,
+         ES.INDICATORS =  key) %>%
+  pivot_wider(names_from = ES.INDICATORS, values_from = count) %>%
+  select("Soil formation",
+         "Photosynthesis",
+         "Primary production",
+         "Nutrient cycling",
+         "Water cycling") %>%
+  pivot_longer(cols = everything(),
+               names_to = "ES.SUB.SUPP.INDICATORS", 
+               values_to = "count") %>%
+  # grouping, counting and preparing groups for plotting
+  group_by(ES.SUB.SUPP.INDICATORS) %>%
+  summarise(count = sum(count)) %>%
+    # the proportion of individual supporting ecosystem services-related indicators relative to the total number of papers: How many    papers report on supporting ecosystem services-related indicators
+  mutate(pct_of_total = (count/n_independent_studies)) %>%
+  arrange(desc(-count))
+```
+
+```{r PLOTTING - supporting}
+ecosystem.supp.plot <- 
+ecosystem.supp.plot.data %>%
+ggplot(aes(x = reorder(ES.SUB.SUPP.INDICATORS, -count), 
+           y = count,
+           fill = ES.SUB.SUPP.INDICATORS)) +
+geom_bar(stat = "identity",
+         fill = my_cols_pal_four[3],
+         alpha = 0.8) +
+  theme_bw() +
+  ylim(c(0, 50)) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "none", 
+        axis.title.x=element_blank(), axis.title.y=element_blank(),
+        plot.margin = margin(l = 0 + margin_spacer(ecosystem.supp.plot.data$ES.SUB.SUPP.INDICATORS)))  +
+  geom_text(aes(label = paste0(round(pct_of_total*100, 1), "%")), size = 3, vjust = -2) +
+  labs(title = "Supporting ES",
+       subtitle = paste("n (independent studies) = ", total_n_supp_ES))
+       #caption = paste0("Total number of independent studies = ", n_independent_studies))
+```
+
+Regulating
+```{r Preparing regulating data}
+# --------------------------------------------------------------------------------------------------- 
+total_n_regu_ES <- ecosystem.sum.data2 %>%
+  filter(key == "ES.REGU")
+# --------------------------------------------------------------------------------------------------- 
+
+ecosystem.regu.plot.data <- 
+ecosystem.sum.data %>%
+  rename(count = value,
+         ES.INDICATORS =  key) %>%
+  pivot_wider(names_from = ES.INDICATORS, values_from = count) %>%
+  select("Air regulation",
+         "Climate regulation",
+         "Carbon sequestration",
+         "Water regulation",
+         "Nutrient leaching regulation",
+         "Erosion regulation",
+         "Water purification",
+         "Disease regulation",
+         "Pest regulation",
+         "Polination regulation",
+         "Natural hazards regulation") %>%
+  pivot_longer(cols = everything(),
+               names_to = "ES.SUB.REGU.INDICATORS", 
+               values_to = "count") %>%
+    # grouping, counting and preparing groups for plotting
+  group_by(ES.SUB.REGU.INDICATORS) %>%
+  summarise(count = sum(count)) %>%
+    # the proportion of individual regulating ecosystem services-related indicators relative to the total number of papers: How many    papers report on regulating ecosystem services-related indicators
+  mutate(pct_of_total = (count/n_independent_studies)) %>%
+  arrange(desc(-count))
+```
+
+```{r PLOTTING - regulating}
+ecosystem.regu.plot <- 
+ecosystem.regu.plot.data %>%
+ggplot(aes(x = reorder(ES.SUB.REGU.INDICATORS, -count), 
+           y = count,
+           fill = ES.SUB.REGU.INDICATORS)) +
+geom_bar(stat = "identity",
+         fill = my_cols_pal_four[2],
+         alpha = 0.8) +
+  theme_bw() +
+  ylim(c(0, 50)) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "none", 
+        axis.title.x=element_blank(), axis.title.y=element_blank(),
+        plot.margin = margin(l = 0 + margin_spacer(ecosystem.regu.plot.data$ES.SUB.REGU.INDICATORS)))  +
+  geom_text(aes(label = paste0(round(pct_of_total*100, 1), "%")), size = 3, vjust = -2) +
+  labs(title = "Regulating ES",
+       subtitle = paste("n (independent studies) = ", total_n_regu_ES))
+       #caption = paste0("Total number of independent studies = ", n_independent_studies))
+```
+
+
+Cultural
+```{r Preparing cultural data}
+# --------------------------------------------------------------------------------------------------- 
+total_n_cult_ES <- ecosystem.sum.data2 %>%
+  filter(key == "ES.CULT")
+# --------------------------------------------------------------------------------------------------- 
+
+ecosystem.cult.plot.data <- 
+ecosystem.sum.data %>%
+  rename(count = value,
+         ES.INDICATORS =  key) %>%
+  pivot_wider(names_from = ES.INDICATORS, values_from = count) %>%
+  select("Cultural diversity",
+         "Spiritual value",
+         "Knowledge systems",
+         "Educational value",
+         "Inspirational value",
+         "Aesthetic value",
+         "Social relations",
+         "Sense of place",
+         "Cultural heritage value",
+         "Recreational and ecotourism") %>%
+  pivot_longer(cols = everything(),
+               names_to = "ES.SUB.CULT.INDICATORS", 
+               values_to = "count") %>%
+    # grouping, counting and preparing groups for plotting
+  group_by(ES.SUB.CULT.INDICATORS) %>%
+  summarise(count = sum(count)) %>%
+    # the proportion of individual cultural ecosystem services-related indicators relative to the total number of papers: How many    papers report on cultural ecosystem services-related indicators
+  mutate(pct_of_total = (count/n_independent_studies)) %>%
+  arrange(desc(-count))
+```
+
+```{r PLOTTING - cultural}
+ecosystem.cult.plot <- 
+ecosystem.cult.plot.data %>%
+ggplot(aes(x = reorder(ES.SUB.CULT.INDICATORS, -count), 
+           y = count,
+           fill = ES.SUB.CULT.INDICATORS)) +
+geom_bar(stat = "identity",
+         fill = my_cols_pal_four[1],
+         alpha = 0.8) +
+  theme_bw() +
+  ylim(c(0, 50)) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "none", 
+        axis.title.x=element_blank(), axis.title.y=element_blank(),
+        plot.margin = margin(l = 0 + margin_spacer(ecosystem.cult.plot.data$ES.SUB.CULT.INDICATORS)))  +
+  geom_text(aes(label = paste0(round(pct_of_total*100, 1), "%")), size = 3, vjust = -2) +
+  labs(title = "Cultural ES",
+       subtitle = paste("n (independent studies) = ", total_n_cult_ES))
+       #caption = paste0("Total number of independent studies = ", n_independent_studies))
+```
+
+Collecting in cowplot
+```{r PLOTTING - combined ecosystem service data in cowplot}
+# ecosystem.plot <- list(ecosystem.prov.plot, ecosystem.supp.plot, ecosystem.regu.plot, ecosystem.cult.plot)
+# plot_grid(plotlist = ecosystem.plot, 
+#           ncol = 2, align = 'v')
+# 
+# ecosystem.plot.all <- list(ecosystem.prov.plot, 
+#                            ecosystem.supp.plot, 
+#                            ecosystem.regu.plot, 
+#                            ecosystem.cult.plot)
+
+side_col <- plot_grid(ecosystem.prov.plot, 
+                        ecosystem.supp.plot,
+                        ecosystem.regu.plot,
+                        ecosystem.cult.plot,
+                        labels = c("B", "C", "D", "E"), 
+                        align = 'h')
+
+plot_grid(ecosystem.plot.broad, side_col, 
+          ncol = 2,
+          nrow = 1,
+          labels = c("A", ""),
+          rel_heights = c(1.2, 1))
+```
+
+
+**Categories of approach - distribution and abundance**
+
+*Preparing dataset*
+
+```{r Preparing the Categories of approach dataset}
+# using n_independent_studies because categories of approach do not (normally) vary between sites, because independent studies look at the same variables (categories of approach) even if several individual study sites are used for the study. 
+
+category.data <- 
+  database %>% 
+  filter(INCLUDED == TRUE) %>%
+  # selecting Ecosystem services columns
+  dplyr::select(ID.P, ID.S, #ST.TYPE, MANAGEMENT
+         starts_with("CAT")) %>%
+  mutate(across(matches("CAT"), as.logical)) %>%
+  mutate_at(vars(-c(ID.P, ID.S)), tidyr::replace_na, 0) %>%   # <- Including NA's as 0 (FALSE)
+  mutate_if(is.logical, as.numeric) %>%
+  mutate_if(is.character, as.numeric) %>% 
+  select(-c(ID.S)) %>%
+  distinct(ID.P, across(contains("CAT"))) # including only independent studies and not separate study sites
+
+
+# --------------------------------------------------------------------------------------------------- 
+# Renaming data columns
+
+category.data.renamed <- category.data %>%
+  #rename_with(~ gsub("CAT.SUB.AGRO.", "", .x, fixed = TRUE))
+  rename("Food"                                       = CAT.SUB.AGRO.YIELD,
+         "Biomass"                                    = CAT.SUB.AGRO.BIOMASS,
+         "Land equivalent ratio"                      = CAT.SUB.AGRO.LER,
+         "Pests"                                      = CAT.SUB.AGRO.PESTS,
+         "Diseases"                                   = CAT.SUB.AGRO.DISEASE,
+         "Weeds"                                      = CAT.SUB.AGRO.WEEDS,
+         "Product quality"                            = CAT.SUB.AGRO.PRODQUAL,
+         "Product stability"                          = CAT.SUB.AGRO.PRODSTAB,
+         "Mechanisation"                              = CAT.SUB.AGRO.MECHAN,
+         "Belowground (crop-tree) competition"        = CAT.SUB.AGRO.CRTRBLOW,
+         "Aboveground (crop-tree) light competition"  = CAT.SUB.AGRO.LIGHTCMP,
+         "Nutrient use"                               = CAT.SUB.AGRO.NUTRIUSE,
+         "Nutrient use effeciency"                    = CAT.SUB.AGRO.NUTRIEF,
+         "Breeding and selection"                     = CAT.SUB.AGRO.BRDSELECT,
+         
+         "Soil quality"                               = CAT.SUB.ENVI.SOILQUAL,
+         "Biodiversity"                               = CAT.SUB.ENVI.BIODIV,
+         "Carbon stock"                               = CAT.SUB.ENVI.CSTOCK,
+         "Greenhouse gas emissions"                   = CAT.SUB.ENVI.GHGEMS,
+         "Pollination"                                = CAT.SUB.ENVI.POLLCON,
+         "Soil structure"                             = CAT.SUB.ENVI.SOILSTRUCT,
+         "Chemical soil components"                   = CAT.SUB.ENVI.SOILCHEM,
+         "Biological soil components"                 = CAT.SUB.ENVI.SOILBIO,
+         "Soil water"                                 = CAT.SUB.ENVI.SOILWAT,
+         "Soil erosion"                               = CAT.SUB.ENVI.SOILEROCO,
+         "Soil formations"                            = CAT.SUB.ENVI.SOILFORM,
+         "Water quality"                              = CAT.SUB.ENVI.WATQUAL,
+         "Water perculation"                          = CAT.SUB.ENVI.WATPERC,
+         "Water cyclings"                             = CAT.SUB.ENVI.WATCYC,
+         "Water availability"                         = CAT.SUB.ENVI.WATAVAIL,
+         "Hydraulic lift"                             = CAT.SUB.ENVI.HYDRAULIFT,
+         
+         "Economic profit related"                    = CAT.SUB.ECON.PROFIT,
+         "Economic management related"                = CAT.SUB.ECON.MANAGE,
+         "Economic market related"                    = CAT.SUB.ECON.MARKET,
+         
+         "Landscape aesthetics"                       = CAT.SUB.SOCUL.LANAES,
+         "Recreational and ecotourisms"               = CAT.SUB.SOCUL.RECRECOTOUR,
+         "Spiritual values"                           = CAT.SUB.SOCUL.SPIRITVAL,
+         "Perception of adoptation"                   = CAT.SUB.SOCUL.PERCEPADOPT,
+         "Policy information"                         = CAT.SUB.SOCUL.POLICYINFR,
+         
+         "Agronomic category"                         = CAT.AGRO,
+         "Environmental category"                     = CAT.ENVIRON,
+         "Economic category"                          = CAT.ECONOM,
+         "Socio-cultural category"                    = CAT.SOCIOCUL)
+
+
+# ---------------------------------------------------------------------------------------------------   
+# sum the data using apply 
+
+category.sum.data <- 
+  data.frame(value = apply(category.data.renamed, MARGIN = 2, FUN = sum))
+
+
+category.sum.data$key = rownames(category.sum.data)
+
+# --------------------------------------------------------------------------------------------------- 
+
+category.plot.data <- 
+category.sum.data %>%
+  rename(count = value,
+         CAT.INDICATORS =  key) %>%
+  filter(CAT.INDICATORS == "Agronomic category" |
+         CAT.INDICATORS == "Environmental category" |
+         CAT.INDICATORS == "Economic category" |
+         CAT.INDICATORS == "Socio-cultural category") %>%
+  # grouping, counting and preparing groups for plotting
+  group_by(CAT.INDICATORS) %>%
+  summarise(count = sum(count)) %>%
+  # the proportion of individual category-related indicators relative to the total number of papers: How many papers report on        category-related indicators
+  mutate(pct_of_total = (count/n_independent_studies)) %>%
+  arrange(desc(-count))
+
+category.plot.data
+
+```
+
+
+Plotting the broad categories of approach reported by independent studies
+```{r PLOTTING - broad categories of approach}
+# using n_independent_studies because categories of approach related indicators do not (normally) vary between sites, because independent studies look at the same variables (categories of approach) even if several individual study sites are used for the study. 
+category.plot.broad <- 
+category.plot.data %>%
+ggplot(aes(x = reorder(CAT.INDICATORS, -count), 
+           y = count,
+           fill = CAT.INDICATORS)) +
+geom_bar(stat = "identity",
+         fill = my_cols_pal_four,
+         alpha = 0.8) +
+  theme_bw() +
+  ylim(c(0, 75)) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "none",
+        plot.margin = margin(t = 10, r = 2, b = 0, l = 2, unit = "pt")) +
+        #plot.margin = margin(l = 0 + margin_spacer(category.plot.data$CAT.INDICATORS)))  +
+ geom_text(aes(label = paste0(round(pct_of_total*100, 1), "%")), size = 3, vjust = -2) +
+  labs(title = "Distribution of categories of approach indicators reported by peer-reviewed papers",
+       caption = paste0("Total number of independent studies = ", n_independent_studies),
+       x = "Categories of approach",
+       y = "n(records)")
+
+category.plot.broad
+```
+
+
+
+### Input and output Ecosystem Services
+
+**Following the methodology of Ditzler et al. (2021) and Duru et al. (2015)**
+
+*Merging the categories and ecosystem services datasets*
+```{r}
+# category.data.renamed
+# ecosystem.data.renamed
+
+joined.category.ecosystem <- left_join(x = category.data.renamed, y = ecosystem.data.renamed, 
+            by = c("ID.P" = "ID.P"))  %>%
+  relocate(ID.P) 
+
+category.ecosystem.long <- joined.category.ecosystem %>%
+  pivot_longer(!ID.P,
+               names_to = "name",
+               values_to = "value") %>%
+  mutate(INPUT.OUTPUT.ES = case_when(
+    # --------------------------------------------------------------------------------------------------- Regular INPUT services
+                  str_detect(name, "Erosion regulation") ~ "INPUT.ES",
+                  str_detect(name, "Disease regulation") ~ "INPUT.ES",
+                  str_detect(name, "Pest regulation") ~ "INPUT.ES",
+                  str_detect(name, "Polination regulation") ~ "INPUT.ES",
+                  str_detect(name, "Soil formation") ~ "INPUT.ES",
+                  str_detect(name, "Nutrient use effeciency") ~ "INPUT.ES",
+                  str_detect(name, "Land equivalent ratio") ~ "INPUT.ES",
+                  str_detect(name, "Economic profit related") ~ "INPUT.ES",
+                  str_detect(name, "Biodiversity") ~ "INPUT.ES",
+    # ---------------------------------------------------------------------------------------------------             
+                  str_detect(name, "Soil structure") ~ "INPUT.ES",
+                  str_detect(name, "Water availability") ~ "INPUT.ES",
+                  str_detect(name, "Hydraulic lift") ~ "INPUT.ES",
+                  str_detect(name, "Water cycling") ~ "INPUT.ES",
+                  str_detect(name, "Nutrient cycling") ~ "INPUT.ES",
+    # --------------------------------------------------------------------------------------------------- Regular OUTPUT services
+                  str_detect(name, "Economic profit related") ~ "OUTPUT.ES",
+                  str_detect(name, "Food") ~ "OUTPUT.ES",
+                  str_detect(name, "Fibre") ~ "OUTPUT.ES",
+                  str_detect(name, "Fuel (firewood etc.)") ~ "OUTPUT.ES",
+                  str_detect(name, "Climate regulation") ~ "OUTPUT.ES",
+                  str_detect(name, "Carbon sequestration") ~ "OUTPUT.ES",
+                  str_detect(name, "Water regulation") ~ "OUTPUT.ES",
+                  str_detect(name, "Nutrient leaching regulation") ~ "OUTPUT.ES",
+                  str_detect(name, "Landscape aesthetics") ~ "OUTPUT.ES",
+                  str_detect(name, "Recreational and ecotourism") ~ "OUTPUT.ES",
+                  str_detect(name, "Product quality") ~ "OUTPUT.ES",
+                  str_detect(name, "Pollination") ~ "OUTPUT.ES",
+                  str_detect(name, "Product stability") ~ "OUTPUT.ES",
+                  str_detect(name, "Recreational and ecotourisms") ~ "OUTPUT.ES",
+                  str_detect(name, "Spiritual values") ~ "OUTPUT.ES",
+                  str_detect(name, "Spiritual value") ~ "OUTPUT.ES",
+                  str_detect(name, "Educational value") ~ "OUTPUT.ES",
+    # ---------------------------------------------------------------------------------------------------               
+                  str_detect(name, "Economic management related") ~ "INPUT.ES",              
+                  str_detect(name, "Food (yield)") ~ "OUTPUT.ES",
+                  str_detect(name, "Feed") ~ "OUTPUT.ES",
+                  str_detect(name, "Biomass") ~ "OUTPUT.ES",
+                  str_detect(name, "Biochemicals") ~ "OUTPUT.ES",
+                  str_detect(name, "Ornamentals") ~ "OUTPUT.ES")) %>%
+    
+    # --------------------------------------------------------------------------------------------------- 
+    # Specifying ES + CAT groups into ONLY ES = prov, regu, supp and cult. (CAT = agronomy, environment, economic and socio-cultural)
+    # --------------------------------------------------------------------------------------------------- 
+  mutate(ES.CAT.GROUPS = case_when(
+    str_detect(name, "Food") ~ "Povisioning ES",
+    str_detect(name, "Feed") ~ "Povisioning ES",
+    str_detect(name, "Fibre") ~ "Povisioning ES",
+    str_detect(name, "Fuel") ~ "Povisioning ES",               # "Fuel (firewood etc.)"
+    str_detect(name, "Genetic resources") ~ "Povisioning ES",
+    str_detect(name, "Biochemicals") ~ "Povisioning ES",
+    str_detect(name, "Ornamentals") ~ "Povisioning ES",
+    str_detect(name, "Fresh water") ~ "Povisioning ES",
+ 
+    # --------------------------------------------------------------------------------------------------- 
+    str_detect(name, "Air regulation") ~ "Regulating ES",
+    str_detect(name, "Climate regulation") ~ "Regulating ES",
+    str_detect(name, "Carbon sequestration") ~ "Regulating ES",
+    str_detect(name, "Water regulation") ~ "Regulating ES",
+    str_detect(name, "Water purification") ~ "Regulating ES",
+    str_detect(name, "Nutrient leaching regulation") ~ "Regulating ES",
+    str_detect(name, "Erosion regulation") ~ "Regulating ES",
+    str_detect(name, "Water availability") ~ "Regulating ES",
+    str_detect(name, "Disease regulation") ~ "Regulating ES",
+    str_detect(name, "Pest regulation") ~ "Regulating ES",
+    str_detect(name, "Polination regulation") ~ "Regulating ES",
+    str_detect(name, "Polination regulation") ~ "Regulating ES",
+    str_detect(name, "Natural hazards regulation") ~ "Regulating ES",
+    # ---------------------------------------------------------------------------------------------------                 
+                  
+    str_detect(name, "Soil formation") ~ "Supporting ES", 
+    str_detect(name, "Photosynthesis") ~ "Supporting ES",
+    str_detect(name, "Primary production") ~ "Supporting ES",   
+    str_detect(name, "Nutrient cycling") ~ "Supporting ES",
+    str_detect(name, "Water cycling") ~ "Supporting ES",
+    # --------------------------------------------------------------------------------------------------- 
+    
+    str_detect(name, "Cultural diversity") ~ "Cultural ES",
+    str_detect(name, "Spiritual value") ~ "Cultural ES",
+    str_detect(name, "Knowledge systems") ~ "Cultural ES",
+    str_detect(name, "Educational value") ~ "Cultural ES",
+    str_detect(name, "Inspirational value") ~ "Cultural ES",
+    str_detect(name, "Aesthetic value") ~ "Cultural ES",
+    str_detect(name, "Social relations") ~ "Cultural ES",
+    str_detect(name, "Sense of place") ~ "Cultural ES",
+    str_detect(name, "Cultural heritage value") ~ "Cultural ES",
+    str_detect(name, "Recreational and ecotourism") ~ "Cultural ES",
+    # --------------------------------------------------------------------------------------------------- 
+    
+    str_detect(name, "Food (yield)") ~ "Povisioning ES",
+    str_detect(name, "Biomass") ~ "Povisioning ES",
+    str_detect(name, "Land equivalent ratio") ~ "Povisioning ES",
+    str_detect(name, "Pests") ~ "Regulating ES",
+    str_detect(name, "Diseases") ~ "Regulating ES",
+    str_detect(name, "Weeds") ~ "Regulating ES",
+    str_detect(name, "Product quality") ~ "Povisioning ES",
+    str_detect(name, "Product stability") ~ "Povisioning ES",
+    str_detect(name, "Mechanisa") ~ "Povisioning ES",           # "Mechanisation"
+    str_detect(name, "Belowground") ~ "Povisioning ES",         # "Belowground (crop-tree) competition" 
+    str_detect(name, "Aboveground") ~ "Povisioning ES",         # "Aboveground (crop-tree) light competition" 
+    str_detect(name, "Nutrient use") ~ "Povisioning ES",
+    str_detect(name, "Nutrient use effeciency") ~ "Povisioning ES",
+    str_detect(name, "Breeding and selection") ~ "Povisioning ES",
+    # ---------------------------------------------------------------------------------------------------
+    
+    str_detect(name, "Soil quality") ~ "Supporting ES",
+    str_detect(name, "Biodiversity") ~ "Regulating ES",
+    str_detect(name, "Carbon stock") ~ "Regulating ES",
+    str_detect(name, "Greenhouse gas emissions") ~ "Regulating ES",
+    str_detect(name, "Pollination") ~ "Regulating ES",
+    str_detect(name, "Soil structure") ~ "Supporting ES",
+    str_detect(name, "Chemical soil components") ~ "Supporting ES",
+    str_detect(name, "Biological soil components") ~ "Supporting ES",
+    str_detect(name, "Soil water") ~ "Supporting ES",
+    str_detect(name, "Soil erosion") ~ "Regulating ES",
+    str_detect(name, "Soil formations") ~ "Supporting ES",
+    str_detect(name, "Water quality") ~ "Regulating ES",
+    str_detect(name, "Water perculation") ~ "Regulating ES",
+    str_detect(name, "Water cyclings") ~ "Supporting ES",
+    str_detect(name, "Water availability") ~ "Regulating ES",
+    str_detect(name, "Hydraulic lift") ~ "Regulating ES",
+    # ---------------------------------------------------------------------------------------------------
+    
+    str_detect(name, "Economic profit related") ~ "Povisioning ES",
+    str_detect(name, "Economic management related") ~ "Povisioning ES",
+    str_detect(name, "Economic market related") ~ "Povisioning ES",
+    # ---------------------------------------------------------------------------------------------------
+    
+    str_detect(name, "Landscape aesthetics") ~ "Cultural ES",
+    str_detect(name, "Recreational and ecotourism") ~ "Cultural ES",
+    str_detect(name, "Spiritual values") ~ "Cultural ES",
+    str_detect(name, "Perception of adoptation") ~ "Cultural ES",
+    str_detect(name, "Policy information") ~ "Cultural ES"))
+    
+
+category.ecosystem.long
+```
+
+**Developments in the relationship between input/output ES and publication years**
+
+*Preparing publication years data*
+```{r}
+pub.year.data.ID <- 
+  database %>% 
+  filter(INCLUDED == TRUE) %>%
+  
+  select(ID.P, PUB.YR) %>%
+  mutate_if(is.character, as.numeric) %>%
+  distinct(ID.P,  PUB.YR) %>%
+  group_by(PUB.YR) %>%
+  add_tally() %>%
+  mutate(no_studies_per_year = n) %>%
+  select(-n)
+  #add_tally() %>%
+```
+
+*Merging (joining) the input/output ES and publication years datasets based on ID.P*
+```{r Merging the biodiversity and crop datasets}
+joined.inoutES.pub.yr <- 
+  left_join(x = category.ecosystem.long, y = pub.year.data.ID, 
+            by = c("ID.P" = "ID.P")) %>%
+  select(-value)
+
+joined.inoutES.pub.yr
+```
+
+*Preparing input/output ES - publication year matrix data*
+```{r}
+# Preparing dataset on input/output ES in relation to publication years
+  matrix.inoutES.pub.yr <- 
+  joined.inoutES.pub.yr %>%
+  filter(INPUT.OUTPUT.ES != "NA")
+
+matrix.inoutES.pub.yr[c("ID.P")] <- 
+  lapply(matrix.inoutES.pub.yr[c("ID.P")], as.numeric)
+
+matrix.inoutES.pub.yr[c("PUB.YR")] <- 
+  lapply(matrix.inoutES.pub.yr[c("PUB.YR")], as.numeric)
+
+matrix.inoutES.pub.yr[c("name")] <- 
+  lapply(matrix.inoutES.pub.yr[c("name")], as.factor)
+
+matrix.matrix.inoutES.pub.yr.all <- 
+  matrix.inoutES.pub.yr %>%
+  group_by(INPUT.OUTPUT.ES, PUB.YR, name, ES.CAT.GROUPS) %>%
+  summarise(count = no_studies_per_year) %>%
+  distinct(INPUT.OUTPUT.ES, PUB.YR, ES.CAT.GROUPS, .keep_all = TRUE) %>%
+  ungroup()
+```
+
+*Plotting matrix - input/output ES - publication year data*
+```{r PLOTTING the input/output ES - publication year dataset matrix, warning=FALSE, message=FALSE}
+# using n_independent_studies
+
+matrix.matrix.inoutES.pub.yr.all %>%
+  ggplot(aes(x = PUB.YR, 
+             y = INPUT.OUTPUT.ES,
+             shape = ES.CAT.GROUPS,
+             colour = ES.CAT.GROUPS)) +
+  geom_jitter(aes(size = count),
+             alpha = 0.6,
+             height = 0.4,
+             width = 2.5) +
+  scale_size_area(max_size = 20, guide = "none") +
+  scale_shape_manual(values = c(15, 16, 17, 18)) + 
+  #scale_x_discrete(limits = c("Agronomy", "Environment", "Economic", "Cultural")) +  # Change the order of legend items
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "bottom") +
+  guides(shape = guide_legend(title = ""), colour = guide_legend(title = "")) +
+  scale_x_continuous(breaks = pretty(matrix.matrix.inoutES.pub.yr.all$PUB.YR, n = 20), minor_breaks = 1, limits = c(1990, 2022)) +
+  scale_y_discrete(labels = c("Input ES", "Output ES")) +
+  scale_size_continuous(range = c(2, 5)) +
+  guides(size = guide_bins(direction = "horizontal", show.limits = TRUE)) +
+  scale_colour_discrete_qualitative(palette = "Dynamic") +
+  labs(title = "Matrix showing the number of peer-reviewed papers reporting on input/output ES for different years of publication",
+       subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
+       caption = paste0("n(independent studies) reporting on ES indicators = ", total_n_ES$value),
+       x = "Year",                       
+       y = "Ecosystem services") 
+```
+
+**Biodiversity**
+
+```{r}
+
+```
+
+
+
+
+### Matrices 
+
+**Biodiversity - Crops**
+
+*Preparing biodiversity data*
+```{r Preparing biodiversity data with individual study sites}
+# using n_individual_study_sites because crop species vary between sites, as some studies include multiple sites with different species compositions and arrangements.
+
+biodiversity.data.raw <- 
+biodiversity.data <- 
+  database %>% 
+  filter(INCLUDED == TRUE) %>%
+  # selecting Biodiversity columns
+  select(ID.P, ID.S, #ST.TYPE, MANAGEMENT
+         starts_with("BD")) %>%
+  mutate(across(matches("BD"), as.logical)) %>%
+  mutate_at(vars(-c(ID.P, ID.S)), tidyr::replace_na, 0) %>%   # <- Including NA's as 0 (FALSE)
+  mutate_if(is.logical, as.numeric) %>%
+  mutate_if(is.character, as.numeric) %>%
+  #select(-c(ID.S)) %>%
+  #distinct(ID.P, across(contains("BD"))) # including individual study sites and not only independent papers
+
+
+ #  filter(INCLUDED == TRUE) %>%
+     # grouping of flora and fauna categories according to the defined data structures and data analysis framework
+  rename("FLORA.1" = BD.SUB.FLORAMACRO,
+         "FLORA.2" =  BD.SUB.FLORAMICRO,
+         
+         "FAUNA.1" = BD.SUB.FAUNAMACRO,
+         "FAUNA.2" = BD.SUB.FAUNAMICRO,
+         
+         "BACTERIA" = BD.SUB.BACTERIA,
+         "FUNGI" = BD.SUB.FUNGI) %>%
+  
+  mutate(FLORA = FLORA.1 + FLORA.2,
+         FAUNA = FAUNA.1 + FAUNA.2) %>%
+  
+  relocate(ID.P, ID.S,
+           FLORA, FAUNA, BACTERIA, FUNGI) %>%
+  select(-c(BD.SUB.SPEC, BD, 
+            FLORA.1, FAUNA.1, FLORA.2, FAUNA.2)) 
+```
+
+*Preparing crop data*
+```{r Preparing crop data with individual study sites}
+# using n_individual_study_sites because crop species vary between sites, as some studies include multiple sites with different species compositions and arrangements.
+
+crop.data.raw <- 
+  crops.data %>%
+  group_by(CROP.OUTPUT.GROUP) %>%
+  relocate(ID.S, ID.P, CROP.SPECIES, CROP.OUTPUT.GROUP)
+```
+
+*Merging (joining) the biodiversity and crops datasets based on ID.S and ID.P*
+```{r Merging the biodiversity and crop datasets}
+joined.crop.biodiversity <- 
+  left_join(crop.data.raw, biodiversity.data.raw, 
+            by = c("ID.S" = "ID.S",
+                   "ID.P" = "ID.P"))  %>%
+  relocate(ID.P, ID.S,
+           CROP.SPECIES, CROP.OUTPUT.GROUP,
+           FLORA, FAUNA, BACTERIA, FUNGI) 
+```
+
+*Preparing biodiversity-crops data for matrix plot*
+```{r Preparing the merged biodiversity-crop dataset}
+  matrix.crop.biodiversity <- 
+  joined.crop.biodiversity %>%
+  filter(CROP.OUTPUT.GROUP != "NA",
+         FLORA != "NA", 
+         FAUNA != "NA", 
+         BACTERIA != "NA", 
+         FUNGI != "NA") 
+  
+matrix.crop.biodiversity[c("FLORA", "FAUNA", "BACTERIA", "FUNGI")] <- 
+  lapply(matrix.crop.biodiversity[c("FLORA", "FAUNA", "BACTERIA", "FUNGI")], as.logical)
+
+matrix.crop.biodiversity.all <- 
+  matrix.crop.biodiversity %>%
+  select(c(CROP.OUTPUT.GROUP, FLORA, FAUNA, BACTERIA, FUNGI)) %>%
+  mutate_if(is.logical, as.character) %>%
+  pivot_longer(cols = c(-CROP.OUTPUT.GROUP)) %>%
+  mutate(value = case_when(value == "TRUE" ~ 1,
+                           value == "FALSE" ~ 0)) %>%
+  group_by(CROP.OUTPUT.GROUP, name) %>%
+  summarize(count = sum(value)) %>%
+  arrange(desc(count), CROP.OUTPUT.GROUP, name)
+```
+
+*Plotting matrix - biodiversity and crops data*
+```{r PLOTTING the biodiversity-crops dataset matrix, warning=FALSE, message=FALSE}
+# using n_individual_study_sites because crop species vary between sites, as some studies include multiple sites with different species compositions and arrangements.
+
+matrix.crop.biodiversity.all %>%
+  ggplot(aes(x = reorder(CROP.OUTPUT.GROUP, -count), 
+             y = reorder(name, -count),
+             fill = CROP.OUTPUT.GROUP)) +
+  geom_point(aes(size = count), shape = 21, colour = "black",
+             alpha = 0.8) +
+  scale_size_area(max_size = 20, guide = "none") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "none",
+        plot.margin = margin(l = 0 + margin_spacer(crops.data$CROP.OUTPUT.GROUP))) +
+  scale_size_continuous(range = c(-1, 25)) +
+  scale_fill_discrete_qualitative(palette = "Dynamic") +
+  labs(title = "Matrix showing the number of peer-reviewed papers reporting on biodiversity-related indicators for different crop groups",
+       subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
+       caption = paste0("n(independent studies) reporting on biodiversity-related indicators = ", total_n_BD$value),
+       x = "Crop groups",                       
+       y = "Biodiversity-related indicators")
+```
+
+**Ecosystem Services - Crops** 
+
+*Preparing Ecosystem services data*
+```{r Preparing ecosystems services data}
+# using n_individual_study_sites because crop species vary between sites, as some studies include multiple sites with different species compositions and arrangements.
+
+ecosystem.data.raw <- 
+ecosystem.data <- 
+  database %>% 
+  filter(INCLUDED == TRUE) %>%
+  # selecting Ecosystem services columns
+  select(ID.P, ID.S, #ST.TYPE, MANAGEMENT
+         starts_with("ES")) %>%
+  mutate(across(matches("ES"), as.logical)) %>%
+  mutate_at(vars(-c(ID.P, ID.S)), tidyr::replace_na, 0) %>%   # <- Including NA's as 0 (FALSE)
+  mutate_if(is.logical, as.numeric) %>%
+  mutate_if(is.character, as.numeric) %>% # including individual study sites and not only independent papers
+  #select(-c(ID.S)) %>%
+  #distinct(ID.P, across(contains("ES"))) # including only independent studies and not separate study sites
+  
+    rename("Food (yield)" = ES.SUB.PROV.FOOD,
+         "Feed" =  ES.SUB.PROV.FEED,
+         "Fibre" = ES.SUB.PROV.FIBRE,
+         "Fuel (firewood etc.)" = ES.SUB.PROV.FUEL,
+         "Genetic resources" = ES.SUB.PROV.GENRES,
+         "Biochemicals" = ES.SUB.PROV.BIOCHEM,
+         "Ornamentals" = ES.SUB.PROV.ORNA,
+         "Fresh water" = ES.SUB.PROV.WATFRESH,
+         
+         "Air regulation" = ES.SUB.REGU.AIR,
+         "Climate regulation" = ES.SUB.REGU.CLIMREG,
+         "Carbon sequestration" = ES.SUB.REGU.CSEQREG,
+         "Water regulation" = ES.SUB.REGU.WATREG,
+         "Erosion regulation" = ES.SUB.REGU.EROREG,
+         "Water purification" = ES.SUB.REGU.WATPUR,
+         "Disease regulation" = ES.SUB.REGU.DISREG,
+         "Pest regulation" = ES.SUB.REGU.PESTREG,
+         "Polination regulation" = ES.SUB.REGU.POLREG,
+         "Natural hazards regulation" = ES.SUB.REGU.NATHAZREG,
+         
+         "Soil formation" = ES.SUB.SUPP.SOILFORM,
+         "Photosynthesis" = ES.SUB.SUPP.PHOTSYNT,
+         "Primary production" = ES.SUB.SUPP.PRIMPROD,
+         "Nutrient cycling" = ES.SUB.SUPP.NUTRICYC,
+         "Water cycling" = ES.SUB.SUPP.WATCYC,
+         
+         "Cultural diversity" = ES.SUB.CULT.CULTDIV,
+         "Spiritual value" = ES.SUB.CULT.SPIRITVAL,
+         "Knowledge systems" = ES.SUB.CULT.KNOWLSYS,
+         "Educational value" = ES.SUB.CULT.EDUVAL,
+         "Inspirational value" = ES.SUB.CULT.INSPIR,
+         "Aesthetic value" = ES.SUB.CULT.AESTVAL,
+         "Social relations" = ES.SUB.CULT.SOCREL,
+         "Sense of place" = ES.SUB.CULT.SENPLACE,
+         "Cultural heritage value" = ES.SUB.CULT.CULTHERIVAL,
+         "Recreational and ecotourism" = ES.SUB.CULT.RECRECOTOUR,
+         
+         "Provisioning ES" = ES.PROV,
+         "Regulating ES" = ES.REGU,
+         "Supporting ES" = ES.SUPP,
+         "Cultural ES" = ES.CULT,
+         "Ecosystem Services" = ES)
+  
+```
+
+*Merging (joining) the ecosystem services and crops datasets based on ID*
+```{r Merging the ecosystem services and crop datasets}
+joined.crop.ecosystem <- 
+  left_join(crop.data.raw, ecosystem.data.raw, 
+            by = c("ID.S" = "ID.S",
+                   "ID.P" = "ID.P"))  %>%
+  relocate(ID.P, ID.S,
+           CROP.SPECIES, CROP.OUTPUT.GROUP,
+           `Provisioning ES`, `Regulating ES`, `Supporting ES`, `Cultural ES`) 
+```
+
+*Preparing ecosystems services - crops data for matrix plot*
+```{r Preparing the ecosystem services-crop dataset}
+# using n_individual_study_sites because crop species vary between sites, as some studies include multiple sites with different species compositions and arrangements.
+
+  matrix.crop.ecosystem <- 
+  joined.crop.ecosystem %>%
+  ungroup() %>%
+  select(c(CROP.OUTPUT.GROUP, contains("ES"))) %>%
+  select(c(CROP.OUTPUT.GROUP, 
+           `Provisioning ES`, `Regulating ES`, `Supporting ES`, `Cultural ES`)) %>%
+  filter(CROP.OUTPUT.GROUP != "NA",
+         `Provisioning ES` != "NA", 
+         `Regulating ES` != "NA", 
+         `Supporting ES` != "NA", 
+         `Cultural ES` != "NA") %>%
+  mutate_if(is.numeric, as.logical) %>%
+  mutate_if(is.logical, as.character) %>%
+  pivot_longer(cols = c(-CROP.OUTPUT.GROUP)) %>%
+  mutate(value = case_when(value == "TRUE" ~ 1,
+                           value == "FALSE" ~ 0)) %>%
+  group_by(CROP.OUTPUT.GROUP, name) %>%
+  summarize(count = sum(value)) %>%
+  arrange(desc(count), CROP.OUTPUT.GROUP, name)
+```
+
+*Plotting matrix - ecosystems and crops data*
+```{r PLOTTING - ecosystem services-crops dataset matrix}
+# using n_individual_study_sites because crop species vary between sites, as some studies include multiple sites with different species compositions and arrangements.
+
+matrix.crop.ecosystem %>%
+  ggplot(aes(x = reorder(CROP.OUTPUT.GROUP, -count), 
+             y = reorder(name, -count),
+             fill = CROP.OUTPUT.GROUP)) +
+  geom_point(aes(size = count), shape = 21, colour = "black",
+             alpha = 0.8) +
+  scale_size_area(max_size = 20, guide = "none") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "none",
+        plot.margin = margin(l = 0 + margin_spacer(crops.data$CROP.OUTPUT.GROUP))) +
+  scale_size_continuous(range = c(-1, 25)) +
+  scale_fill_discrete_qualitative(palette = "Dynamic") +
+  labs(title = "Matrix showing the number of peer-reviewed papers reporting on ecosystem services for different crop groups",
+       subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
+       caption = paste0("n(independent studies) reporting on ecosystem services = ", total_n_ES$value),
+       x = "Crop groups",                       
+       y = "Ecosystem services")
+```
+
+**Biodiversity - System Traits**
+
+*Preparing system traits data*
+```{r Preparing system traits type data}
+# using n_individual_study_sites because system trait types vary between sites, as some studies include multiple sites with different species compositions and arrangements.
+
+system.traits.data.raw <- 
+  database %>% 
+  filter(INCLUDED == TRUE) %>%
+
+   dplyr::mutate(ST.TYPE = case_when(
+      str_detect(ST.TYPE, "RBS") ~ "Mixed and other systems",
+      str_detect(ST.TYPE, "SHB") ~ "Mixed and other systems",
+      str_detect(ST.TYPE, "MIXED") ~ "Mixed and other systems",
+      str_detect(ST.TYPE, "TIMBER.ARABLE") ~ "Timber - Arable",
+      str_detect(ST.TYPE, "BIOMASS.ARABLE") ~ "Biomass - Arable",
+      str_detect(ST.TYPE, "NUT.ARABLE") ~ "Nut - Arable",
+      str_detect(ST.TYPE, "FRUIT.ARABLE") ~ "Fruit - Arable",
+      TRUE ~ as.character(as.character(ST.TYPE)))) %>%
+  # selecting system trait columns
+  group_by(ST.TYPE) %>%
+  select(ID.P, ID.S, ST.TYPE, MANAGEMENT) %>% 
+  mutate_at(c("ID.P", "ID.S"), as.numeric)    # <- converting ID columns from characters to numeric
+
+system.traits.data.raw
+```
+
+*Merging (joining) the biodiversity and system trait datasets based on ID*
+```{r Merging the biodiversity and system trait type}
+joined.biodiversity.systemtrait <- 
+  left_join(biodiversity.data.raw, system.traits.data.raw, 
+            by = c("ID.S" = "ID.S",
+                   "ID.P" = "ID.P"))  %>%
+  relocate(ID.P, ID.S,
+           ST.TYPE, MANAGEMENT, FLORA, FAUNA, BACTERIA, FUNGI) 
+
+joined.biodiversity.systemtrait
+```
+
+*Preparing the biodiversity and system trait for matrix plot*
+```{r Preparing the biiodiversity-system trait type dataset}
+  matrix.biodiversity.systrait <- 
+  joined.biodiversity.systemtrait %>%
+  select(ST.TYPE, FLORA, FAUNA, BACTERIA, FUNGI) %>%
+  pivot_longer(cols = c(-ST.TYPE)) %>%
+  group_by(ST.TYPE, name) %>%
+  summarize(count = sum(value)) %>%
+  arrange(desc(count), ST.TYPE, name) %>%
+  filter(!ST.TYPE == "NA")
+```
+
+*Plotting matrix - biodiversity and system trait data*
+```{r PLOTTING - biodiversity-system trait type dataset matrix}
+matrix.biodiversity.systrait %>%
+  ggplot(aes(x = reorder(ST.TYPE, -count), 
+             y = reorder(name, -count),
+             fill = ST.TYPE)) +
+  geom_point(aes(size = count), shape = 21, colour = "black",
+             alpha = 0.8) +
+  scale_size_area(max_size = 20, guide = "none") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "none",
+        plot.margin = margin(l = 0 + margin_spacer(matrix.biodiversity.systrait$ST.TYPE))) +
+  scale_size_continuous(range = c(-1, 25)) +
+  scale_fill_discrete_qualitative(palette = "Dynamic") +
+  labs(title = "Matrix showing the number of peer-reviewed papers reporting on biodiversity-related indicators for different system trait types",
+       subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
+       caption = paste0("n(independent studies) reporting on biodiversity-related indicators = ", total_n_BD$value),
+       x = "Crop groups",                       
+       y = "Biodiversity-related indicators")
+```
+
+
+**Ecosystem Services - System Traits** 
+
+*Merging (joining) the ecosystem services and system trait types datasets based on ID*
+```{r Merging the ecosystem services and crop datasets}
+joined.ecosystem.systemtrait <- 
+  left_join(ecosystem.data.raw, system.traits.data.raw,
+            by = c("ID.S" = "ID.S",
+                   "ID.P" = "ID.P"))  %>%
+  relocate(ID.P, ID.S,
+           ST.TYPE, MANAGEMENT,
+           `Provisioning ES`, `Regulating ES`, `Supporting ES`, `Cultural ES`) 
+```
+
+*Preparing the ecosystem services and system trait for matrix plot*
+```{r Preparing the biiodiversity-system trait type dataset}
+  matrix.ecosystem.systrait <- 
+  joined.ecosystem.systemtrait %>%
+  select(ST.TYPE, `Provisioning ES`, `Regulating ES`, `Supporting ES`, `Cultural ES`) %>%
+  pivot_longer(cols = c(-ST.TYPE)) %>%
+  group_by(ST.TYPE, name) %>%
+  summarize(count = sum(value)) %>%
+  arrange(desc(count), ST.TYPE, name) %>%
+  filter(!ST.TYPE == "NA")
+```
+
+*Plotting matrix - ecosystem services and system trait data*
+```{r PLOTTING - biodiversity-system trait type dataset matrix}
+matrix.ecosystem.systrait %>%
+  ggplot(aes(x = reorder(ST.TYPE, -count), 
+             y = reorder(name, -count),
+             fill = ST.TYPE)) +
+  geom_point(aes(size = count), shape = 21, colour = "black",
+             alpha = 0.8) +
+  scale_size_area(max_size = 20, guide = "none") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "none",
+        plot.margin = margin(l = 0 + margin_spacer(matrix.ecosystem.systrait$ST.TYPE))) +
+  scale_size_continuous(range = c(-1, 20)) +
+  scale_fill_discrete_qualitative(palette = "Dynamic") +
+  labs(title = "Matrix showing the number of peer-reviewed papers reporting on ecosystem services for different system trait types",
+       subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
+       caption = paste0("n(independent studies) reporting on ecosystem services = ", total_n_ES$value),
+       x = "System Trait types",                       
+       y = "Ecosystem services")
+```
+
+
+
+
+
+
+### Geographic distribution of studies
+
+
+
+
+
+

@@ -1,0 +1,814 @@
+---
+title: "RQ2_dataPrep"
+author: "Kamau Lindhardt, lbk125"
+date: "5/15/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+Research Question 2
+
+2. How are the (major and minor) themes of temperate silvoarable agroforestry systems distributed across geographical, bioclimatic and socio-economic gradients?
+
+a.	How does the system properties temperature and precipitation drive inter-site differences?
+b.	How does the system properties soil type and soil quality drive inter-site differences?
+c.	Does European marginalised rural area classes drive inter-site differences?
+
+
+Packages to be installed first
+```{r Installing the pacman package, warning=FALSE}
+# install.packages("pacman")
+# install.packages("tidygeocoder")
+# install.packages("ggdensity")
+# install.packages("rnaturalearth")
+# install.packages("rnaturalearthdata")
+# install.packages("gridExtra")
+# install.packages("soilDB")
+# install.packages("aqp")
+```
+
+Loading packages and libraries
+```{r Loading other needed packages, warning=FALSE}
+suppressWarnings({ 
+
+# Applying the p_load function to load multiple add-on packages in one line of code.
+  
+pacman::p_load(tidyverse, 
+               corrplot,
+               ggarrange,
+               gridExtra,
+               tidygeocoder,       # for making geospatial analysis (e.g. derive coordinates from location names)
+               rnaturalearth,      # facilitates world mapping by making Natural Earth map data more easily available 
+               rnaturalearthdata,  # holds data used by rnaturalearth package from Natural Earth.
+               
+               readr,
+               readxl,
+               ggplot2,
+               ggdensity,
+               
+               raster,             # for general spatial analysis and in particular for downloading BioClim variables from WorldClim
+               sp,
+               
+               soilDB,             # for downloading predicted soil properties from ISRIC SoilGrids
+               aqp)        
+
+  })
+```
+
+
+Loading main database 
+```{r Loading database 2.0, warning=FALSE, message=FALSE}
+suppressWarnings({ 
+  
+database.geospatial <- read_excel("DATA/DATABASE_2.0.xlsx", 
+    sheet = "MAIN_DATABASE_2.0") %>%
+    filter(INCLUDED == TRUE)
+
+})
+# View(database)
+```
+
+
+**Deriving latitude and longitude of study site locations** - *be aware: this piece of code takes a while to run*
+```{r Deriving latitude and longitude, eval = FALSE}
+# Notice this piece of code takes a ffew minutes, as hundreds of lat long coordinates has to be derived based on names in the STUDY.LOC.SPEC.COORDS column
+
+database.lat.long <- database.geospatial %>%
+  tidygeocoder::geocode(STUDY.LOC.SPEC.COORDS, method = 'osm', lat = latitude , long = longitude) 
+
+# Saving the dataset with derived coordinates unto local disc
+readr::write_rds(database.lat.long, "./DATASET.LOCATIONS/database.lat.long.Rds")
+```
+
+Loading dataset with lat long coordinates from local disc
+```{r Loading dataset with lat long coordinates}
+
+database.lat.long <- readr::read_rds("./DATASET.LOCATIONS/database.lat.long.Rds")
+```
+
+Defining number of independent studies and number of observations based on individual study sites
+```{r Number of studies and study sites}
+n_independent_studies <- database.lat.long %>% 
+  distinct(ID.P) %>%
+  nrow()
+
+# n_independent_studies = 73 (16 aug. 2022)
+
+n_individual_study_sites <- database.lat.long %>%
+  distinct(ID.P, ID.S) %>%
+  nrow()
+
+# n_individual_study_sites = 213 (16 aug. 2022)
+```
+
+Re-locating the column names to get a better overview of lat long
+```{r Re-locating the column names to get lat long}
+database.lat.long <-
+  database.lat.long %>%
+  relocate(ID.P, ID.S, TITLE,
+           latitude, longitude, STUDY.LOC.COUNTRY, STUDY.LOC.SPEC, STUDY.LOC.SPEC.COORDS)
+
+# View(database.lat.long) # <-  un-comment to see the database with lat long
+```
+
+
+*Listing study sites with missing value in the latitude column*
+```{r Study sites with missing lat (long) values, eval=FALSE}
+location.missing <- database.lat.long %>%
+  filter_all(any_vars(is.na(latitude))) %>%
+  relocate(ID.P, ID.S, TITLE,
+           latitude, longitude, STUDY.LOC.COUNTRY, STUDY.LOC.SPEC, STUDY.LOC.SPEC.COORDS)
+
+# View(location.missing)
+
+# Replacing the observations that have missing values in 'Location Specification' with the information from the general 'Location' column
+
+# 28 studies had missing information for the latitude column (location missing). These were then manually checked and a nearby location was added where possible by re-visiting the papers and checking the study sites on Google Maps. The previous lines of code was run again, now with  zero (0) missing locations. 
+```
+
+### Preliminary explorative analysis
+
+Visualising the locations on a map
+```{r Quick plot of the locations on a map}
+# using n_individual_study_sites because some studies include multiple sites with different system traits, species compositions and arrangements. 
+
+database.lat.long %>%
+ggplot(aes(longitude, latitude), color = "grey99") +
+  borders("world") + 
+  geom_point(aes(color = ST.TYPE), size = 0.5, alpha = 0.8) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "none") +
+  scale_fill_discrete_qualitative(palette = "Dynamic") +
+  labs(title = "Visualising peer-reviewed silvoarable paper' study site locations on a map",
+       subtitle = paste("n (study sites) = ", n_individual_study_sites),
+       x = "Longitude",                       
+       y = "Latitude")
+```
+
+
+Most prevailing countries - where most studies (study sites) have been conducted
+```{r Where most studies (study sites) have been conducted}
+# using n_individual_study_sites because system traits vary between sites, as some studies include multiple sites with different species compositions and arrangements. 
+
+database.lat.long %>%
+  count(STUDY.LOC.COUNTRY, sort = TRUE) 
+
+
+# using n_independent_studies  
+
+pub.country.geo <- 
+  database.lat.long %>% 
+  filter(INCLUDED == TRUE) %>%
+  select(ID.P, STUDY.LOC.COUNTRY) %>%
+  distinct(ID.P,  STUDY.LOC.COUNTRY) %>%
+  group_by(STUDY.LOC.COUNTRY) %>% 
+
+  summarise(no_studies = n()) %>%
+  mutate_if(is.integer, as.numeric) %>%
+  filter(no_studies > 2) %>%
+  arrange(desc(no_studies)) 
+```
+
+
+
+# RQ2: How are the (major and minor) themes of temperate silvoarable agroforestry systems distributed across geographical, bioclimatic and socio-economic gradients?
+
+
+**Temperature and precipitation data from WorldClim (BioClim)**
+
+*A little info about using WorldClim variables in spatial analysis in r*
+
+BioClim variables available in WorldClim
+
+Bioclimatic variables are derived from the monthly temperature and rainfall values in order to generate more biologically meaningful variables. These are often used in species distribution modelling and related ecological modelling techniques. The bioclimatic variables represent annual trends (e.g., mean annual temperature, annual precipitation) seasonality (e.g., annual range in temperature and precipitation) and extreme or limiting environmental factors (e.g., temperature of the coldest and warmest month, and precipitation of the wet and dry quarters). A quarter is a period of three months (1/4 of the year). (see more here: https://www.worldclim.org/data/bioclim.html)
+
+Don't forget that WorldClim data has a scale factor of 10, so Temp = -37 is -3.7 ºC.
+
+BIO1 = Annual Mean Temperature
+BIO2 = Mean Diurnal Range (Mean of monthly (max temp - min temp))
+BIO3 = Isothermality (BIO2/BIO7) (×100)
+BIO4 = Temperature Seasonality (standard deviation ×100)
+BIO5 = Max Temperature of Warmest Month
+BIO6 = Min Temperature of Coldest Month
+BIO7 = Temperature Annual Range (BIO5-BIO6)
+BIO8 = Mean Temperature of Wettest Quarter
+BIO9 = Mean Temperature of Driest Quarter
+BIO10 = Mean Temperature of Warmest Quarter
+BIO11 = Mean Temperature of Coldest Quarter
+BIO12 = Annual Precipitation
+BIO13 = Precipitation of Wettest Month
+BIO14 = Precipitation of Driest Month
+BIO15 = Precipitation Seasonality (Coefficient of Variation)
+BIO16 = Precipitation of Wettest Quarter
+BIO17 = Precipitation of Driest Quarter
+BIO18 = Precipitation of Warmest Quarter
+BIO19 = Precipitation of Coldest Quarter
+
+The WorldClim data are available at different spatial resolutions (expressed as minutes or seconds of a degree of longitude and latitude): 10 minutes, 5 minutes, 2.5 minutes, 30 seconds. The variables included are monthly minimum and maximum temperature, precipitation, and 'bioclimatic' variables. The original WorldClim data were at a 30 second resolution, the other data have been derived through aggregation, by calculating the mean of groups of cells. The 10-minute spatial resolution is about 18.6 x 18.6 = 344 km2 at the equator. Here we are going to use 2.5-minute spatial resolution (res=2.5), this is about 4.5 km at the equator according to WorldClim https://www.worldclim.org/data/v1.4/cmip5_2.5m.html
+
+To get (projected) future climate data (CMIP5), you must provide arguments var and res as above. Only resolutions 2.5, 5, and 10 are currently available. In addition, you need to provide model, rcp and year. For example,
+getData('CMIP5', var='tmin', res=10, rcp=85, model='AC', year=70)
+
+Getting WorldClim data through r
+
+If name = 'worldclim' you must also provide arguments var, and a resolution res. Valid variables names are 'tmin', 'tmax', 'prec' and 'bio'. Valid resolutions are 0.5, 2.5, 5, and 10 (minutes of a degree). In the case of res=0.5, you must also provide a lon and lat argument for a tile; for the lower resolutions global data will be downloaded. In all cases there are 12 (monthly) files for each variable except for 'bio' which contains 19 files.
+
+- getData('worldclim', var='tmin', res=0.5, lon=5, lat=45)
+
+- getData('worldclim', var='bio', res=10)
+
+see also more information: https://worldclim.org/data/v1.4/formats.html and on the blog post of Emily Piche https://emilypiche.github.io/BIO381/raster.html and Peter Galante https://rsh249.github.io/spatial_bioinformatics/worldclim.html
+
+*Extracting/downloading the bioclimatic variables needed: Temperature and precipitation*
+
+Dataframe with coordinates 
+```{r Creating the simple dataframe with coordinates}
+# Make a dataframe with coordinates
+study.site.coords <- database.lat.long %>%
+  relocate(ID.P, ID.S, TITLE,
+           latitude, longitude, STUDY.LOC.COUNTRY, STUDY.LOC.SPEC, STUDY.LOC.SPEC.COORDS) %>%
+  dplyr::select(longitude, latitude)
+
+# latitude and longitude coordinate points converted to dataframe
+latitude <- as.data.frame(study.site.coords[, 2])
+longitude <- as.data.frame(study.site.coords[, 1])
+
+# latitude and longitude coordinate points converted to vectors in order to work in the getData() function
+latitude <- as.list(latitude)
+longitude <- as.list(longitude)
+
+# coordinates used for the getData() function
+coords <- data.frame(x = longitude,
+                     y = latitude)
+```
+
+Extracting/downloading BioClim variables using the getData() function from the raster package
+```{r Extracting/downloading BioClim variables, eval=FALSE}
+# downloading bioclimatic variables from worldclim at a resolution of 2.5 minutes
+# this is saved as a RasterStack object that contains all the 19 bioclim variables
+
+bioclim.rasterstack <- raster::getData("worldclim",
+                               var = "bio",
+                               res = 2.5)
+
+# specifying that we only need; temperature (BIO1 = Annual Mean Temperature) and precipitation (BIO12 = Annual Precipitation)
+bioclim.temp.precip <- bioclim.rasterstack[[c(1,12)]]
+names(bioclim.temp.precip) <- c("Temp","Prec")
+
+# converting the data into a SpatialPoints dataframe by adding the same coordinate reference system
+points <- SpatialPoints(coords, proj4string = bioclim.temp.precip@crs)
+
+# extracting point-specific information on temperature and precipitation from the bioclim RasterStack object using the point coordinates
+temp.precip.values <- raster::extract(x = bioclim.temp.precip, 
+                                      y = points)
+
+
+# Saving the temp.precip.values dataset with derived coordinates unto local disc
+readr::write_rds(temp.precip.values, "./DATASET.LOCATIONS/temp.precip.values.Rds")
+```
+
+
+Loading BioClim dataset (temperature and precipitation) with lat long coordinates from local disc
+```{r Loading dataset with lat long coordinates}
+
+temp.precip.values <- readr::read_rds("./DATASET.LOCATIONS/temp.precip.values.Rds")
+```
+
+*Merging (joining) the location-specific temperature and precipitation values to the coordinates (x,y)*
+```{r Joining location-specific bioclim info to the coordinates}
+bioclim.point.data <- cbind.data.frame(coordinates(points), 
+                       temp.precip.values)
+```
+
+*Merging (joining) bioclim values to the original database using the coordinates (x,y)*
+```{r Joining location-specific bioclim info to the original database}
+bioclim.point.data.tbl <- as_tibble(bioclim.point.data)
+
+# ------------------------------------------------------------------------------------------------
+database.coords.bioclim  <- 
+  left_join(x = database.lat.long, y = bioclim.point.data.tbl, 
+            by = c("longitude" = "longitude",
+                   "latitude" = "latitude"))  %>%
+  mutate_at(c("ID.P", "ID.S"), as.numeric) %>%
+  relocate(ID.P, ID.S, TITLE,
+           STUDY.LOC.COUNTRY, STUDY.LOC.SPEC, STUDY.LOC.SPEC.COORDS,
+           latitude, longitude, Temp, Prec)
+# ------------------------------------------------------------------------------------------------
+```
+
+
+
+**Soil properties data from SoilGrids (ISRIC)**
+
+*A little info about using SoilGrids variables in spatial analysis in r*
+
+SoilGrids is a system for global digital soil mapping that uses state-of-the-art machine learning methods to map the spatial distribution of soil properties across the globe. SoilGrids prediction models are fitted using over 230 000 soil profile observations from the WoSIS database and a series of environmental covariates. Covariates were selected from a pool of over 400 environmental layers from Earth observation derived products and other environmental information including climate, land cover and terrain morphology. The outputs of SoilGrids are global soil property maps at six standard depth intervals (according to the GlobalSoilMap IUSS working group and its specifications) at a spatial resolution of 250 meters. Prediction uncertainty is quantified by the lower and upper limits of a 90% prediction interval. The additional uncertainty layer displayed at soilgrids.org is the ratio between the inter-quantile range and the median. The SoilGrids maps are publicly available under the CC-BY 4.0 License.
+
+Maps of the following soil properties are available: pH, soil organic carbon content, bulk density, coarse fragments content, sand content, silt content, clay content, cation exchange capacity (CEC), total nitrogen as well as soil organic carbon density and soil organic carbon stock. SoilGrids predictions are made for the six standard depth intervals specified in the GlobalSoilMap IUSS working group and its specifications. The depth intervals returned are: "0-5cm", "5-15cm", "15-30cm", "30-60cm", "60-100cm", "100-200cm".
+
+Find out more information about the SoilGrids and GlobalSoilMap products here: https://www.isric.org/explore/soilgrids/faq-soilgrids and check ISRIC's data policy, disclaimer and citation: https://www.isric.org/about/data-policy. and here: https://www.isric.org/sites/default/files/GlobalSoilMap_specifications_december_2015_2.pdf
+
+The soilsDB package contains a collection of functions for reading data from various digital soil libraries and soil maps, including SoilGrids. Find more information about the soilsDB package here: https://ncss-tech.github.io/AQP/soilDB/soilDB-Intro.html
+
+The fetchSoilGrids() function from soilDB obtains SoilGrids properties information (250 m raster resolution) given a data.frame containing site IDs, latitudes and longitudes. SoilGrids API and maps return values as whole (integer) numbers to minimize the storage space used. These values are converted by to produce conventional units by 'fetchSoilGrids()'
+
+The soil properties from ISRIC SoilGrids returned by the fetchSoilGrids() function are: 
+
+- bdod, Bulk density of the fine earth fraction; mapped unit: [cg/cm^3], conversion: 100, conventional factor unit:	[kg/dm^3]
+- cec,	Cation Exchange Capacity of the soil. [mmol(c)/kg	10	cmol(c)/kg]
+- cfvo, Volumetric fraction of coarse fragments (> 2 mm); mapped unit: [cm^3/dm^3 (vol per mil)], conversion: 10, conventional factor unit: [cm^3/100cm^3 (vol%)]
+- clay, Proportion of clay particles (< 0.002 mm) in the fine earth fraction;	mapped unit: [g/kg], conversion:	10, conventional factor unit:	[g/100g (%)]
+- nitrogen,	Total nitrogen (N); mapped unit:	[cg/kg], 	conversion: 100, conventional factor unit:	[g/kg]
+- phh2o, Soil pH; mapped unit: [pH*10], conversion: 10, conventional factor unit: pH
+- sand, Proportion of sand particles (> 0.05 mm) in the fine earth fraction; mapped unit: [g/kg], conversion:	10, conventional factor unit:	[g/100g (%)]
+- silt, Proportion of silt particles (= 0.002 mm and = 0.05 mm) in the fine earth fraction; mapped unit:	[g/kg], conversion: 10, conventional factor unit: [g/100g (%)]
+- soc, Soil organic carbon content in the fine earth fraction; mapped unit: [dg/kg], conversion: 10, conventional factor unit: [g/kg]
+- ocd,	Organic carbon density;  mapped unit: [hg/m^3], conversion:	10, conventional factor unit: [kg/m^3]
+- ocs,	Organic carbon stocks; mapped unit: [t/ha], conversion:	10, conventional factor unit:	[kg/m^2]
+
+*Extracting/downloading the soil variables from SoilGrids using the soilDB package*
+
+Dataframe with coordinates and id
+```{r Creating the study site location dataframe}
+# creating simple dataframe that only contains id and location (lat., lon.)
+database.locations.df <- 
+  database.lat.long %>% 
+  select(ID.P, ID.S,
+         latitude, longitude) %>%
+  dplyr::mutate_at(vars(ID.P, ID.S), as.numeric) %>%
+  
+  # conversing the ID.S + ID.P columns into only one "id" column by collapsing the two ID.S + ID.P columns
+  rowwise() %>% 
+  mutate(ID.PAIR = paste0(sort(c(ID.P, ID.S)), collapse = " ")) %>% 
+  separate(ID.PAIR, " ", into = c("ID.P", "ID.S")) %>%
+  mutate(ID = row_number()) %>%
+  
+  # renaming the lat. lon. columns and converting to dataframe
+  dplyr::rename("lat" = latitude,
+                "lon" = longitude,
+                "id" = ID) %>%
+  dplyr::mutate_at(vars(id), as.numeric) %>%
+  select(id, lat, lon) %>%
+  as.data.frame()
+```
+
+Extracting/downloading soil variables from ISRIC SoilGrids using the fetchSoilGrids() function from the soilsDB package.
+```{r Extracting/downloading SoilGrids soil variables, eval=FALSE}
+# be aware that this function call takes quite some time, this is also why results are saved to local disc
+SoilGrids.data <- soilDB::fetchSoilGrids(x = database.locations.df,
+                                         progress = TRUE)
+
+# class(SoilGrids.data)
+
+# Saving the downloaded SoilGrids dataset unto local disc
+readr::write_rds(SoilGrids.data, "./DATASET.LOCATIONS/SoilGrids.data.Rds")
+```
+
+Loading SoilGrids dataset from local disc
+```{r Loading SoilGrids dataset}
+
+SoilGrids.data <- readr::read_rds("./DATASET.LOCATIONS/SoilGrids.data.Rds")
+```
+
+Generating dataframe with fetched soil variables 
+```{r Dataframe with fetched soil variables}
+# selecting only relevant variables
+fetchedSoilGrid.df <- 
+  aqp::horizons(SoilGrids.data) %>% 
+  dplyr::select(id, label, claymean, sandmean, siltmean, bdodmean, nitrogenmean, socmean, phh2omean, cecmean) %>%
+  # notice: we exclude NA values - these are empty values from locations located in urban areas where SoilGrids do not have info
+  drop_na(claymean, sandmean, siltmean, bdodmean, nitrogenmean, socmean, phh2omean, cecmean) %>% 
+  dplyr::mutate_at(vars(id), as.numeric) %>%
+  dplyr::arrange(id)
+```
+
+*Merging (joining) the location-specific soil values to the coordinates (x,y - with lat. lon.)*
+```{r Joining location-specific soil info to the original database}
+# first, we merge the SoilGrids soil data with the dataframe containing locations (using the 'id' column)
+merged.soilgrids <- 
+  left_join(x = fetchedSoilGrid.df, y = database.locations.df,
+          by = c("id" = "id")) %>%
+  relocate(id, lat, lon, label) %>%
+  as_tibble()
+
+# secondly, we join this newly formed dataset to the 'original' dataframe that contains all other information (using coordinates)
+database.coords.soilgrids <- 
+  left_join(x = merged.soilgrids, y = database.lat.long,
+          by = c("lat" = "latitude",
+                 "lon" = "longitude")) %>%
+  mutate_at(c("ID.P", "ID.S"), as.numeric) %>%
+  relocate(ID.P, ID.S, 
+           lat, lon)
+
+# where there is NA values in SoilGrids data on soil variables will be empty. Hence only 107 observations have soil data
+```
+
+*Merging (joining) the location-specific soil dataset to the location-specific bioclim dataset (using ID.p and ID.S)*
+```{r, eval=FALSE}
+merged.database.coords.biophys <- 
+  left_join(x = database.coords.soilgrids, y = database.coords.bioclim,
+          by = c("ID.P" = "ID.P",
+                 "ID.S" = "ID.S")) %>%
+  dplyr::select(-id) %>%
+  relocate(ID.P, ID.S, 
+           lat, lon,
+           Temp, Prec,
+           claymean, sandmean, siltmean, bdodmean, nitrogenmean, socmean, phh2omean, cecmean)
+
+# Saving the combined dataset with biopphysical information unto local disc
+readr::write_rds(merged.database.coords.biophys, "./DATASET.LOCATIONS/merged.database.coords.biophys.Rds")
+```
+
+Loading the combined database with location-specific biopphysical data from local disc
+```{r Loading location-specific biopphysical dataset}
+
+database.biopphys <- readr::read_rds("./DATASET.LOCATIONS/merged.database.coords.biophys.Rds")
+```
+
+
+## RQ2.a - How does the system properties temperature and precipitation drive inter-site differences?
+
+**Tree species - Temperature**
+
+Merging with trees family groups with the biophys database
+```{r Merging with trees family groups with the biophys database}
+# loading the trees data
+trees <- read_excel("DATA/DATABASE_2.0.xlsx", 
+    sheet = "TREE_SPECIES") %>%
+  # Generating broad categories of tree species - based on families, genus and hybrids
+    separate(TREE.SPECIES, c("TREE.FAMILY.GROUP", "TREE.GENUS.GROUP"), "^\\S*\\K\\s+", remove = FALSE) %>% 
+    separate(TREE.GENUS.GROUP, c("TREE.HYBRID.SPEC.1", "TREE.HYBRID.SPEC.2"), "^\\S*\\K\\s+", remove = FALSE) %>%
+  
+    dplyr::mutate(TREE.FAMILY.GROUP = case_when(
+      str_detect(TREE.FAMILY.GROUP, '(?<![:alpha:])UNSPECIFIED(?![:alpha:])') ~ 'Unspecified trees', 
+      TRUE ~ as.character(as.character(TREE.FAMILY.GROUP)))) %>%
+  filter(TREE.FAMILY.GROUP != "NA") %>%
+  relocate(ID.P, ID.S, TREE.SPECIES, TREE.FAMILY.GROUP) %>%
+  mutate_at(c("ID.P", "ID.S"), as.numeric)
+  
+
+# merging trees data with the biophys database
+trees.coords.data <- 
+  full_join(database.biopphys, trees,
+            by = c("ID.P" = "ID.P",
+                   "ID.S" = "ID.S")) %>%
+  dplyr::select(TREE.FAMILY.GROUP, lat, lon, Temp) %>%
+  dplyr::distinct(TREE.FAMILY.GROUP, lat, lon, Temp)
+```
+
+
+```{r warning=FALSE, message=FALSE}
+# number of observations per tree group
+trees.coords.data.N <- 
+  trees.coords.data %>%
+  filter(TREE.FAMILY.GROUP != "NA") %>%
+  filter(Temp > 0) %>%
+  group_by(TREE.FAMILY.GROUP) %>% 
+  mutate(N = n()) %>%
+  mutate(N = ifelse(TREE.FAMILY.GROUP == max(TREE.FAMILY.GROUP, na.rm = T), paste0('n=', N), NA)) %>%
+  filter(n() >= 5) %>%
+  distinct(N)
+
+# generating plot
+trees.temp.violin.plot <- 
+trees.coords.data %>%
+  filter(TREE.FAMILY.GROUP != "NA") %>%
+  filter(Temp > 0) %>%
+  group_by(TREE.FAMILY.GROUP) %>% 
+  filter(n() >= 5) %>%
+
+  ggplot(aes(y = Temp/10, x = reorder(TREE.FAMILY.GROUP, Temp))) +
+  geom_violin(aes(fill = TREE.FAMILY.GROUP, alpha = 0.8)) +
+  stat_summary(
+    fun.data = "mean_sdl",  fun.args = list(mult = 1), 
+    geom = "pointrange", color = "black"
+    ) +
+  geom_jitter(height = 5, width = 0.1,
+              size = 1.1, aes(col = TREE.FAMILY.GROUP, alpha = 1)) +
+  theme_bw() +
+  ylim(0, 20) +
+  theme(axis.text.x = element_text(angle = 0, hjust = 1), legend.position = "none") +
+  labs(title = "Distribution of tree family groups across temperature regimes",
+       subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
+       caption = paste0("Total number of independent studies = ", n_independent_studies),
+       x = "Tree family groups",
+       y = "Annual Mean Temperature [C]") +
+  coord_flip()
+  
+
+trees.temp.violin.plot
+```
+
+
+```{r}
+model.lm <- lm(Temp ~ TREE.FAMILY.GROUP, data = trees.coord.data)
+summary(model.lm)
+```
+
+
+**Crop species - Temperature**
+
+Merging dataset on crop species group family groups with the biophys database
+```{r Merging with trees family groups with the biophys database}
+# loading the trees data
+trees <- read_excel("DATA/DATABASE_2.0.xlsx", 
+    sheet = "TREE_SPECIES") %>%
+  # Generating broad categories of tree species - based on families, genus and hybrids
+    separate(TREE.SPECIES, c("TREE.FAMILY.GROUP", "TREE.GENUS.GROUP"), "^\\S*\\K\\s+", remove = FALSE) %>% 
+    separate(TREE.GENUS.GROUP, c("TREE.HYBRID.SPEC.1", "TREE.HYBRID.SPEC.2"), "^\\S*\\K\\s+", remove = FALSE) %>%
+  
+    dplyr::mutate(TREE.FAMILY.GROUP = case_when(
+      str_detect(TREE.FAMILY.GROUP, '(?<![:alpha:])UNSPECIFIED(?![:alpha:])') ~ 'Unspecified trees', 
+      TRUE ~ as.character(as.character(TREE.FAMILY.GROUP)))) %>%
+  filter(TREE.FAMILY.GROUP != "NA") %>%
+  relocate(ID.P, ID.S, TREE.SPECIES, TREE.FAMILY.GROUP) %>%
+  mutate_at(c("ID.P", "ID.S"), as.numeric)
+  
+
+# merging trees data with the biophys database
+trees.coords.data <- 
+  full_join(database.biopphys, trees,
+            by = c("ID.P" = "ID.P",
+                   "ID.S" = "ID.S")) %>%
+  dplyr::select(TREE.FAMILY.GROUP, lat, lon, Temp) %>%
+  dplyr::distinct(TREE.FAMILY.GROUP, lat, lon, Temp)
+```
+
+**System Trait types - Temperature**
+
+
+**Interrow distances - Latitude**
+
+Interrow distance and latitude
+```{r}
+data <- 
+database.lat.long.bioclim %>%
+  filter(CA.DIST.INTERROW != "NA" & latitude != "NA") %>%
+  mutate_at('CA.DIST.INTERROW', as.numeric) %>%
+  filter(CA.DIST.INTERROW <= 80) %>%
+  relocate(CA.DIST.INTERROW, latitude)
+
+
+lm_eqn <- function(df){
+    m <- lm(latitude ~ CA.DIST.INTERROW, data);
+      eq <- substitute(italic(y) == a + b %.% italic(x)*","~~italic(r)^2~"="~r2, 
+         list(a = format(unname(coef(m)[1]), digits = 2),
+              b = format(unname(coef(m)[2]), digits = 2),
+             r2 = format(summary(m)$r.squared, digits = 3)))
+    as.character(as.expression(eq));
+}
+
+```
+
+```{r}
+lat.interrow.plot <- 
+database.lat.long.bioclim %>%
+  filter(CA.DIST.INTERROW != "NA" & latitude != "NA") %>%
+  mutate_at('CA.DIST.INTERROW', as.numeric) %>%
+  filter(CA.DIST.INTERROW <= 80) %>%
+  
+  ggplot(aes(x = CA.DIST.INTERROW,
+             y = latitude)) +
+  geom_jitter(size = 0.2, alpha = 0.95, width = 3, height = 4) +
+  geom_hdr(xlim = c(0, 80), ylim = c(0, 60), alpha = 0.2) +
+  geom_smooth(method = lm, se = TRUE, level = 0.95, colour = "brown", span = 0.8) + # add linear trend line formula = y ~ splines::bs(x, 3)
+  geom_text(x = 35, y = 65, label = lm_eqn(data), parse = TRUE, size = 3, col = "brown") + 
+  labs(x = "Silvoarable system trait type",                       
+       y = "n (records)") + 
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 0, hjust = 1), legend.position = "none",
+        plot.margin = margin(t = 10, r = 0, b = 10, l = 10, unit = "pt"),
+        plot.title = element_text(vjust = 0))  +
+  scale_y_continuous(breaks = seq(30, 70, 10), limits = c(30, 70)) +
+  labs(#title = "Latitude interrow distance",
+       x = "Alley crop interrow distance [m]",
+       y = "Latitude") 
+  #ggtitle("B")
+```
+
+```{r}
+world <- map_data("world") %>% 
+     filter(region != "Antarctica") # get the world map coordinates using map_data() function from the tidyverse suit of packages
+
+ 
+
+world.study.sites <- 
+ggplot() +
+  geom_map(
+    data = world, map = world,
+    aes(long, lat, map_id = region),
+    color = "white", fill = "lightgray", size = 0.1
+  ) +
+  geom_point(
+    data = database.lat.long.bioclim,
+    aes(longitude, latitude, color = "red"),
+    alpha = 0.95, size = 0.2
+  ) +
+  geom_rect(
+    aes(xmin = -15, xmax = 35, ymin = 35.5, ymax = 59), 
+    color = "black", fill = NA, inherit.aes = FALSE) +
+    theme_bw() +
+  theme(axis.text.x = element_text(angle = 0, hjust = 1), legend.position = "none", 
+        plot.margin = margin(t = 0, r = 5, b = 0, l = 5, unit = "pt"))  +
+  coord_sf(ylim = c(20, 70), xlim = c(-140, 140)) +
+  labs(#title = "Locations of study sites for peer-reviewed silvoarable agroforestry",
+      # subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
+      # caption = paste0("Total number of independent studies = ", n_independent_studies),
+       x = "Longitude",
+       y = "Latitude") 
+  #ggtitle("A")
+
+world.study.sites
+```
+
+Zooming in on Europe
+Now what if we wanted to use the Mollweide projection again as target projection
+```{r}
+# At first, we set the target CRS and transform the whole worldmap dataset to that CRS.
+target_crs <- '+proj=moll'
+worldmap_trans <- st_transform(worldmap, crs = target_crs)
+
+# Next, we specify the display window in WGS84 coordinates as longitude / latitude degrees.
+
+disp_win_wgs84 <- st_sfc(st_point(c(-20, 30)), st_point(c(45, 73)),
+                         crs = 4326)
+
+# These coordinates can be transformed to our target CRS via st_transform.
+
+disp_win_trans <- st_transform(disp_win_wgs84, crs = target_crs)
+
+# We can extract the coordinates from these points and pass them as limits for the x and y scale respectively. Note also that I set datum = target_crs which makes sure that the graticule is displayed in the target CRS. Otherwise ggplot2 by default displays a WGS84 graticule.
+
+disp_win_coord <- st_coordinates(disp_win_trans)
+
+ggplot() + geom_sf(data = worldmap_trans) +
+    coord_sf(xlim = disp_win_coord[,'X'], ylim = disp_win_coord[,'Y'],
+             datum = target_crs, expand = FALSE) +
+    theme_bw()
+
+```
+
+Calculating the display window for given a center point and zoom level
+
+Instead of specifying a rectangular region of interest, I found it more comfortable to set a center point of interest and specify a “zoom level” which specifies how much area around this spot should be displayed.
+
+I oriented myself on how zoom levels are defined for OpenStreetMap: A level of zero shows the whole world. A level of 1 shows a quarter of the world map. A level of two shows 1/16th of the world map and so on. This goes up to a zoom level of 19. So if z is the zoom level, we see a region that covers 1/4^z of the world. This means the range on the longitude axis that is displayed is 360°/2^z (because the longitude spans the full horizontal circle around the world from -180° to +180°) and the range on the latitude axis is 180°/2^z (latitude spans the half vertical circle from -90° to +90°).
+
+Let’s set a center point zoom_to, a zoom_level and calculate the ranges for longitude and latitude (lon_span and lat_span).
+
+```{r}
+# Europe
+zoom_to.eu <- c(13.38, 52.52)  # Berlin (from OpenStreetMap)
+
+# North America
+zoom_to.na <- c( -94.58, 39.06)  # Kansas (from OpenStreetMap)
+
+zoom_level <- 2
+
+
+lon_span <- 360 / 2^zoom_level
+lat_span <- 180 / 2^zoom_level
+```
+
+Now we can calculate the longitude and latitude ranges for the the display window by subtracting/adding the half of the above ranges from/to the zoom center coordinates respectively.
+
+```{r}
+# Europe
+lon_bounds.eu <- c(zoom_to.eu[1] - lon_span / 2, zoom_to.eu[1] + lon_span / 2)
+lat_bounds.eu <- c(zoom_to.eu[2] - lat_span / 2, zoom_to.eu[2] + lat_span / 2)
+
+# North America
+lon_bounds.na <- c(zoom_to.na[1] - lon_span / 2, zoom_to.na[1] + lon_span / 2)
+lat_bounds.na <- c(zoom_to.na[2] - lat_span / 2, zoom_to.na[2] + lat_span / 2)
+```
+
+Europe map
+```{r}
+# We can now plot the map with the specified display window for zoom level 2, highlighting the zoom center for Europe
+
+map.europe <- 
+ggplot() + geom_sf(data = worldmap) +
+    geom_sf(data = st_sfc(st_point(zoom_to.eu), crs = 4326),
+            color = 'blue', alpha = 0) +
+  
+    coord_sf(xlim = lon_bounds.eu, ylim = lat_bounds.eu) + theme_bw() +
+    geom_point(
+    data = database.lat.long.bioclim,
+    aes(longitude, latitude, color = "red"),
+    alpha = 0.7, size = 0.5
+  ) +
+  scale_x_continuous(label = abs) +
+    scale_y_continuous(label = abs) +
+    theme_bw() +
+   theme(axis.text.x = element_text(angle = 0, hjust = 1), legend.position = "none",
+         plot.margin = margin(t = 0, r = 58, b = 0, l = 0, unit = "pt")) +
+    labs(#title = "Locations of study sites for peer-reviewed silvoarable agroforestry",
+      # subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
+      # caption = paste0("Total number of independent studies = ", n_independent_studies),
+       x = "Longitude",
+       y = "Latitude") 
+  #labs(title = "Locations of study sites in Europe")
+```
+
+North America map
+```{r}
+# We can now plot the map with the specified display window for zoom level 2, highlighting the zoom center for North America
+
+map.northamerica <- 
+ggplot() + geom_sf(data = worldmap) +
+    geom_sf(data = st_sfc(st_point(zoom_to.na), crs = 4326),
+            color = 'blue', alpha = 0) +
+  
+    coord_sf(xlim = lon_bounds.na, ylim = lat_bounds.na) + theme_bw() +
+    geom_point(
+    data = database.lat.long.bioclim,
+    aes(longitude, latitude, color = "red"),
+    alpha = 0.7, size = 0.5
+  ) +
+  scale_x_continuous(label = abs) +
+    scale_y_continuous(label = abs) +
+    theme_bw() +
+   theme(axis.text.x = element_text(angle = 0, hjust = 1), legend.position = "none") +
+  labs(title = "Locations of study sites in North America")
+
+map.northamerica
+```
+
+Combining the three maps using gridExtra and cowplot
+```{r}
+# Arrange plots using arrangeGrob
+# returns a gtable (gt)
+gt <- arrangeGrob(world.study.sites,                               # bar plot spaning two columns
+             map.europe, lat.interrow.plot,                               # box plot and scatter plot
+             ncol = 2, nrow = 2, 
+             layout_matrix = rbind(c(1,1), c(2,3)))
+
+# Add labels to the arranged plots
+p <- as_ggplot(gt) +                                # transform to a ggplot
+  draw_plot_label(label = c("A", "B", "C"), size = 15,
+                  x = c(0, 0, 0.5), y = c(1, 0.5, 0.5)) # Add labels
+
+p
+```
+
+
+**Trees - Precipitation**
+
+```{r warning=FALSE, message=FALSE}
+trees.coord.data %>%
+  filter(TREE.FAMILY.GROUP != "NA") %>%
+  filter(Prec > 0) %>%
+  group_by(TREE.FAMILY.GROUP) %>% 
+  filter(n() >= 35) %>%
+
+  ggplot(aes(y = Prec, x = reorder(TREE.FAMILY.GROUP, Prec))) +
+  geom_violin(aes(fill = TREE.FAMILY.GROUP, alpha = 0.8)) +
+  stat_summary(
+    fun.data = "mean_sdl",  fun.args = list(mult = 1), 
+    geom = "pointrange", color = "black"
+    ) +
+  geom_jitter(height = 5, width = 0.1,
+              size = 0.2, aes(col = TREE.FAMILY.GROUP, alpha = 0.9)) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 0, hjust = 1), legend.position = "none")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+## RQ2.b	How does the system properties soil type and soil quality drive inter-site differences?
+
+**Tree species - soil sand content**
+
+```{r}
+
+```
+
+**Crop species - soil sand content**
+
+```{r}
+
+```
+
+
+
+
