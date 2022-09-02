@@ -1745,6 +1745,7 @@ matrix.crop.groups.tree.all %>%
        x = "Tree genera",                       
        y = "Crop groups") 
 ```
+
 *Plotting matrix - crop species - tree data*
 ```{r PLOTTING the associations of crop species - tree dataset matrix, warning=FALSE, message=FALSE}
 # using n_independent_studies
@@ -1766,6 +1767,15 @@ matrix.crop.species.tree.all %>%
        caption = paste0("n(independent studies) = ", n_independent_studies),
        x = "Tree genera",                       
        y = "Crop species") 
+```
+Assessing the frequency of associations occurrences for crop genera and tree genera
+```{r Assessing the frequency of associations occurrencesfor crop genera and tree genera}
+matrix.crop.species.tree.all %>%
+  group_by(CROP.GENUS.GROUP, TREE.GENUS.GROUP) %>%
+  summarise(count = sum(count)) %>%
+  ungroup() %>% 
+  mutate(pct = (count/sum(n_individual_study_sites))) %>%
+  arrange(desc(TREE.GENUS.GROUP), desc(count))
 ```
 
 **Associations studied between crop groups and ecosystem services across SAF system traits**
@@ -1943,7 +1953,7 @@ joined.es.bd.cat.systrait.crop <-
             by = c("ID.P" = "ID.P",
                    "ID.S" = "ID.S")) %>%
   select(-(ends_with(".x") | ends_with(".y"))) %>%
-  rename("SAF System Trait type" = ST.TYPE)
+  select(-ST.TYPE)
 ```
 
 *Preparing a merged (joined) dataset of selected ecosystem services (including biodiversity and categories data) with crop based on ID.P and ID.S*
@@ -1979,7 +1989,7 @@ A_ES_ID <-
   filter(count == 1)
 
 # --------------------------------------------------------------------------------------------------------------------------
-B_SAFTT_ID <- matrix.es.bd.cat.systrait.crop %>%
+B_SAFTT_ID <- joined.es.bd.cat.systrait.crop %>%
     dplyr::select(
     "ID.P",
     "ID.S",
@@ -2015,7 +2025,7 @@ E_JOINED_D_C <-
 ```
 
 *Plotting selected ecosystem services (including biodiversity and categories data) with crop groups*
-```{r PLOTTING - selected ecosystem services (including biodiversity and categories data) with crop groups}
+```{r PLOTTING - selected ecosystem services (including biodiversity and categories data) with crop groups, warning=FALSE, message=FALSE}
 E_JOINED_D_C.plot <- E_JOINED_D_C %>%
 
   group_by(ES.GROUPS, CROP.OUTPUT.GROUP, `SAF System Trait type`) %>%
@@ -2025,21 +2035,20 @@ E_JOINED_D_C.plot <- E_JOINED_D_C %>%
   mutate_if(is.character, as.factor) %>%
 
   ggplot(aes(x = reorder(`SAF System Trait type`, -count), 
-             y = ES.GROUPS,
+             y = reorder(ES.GROUPS, -count),
              fill = CROP.OUTPUT.GROUP)) +
   geom_jitter(aes(size = count), shape = 21, colour = "black",
              alpha = 0.8,
              height = 0.1,
              width = 0.1) +
-  #scale_size_area(max_size = 20, guide = "none") +
   theme_bw() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "none",
         plot.margin = margin(l = 0 + margin_spacer(matrix.es.bd.cat.systrait.crop.all$CROP.OUTPUT.GROUP))) +
-  scale_size_continuous(range = c(-1, 10)) +
+  scale_size_continuous(range = c(1, 10)) +
   scale_fill_discrete_qualitative(palette = "Dynamic") +
   labs(title = "Matrix showing the frequency of associations of crop groups, ecosystem services for different silvoarable systems reported by peer-reviewed papers",
        subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
-       caption = paste0("n(independent studies) reporting on biodiversity-related indicators = ", total_n_ES$value),
+       caption = paste0(caption = paste0("* Line belts; shelterbelts, hedgerows and windbreaks. Total number of independent studies reporting on ES = ", total_n_ES$value)),
        x = "Silvoarable System Trait Types",                       
        y = "Selected ecosystem services") +
   facet_grid(.~ CROP.OUTPUT.GROUP) 
@@ -2081,10 +2090,17 @@ matrix.es.bd.cat.systrait.crop.all <-
     "CROP.OUTPUT.GROUP") %>%
   mutate_if(is.character, as.factor) %>%
   relocate(`SAF System Trait type`, CROP.GENUS.GROUP, CROP.OUTPUT.GROUP)
-
-matrix.es.bd.cat.systrait.crop.all
 ```
 
+```{r}
+matrix.es.bd.cat.systrait.crop.all %>%
+  
+  group_by(CROP.GENUS.GROUP, `SAF System Trait type`) %>%
+  summarise(count = n()) %>%
+  ungroup() %>%
+  mutate(pct = (count/sum(count))) %>%
+  arrange(desc(count))
+```
 
 **Biodiversity - Crops**
 
@@ -2331,14 +2347,25 @@ system.traits.data.raw <-
   filter(INCLUDED == TRUE) %>%
 
    dplyr::mutate(ST.TYPE = case_when(
-      str_detect(ST.TYPE, "RBS") ~ "Mixed and other systems",
-      str_detect(ST.TYPE, "SHB") ~ "Mixed and other systems",
-      str_detect(ST.TYPE, "MIXED") ~ "Mixed and other systems",
+      str_detect(ST.TYPE, "RBS") ~ "Riparian buffer strips",
+      str_detect(ST.TYPE, "SHB") ~ "Line belts *",
+      str_detect(ST.TYPE, "MIXED") ~ "Mixed systems",
       str_detect(ST.TYPE, "TIMBER.ARABLE") ~ "Timber - Arable",
       str_detect(ST.TYPE, "BIOMASS.ARABLE") ~ "Biomass - Arable",
       str_detect(ST.TYPE, "NUT.ARABLE") ~ "Nut - Arable",
       str_detect(ST.TYPE, "FRUIT.ARABLE") ~ "Fruit - Arable",
       TRUE ~ as.character(as.character(ST.TYPE)))) %>%
+  
+  dplyr::mutate(ST.TYPE.PROD.TYPE = "x") %>%
+  dplyr::mutate(ST.TYPE.PROD.TYPE == case_when(
+      str_detect(ST.TYPE, "Timber - Arable") ~ "Biomass",
+      str_detect(ST.TYPE, "Biomass - Arable") ~ "Biomass",
+      str_detect(ST.TYPE, "Nut - Arable") ~ "Food",
+      str_detect(ST.TYPE, "Fruit - Arable") ~ "Food",
+      str_detect(ST.TYPE, "Riparian buffer strips") ~ "Multiple",
+      str_detect(ST.TYPE, "Line belts *") ~ "Multiple",
+      str_detect(ST.TYPE, "Mixed systems") ~ "Multiple",
+      TRUE ~ as.character(as.character(ST.TYPE.PROD.TYPE))))  %>%
   # selecting system trait columns
   group_by(ST.TYPE) %>%
   select(ID.P, ID.S, ST.TYPE, MANAGEMENT) %>% 
@@ -2346,6 +2373,7 @@ system.traits.data.raw <-
 
 system.traits.data.raw
 ```
+
 
 *Merging (joining) the biodiversity and system trait datasets based on ID*
 ```{r Merging the biodiversity and system trait type}
@@ -2444,9 +2472,121 @@ matrix.ecosystem.systrait %>%
 
 
 
-### Geographic distribution of studies
+### Distribution of studies across different countries reporting on ES
 
+```{r}
+ES_ID <- 
+  matrix.es.bd.cat.systrait.crop %>%
+    dplyr::select(
+    "ID.P",
+    "ID.S",
+    
+    "Food (yield)",
+    "Feed",
+    "Fuel (firewood etc.)",
+    "Biodiversity",
+    "Disease regulation",
+    "Pest regulation",
+    "Water cycling",
+    "Economic management related",
+    "Economic profit related",
+    "Aboveground (crop-tree) light competition",
+    "Soil structure", 
+    "Chemical soil components",
+    "Biological soil components",
+    "Land equivalent ratio",
+    "Climate regulation",
+    "Greenhouse gas emissions",
+    "Carbon sequestration") %>%
+  mutate_if(is.character, as.factor) %>%
+  relocate(ID.P, ID.S) %>%
+  pivot_longer(cols = c(-ID.P, -ID.S), 
+                   names_to = "ES.GROUPS",
+                   values_to = "count") %>%
+  filter(count == 1)
+# --------------------------------------------------------------------------------------------------------------------------
+A_COUNTRIES_ID <- database %>%
+  mutate_at(c("ID.P", "ID.S"), as.numeric) %>%
+    dplyr::select(
+    "ID.P",
+    "ID.S",
+    
+    "STUDY.LOC.COUNTRY") 
+# --------------------------------------------------------------------------------------------------------------------------
+D_JOINED_COUNTRIES_ES <- 
+  left_join(x = A_COUNTRIES_ID, y = ES_ID,
+            by = c("ID.P" = "ID.P",
+                   "ID.S" = "ID.S")) %>%
+  relocate(ID.P, ID.S,
+           ES.GROUPS)
+# --------------------------------------------------------------------------------------------------------------------------
 
+B_CROPS_ID <- matrix.es.bd.cat.systrait.crop %>%
+    dplyr::select(
+    "ID.P",
+    "ID.S",
+    
+    "CROP.OUTPUT.GROUP")
+# --------------------------------------------------------------------------------------------------------------------------
+D_JOINED_COUNTRIES_CROPS_ES <- 
+  left_join(x = D_JOINED_COUNTRIES_ES, y = B_CROPS_ID,
+            by = c("ID.P" = "ID.P",
+                   "ID.S" = "ID.S"))
+# --------------------------------------------------------------------------------------------------------------------------
+C_SAFTT_ID <- joined.es.bd.cat.systrait.crop %>%
+    dplyr::select(
+    "ID.P",
+    "ID.S",
+    
+    "SAF System Trait type") 
+# --------------------------------------------------------------------------------------------------------------------------
+# Merged country, crop and SAF system trait type dataset
+# --------------------------------------------------------------------------------------------------------------------------
+D_JOINED_COUNTRIES_CROPS_ES_SAFT <- 
+  left_join(x = D_JOINED_COUNTRIES_CROPS_ES, y = C_SAFTT_ID,
+            by = c("ID.P" = "ID.P",
+                   "ID.S" = "ID.S")) %>%
+  dplyr::select(-count) %>%
+  relocate(STUDY.LOC.COUNTRY, ES.GROUPS, CROP.OUTPUT.GROUP, `SAF System Trait type`) 
+```
+
+*Plotting selected ecosystem services (including biodiversity and categories data) with countries*
+```{r PLOTTING - selected ecosystem services (including biodiversity and categories data) with countries}
+D_JOINED_COUNTRIES_CROPS_ES_SAFT %>%
+
+  group_by(STUDY.LOC.COUNTRY, ES.GROUPS, `SAF System Trait type`) %>%
+  summarise(count = n()) %>%
+  ungroup() %>%
+  mutate_if(is.integer, as.double) %>%
+  mutate_if(is.character, as.factor) %>%
+  na.omit() %>%
+
+  ggplot(aes(x = reorder(STUDY.LOC.COUNTRY, -count), 
+             y = reorder(ES.GROUPS, -count),
+             fill = STUDY.LOC.COUNTRY)) +
+  geom_jitter(aes(size = count), shape = 21, colour = "black",
+             alpha = 0.8,
+             height = 0.1,
+             width = 0.1) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "none",
+        plot.margin = margin(l = 0 + margin_spacer(D_JOINED_COUNTRIES_CROPS_ES_SAFT$STUDY.LOC.COUNTRY))) +
+  scale_size_continuous(range = c(1, 10)) +
+  scale_fill_discrete_qualitative(palette = "Dynamic") +
+  labs(title = "Matrix showing the frequency of associations of crop groups, ecosystem services for different silvoarable systems reported by peer-reviewed papers",
+       subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
+       caption = paste0(caption = paste0("* Line belts; shelterbelts, hedgerows and windbreaks. Total number of independent studies reporting on ES = ", total_n_ES$value)),
+       x = "Silvoarable System Trait Types",                       
+       y = "Selected ecosystem services") +
+  facet_grid(.~ factor(`SAF System Trait type`, levels=c('Timber - Arable','Biomass - Arable','Nut - Arable','Fruit - Arable', 'Line belts *', 'Riparian buffer strips', 'Mixed systems'))) 
+```
+ str_detect(ST.TYPE, "RBS") ~ "Riparian buffer strips",
+      str_detect(ST.TYPE, "SHB") ~ "Line belts *",
+      str_detect(ST.TYPE, "MIXED") ~ "Mixed systems",
+      str_detect(ST.TYPE, "TIMBER.ARABLE") ~ "Timber - Arable",
+      str_detect(ST.TYPE, "BIOMASS.ARABLE") ~ "Biomass - Arable",
+      str_detect(ST.TYPE, "NUT.ARABLE") ~ "Nut - Arable",
+      str_detect(ST.TYPE, "FRUIT.ARABLE") ~ "Fruit - Arable",
 
 
 
