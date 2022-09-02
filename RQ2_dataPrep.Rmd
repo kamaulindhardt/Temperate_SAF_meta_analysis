@@ -46,6 +46,7 @@ pacman::p_load(tidyverse,
                rnaturalearthdata,  # holds data used by rnaturalearth package from Natural Earth.
                
                readr,
+               vroom,              # for crazy fast method of loading/reading datasets from local disc
                readxl,
                ggplot2,
                ggdensity,
@@ -81,13 +82,13 @@ database.lat.long <- database.geospatial %>%
   tidygeocoder::geocode(STUDY.LOC.SPEC.COORDS, method = 'osm', lat = latitude , long = longitude) 
 
 # Saving the dataset with derived coordinates unto local disc
-readr::write_rds(database.lat.long, "./DATASET.LOCATIONS/database.lat.long.Rds")
+readr::write_rds(database.lat.long, "./DATASET.FROM.SCRIPT/database.lat.long.Rds")
 ```
 
 Loading dataset with lat long coordinates from local disc
 ```{r Loading dataset with lat long coordinates}
 
-database.lat.long <- readr::read_rds("./DATASET.LOCATIONS/database.lat.long.Rds")
+database.lat.long <- vroom::vroom("./DATASET.FROM.SCRIPT/database.lat.long.Rds")
 ```
 
 Defining number of independent studies and number of observations based on individual study sites
@@ -268,14 +269,14 @@ temp.precip.values <- raster::extract(x = bioclim.temp.precip,
 
 
 # Saving the temp.precip.values dataset with derived coordinates unto local disc
-readr::write_rds(temp.precip.values, "./DATASET.LOCATIONS/temp.precip.values.Rds")
+readr::write_rds(temp.precip.values, "./DATASET.FROM.SCRIPT/temp.precip.values.Rds")
 ```
 
 
 Loading BioClim dataset (temperature and precipitation) with lat long coordinates from local disc
 ```{r Loading dataset with lat long coordinates}
 
-temp.precip.values <- readr::read_rds("./DATASET.LOCATIONS/temp.precip.values.Rds")
+temp.precip.values <- vroom::vroom("./DATASET.FROM.SCRIPT/temp.precip.values.Rds")
 ```
 
 *Merging (joining) the location-specific temperature and precipitation values to the coordinates (x,y)*
@@ -365,13 +366,13 @@ SoilGrids.data <- soilDB::fetchSoilGrids(x = database.locations.df,
 # class(SoilGrids.data)
 
 # Saving the downloaded SoilGrids dataset unto local disc
-readr::write_rds(SoilGrids.data, "./DATASET.LOCATIONS/SoilGrids.data.Rds")
+readr::write_rds(SoilGrids.data, "./DATASET.FROM.SCRIPT/SoilGrids.data.Rds")
 ```
 
 Loading SoilGrids dataset from local disc
 ```{r Loading SoilGrids dataset}
 
-SoilGrids.data <- readr::read_rds("./DATASET.LOCATIONS/SoilGrids.data.Rds")
+SoilGrids.data <- vroom::vroom("./DATASET.FROM.SCRIPT/SoilGrids.data.Rds")
 ```
 
 Generating dataframe with fetched soil variables 
@@ -420,13 +421,13 @@ merged.database.coords.biophys <-
            claymean, sandmean, siltmean, bdodmean, nitrogenmean, socmean, phh2omean, cecmean)
 
 # Saving the combined dataset with biopphysical information unto local disc
-readr::write_rds(merged.database.coords.biophys, "./DATASET.LOCATIONS/merged.database.coords.biophys.Rds")
+readr::write_rds(merged.database.coords.biophys, "./DATASET.FROM.SCRIPT/merged.database.coords.biophys.Rds")
 ```
 
 Loading the combined database with location-specific biopphysical data from local disc
 ```{r Loading location-specific biopphysical dataset}
 
-database.biopphys <- readr::read_rds("./DATASET.LOCATIONS/merged.database.coords.biophys.Rds")
+database.biopphys <- vroom::vroom("./DATASET.FROM.SCRIPT/merged.database.coords.biophys.Rds")
 ```
 
 

@@ -1364,3 +1364,72 @@ pub.year.plot <-
        y = "Accumulated number of publications") 
 ```
 
+```{r}
+  dplyr::filter(ES.INDICATORS != "NA") %>%   # excluding 41 records of 'NA'
+  dplyr::filter(ES.INDICATORS != "ID.P" &
+                  ES.INDICATORS != "Provisioning ES" & 
+                  ES.INDICATORS != "Regulating ES" &
+                  ES.INDICATORS != "Supporting ES" &
+                  ES.INDICATORS != "Cultural ES" &
+                  ES.INDICATORS != "Ecosystem Services") %>% # excluding ID.P recordings
+  add_tally(wt = count) %>%
+  mutate(pct = (count/n)) %>%
+  
+```
+
+```{r}
+matrix.es.bd.cat.systrait.crop.group.plot <- matrix.es.bd.cat.systrait.crop.all %>%
+  
+  group_by(CROP.OUTPUT.GROUP, `SAF System Trait type`) %>%
+  summarise(count = n()) %>%
+  ungroup() %>% 
+  
+  ggplot(aes(x = reorder(CROP.OUTPUT.GROUP, -count), 
+             y = count,
+             fill = CROP.OUTPUT.GROUP)) +
+  geom_point(aes(size = count), shape = 21, colour = "black",
+             alpha = 0.8) +
+  #scale_size_area(max_size = 20, guide = "none") +
+  theme_bw() + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "none",
+        plot.margin = margin(l = 0 + margin_spacer(matrix.es.bd.cat.systrait.crop.all$CROP.OUTPUT.GROUP))) +
+  scale_size_continuous(range = c(-1, 10)) +
+  scale_fill_discrete_qualitative(palette = "Dynamic") +
+  facet_grid(`SAF System Trait type` ~ .) +
+  labs(title = "Matrix showing the number of peer-reviewed papers reporting on different crop groups and indicators for different crop groups",
+       subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
+       caption = paste0("n(independent studies) reporting on biodiversity-related indicators = ", total_n_BD$value),
+       x = "Crop groups",                       
+       y = "Biodiversity-related indicators")
+  
+matrix.es.bd.cat.systrait.crop.group.plot
+```
+
+```{r}
+matrix.es.bd.cat.systrait.crop.group.plot <- matrix.es.bd.cat.systrait.crop.all %>%
+  
+  group_by(CROP.GENUS.GROUP, `SAF System Trait type`) %>%
+  summarise(count = n()) %>%
+  ungroup() %>% 
+  
+  ggplot(aes(x = reorder(CROP.GENUS.GROUP, -count), 
+             y = count,
+             fill = CROP.GENUS.GROUP)) +
+  geom_point(aes(size = count), shape = 21, colour = "black",
+             alpha = 0.8) +
+  scale_size_area(max_size = 20, guide = "none") +
+  theme_bw() + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "none",
+        plot.margin = margin(l = 0 + margin_spacer(matrix.es.bd.cat.systrait.crop.all$CROP.GENUS.GROUP))) +
+  scale_size_continuous(range = c(-1, 10)) +
+  scale_fill_discrete_qualitative(palette = "Dynamic") +
+  facet_grid(`SAF System Trait type` ~ .)
+
+  labs(title = "Matrix showing the number of peer-reviewed papers reporting on biodiversity-related indicators for different crop groups",
+       subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
+       caption = paste0("n(independent studies) reporting on biodiversity-related indicators = ", total_n_BD$value),
+       x = "Crop groups",                       
+       y = "Biodiversity-related indicators")
+
+matrix.es.bd.cat.systrait.crop.group.plot
+```
