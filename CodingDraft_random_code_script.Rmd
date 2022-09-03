@@ -1433,3 +1433,13 @@ matrix.es.bd.cat.systrait.crop.group.plot <- matrix.es.bd.cat.systrait.crop.all 
 
 matrix.es.bd.cat.systrait.crop.group.plot
 ```
+
+```{r}
+plyr::mutate(MANAGEMENT = case_when(
+      str_detect(MANAGEMENT, "CON") ~ "Con",
+      str_detect(MANAGEMENT, "ORG") ~ "Org",
+      str_detect(MANAGEMENT, "CON.ORG") ~ "Con + Org",
+      str_detect(MANAGEMENT, "NA") ~ "No data",
+      TRUE ~ as.character(as.character(MANAGEMENT)))) %>%
+```
+

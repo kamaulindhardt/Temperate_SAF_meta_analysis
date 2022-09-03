@@ -34,6 +34,7 @@ pacman::p_load(tidyverse,
                vroom,          # for crazy fast method of loading/reading datasets from local disc
                janitor,        # for cleaning data column names
                ggplot2,
+               ggrepel,        # for making text lables next to ggplots
                ggpubr,
                ggthemes,
                ggsci,
@@ -2468,10 +2469,6 @@ matrix.ecosystem.systrait %>%
 ```
 
 
-
-
-
-
 ### Distribution of studies across different countries reporting on ES
 
 ```{r}
@@ -2551,7 +2548,7 @@ D_JOINED_COUNTRIES_CROPS_ES_SAFT <-
 ```
 
 *Plotting selected ecosystem services (including biodiversity and categories data) with countries*
-```{r PLOTTING - selected ecosystem services (including biodiversity and categories data) with countries}
+```{r PLOTTING - selected ecosystem services (including biodiversity and categories data) with countries, warning=FALSE, message=FALSE}
 D_JOINED_COUNTRIES_CROPS_ES_SAFT %>%
 
   group_by(STUDY.LOC.COUNTRY, ES.GROUPS, `SAF System Trait type`) %>%
@@ -2573,21 +2570,179 @@ D_JOINED_COUNTRIES_CROPS_ES_SAFT %>%
         plot.margin = margin(l = 0 + margin_spacer(D_JOINED_COUNTRIES_CROPS_ES_SAFT$STUDY.LOC.COUNTRY))) +
   scale_size_continuous(range = c(1, 10)) +
   scale_fill_discrete_qualitative(palette = "Dynamic") +
-  labs(title = "Matrix showing the frequency of associations of crop groups, ecosystem services for different silvoarable systems reported by peer-reviewed papers",
+  labs(title = "Matrix showing the frequency of associations of ecosystem services for different silvoarable systems across top ten most represented countries of publication reported by peer-reviewed papers",
        subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
        caption = paste0(caption = paste0("* Line belts; shelterbelts, hedgerows and windbreaks. Total number of independent studies reporting on ES = ", total_n_ES$value)),
-       x = "Silvoarable System Trait Types",                       
+       x = "Countries",                       
        y = "Selected ecosystem services") +
   facet_grid(.~ factor(`SAF System Trait type`, levels=c('Timber - Arable','Biomass - Arable','Nut - Arable','Fruit - Arable', 'Line belts *', 'Riparian buffer strips', 'Mixed systems'))) 
 ```
- str_detect(ST.TYPE, "RBS") ~ "Riparian buffer strips",
-      str_detect(ST.TYPE, "SHB") ~ "Line belts *",
-      str_detect(ST.TYPE, "MIXED") ~ "Mixed systems",
-      str_detect(ST.TYPE, "TIMBER.ARABLE") ~ "Timber - Arable",
-      str_detect(ST.TYPE, "BIOMASS.ARABLE") ~ "Biomass - Arable",
-      str_detect(ST.TYPE, "NUT.ARABLE") ~ "Nut - Arable",
-      str_detect(ST.TYPE, "FRUIT.ARABLE") ~ "Fruit - Arable",
 
 
+### Stacked bar plots
+
+**Productive management**
+
+*Preparing data*
+```{r}
+management <- database %>%
+  filter(INCLUDED == TRUE) %>%
+
+  mutate_if(is.character, as.factor) %>%
+  select(ID.P, ID.S,
+         MANAGEMENT) %>%
+  group_by(MANAGEMENT) %>%
+  summarise(count = n()) %>%
+  mutate(pct = count/sum(count)) %>% 
+  mutate(across(where(is.numeric), round, 3))  
+```
+
+*Plotting*
+```{r}
+#library(ggrepel)
+
+management.pos <- management %>% 
+  mutate(csum = rev(cumsum(rev(count))), 
+         pos = count/2 + lead(csum, 1),
+         pos = if_else(is.na(pos), count/3, pos)) %>%
+  mutate(across(where(is.numeric), round, 3))
+
+labels <- c(var1 = "Custom Value 1", var2 = "Custom Value 2", var3 = "Custom Value 3")
+
+management %>%
+  ggplot(aes(x = "", y = count, fill = MANAGEMENT), alpha = 0.6) +
+  geom_col(width = 1) +
+  scale_fill_discrete_qualitative(palette = "Dynamic") +
+  #geom_text(aes(label = count),
+  #         position = position_stack(vjust = 0.5)) +
+  coord_polar(theta = "y") +
+  geom_label_repel(aes(y = management.pos$pos, label = paste0(pct* 100, "% - ", MANAGEMENT)),
+                   size = 4.5, nudge_x = 1, show.legend = FALSE) +
+ # guides(fill = guide_legend(title = "Group")) +
+  scale_y_continuous(breaks = management.pos$pos, labels = management$MANAGEMENT) +
+  theme_bw() +
+  theme(axis.ticks = element_blank(),
+        axis.title = element_blank(),
+        axis.text = element_blank(), #element_text(size = 15), 
+        legend.position = "none", # Removes the legend
+        panel.background = element_rect(fill = "white")) 
+```
+
+**Temporal scale of studies**
+
+*Preparing data*
+```{r}
+temp.scale <- database %>%
+  filter(INCLUDED == TRUE) %>%
+
+    select(ID.P, ID.S,
+         DUR.SAMPLING) %>%
+  # na.omit() %>%
+  # filter(!DUR.SAMPLING == "NA")
+  mutate_if(is.character, as.factor) %>%
+  group_by(DUR.SAMPLING) %>%
+
+  summarise(count = n()) %>%
+  mutate(pct = count/sum(count)) %>% 
+  mutate(across(where(is.numeric), round, 3))  
+```
+
+```{r}
+temp.scale.pos <- temp.scale %>% 
+  mutate(csum = rev(cumsum(rev(count))), 
+         pos = count/2 + lead(csum, 1),
+         pos = if_else(is.na(pos), count/3, pos)) %>%
+  mutate(across(where(is.numeric), round, 3))
+
+labels <- c(var1 = "Custom Value 1", var2 = "Custom Value 2", var3 = "Custom Value 3")
+
+temp.scale %>%
+  ggplot(aes(x = "", y = count, fill = DUR.SAMPLING), alpha = 0.6) +
+  geom_col(width = 1) +
+  scale_fill_discrete_qualitative(palette = "Dynamic") +
+  #geom_text(aes(label = count),
+  #         position = position_stack(vjust = 0.5)) +
+  coord_polar(theta = "y") +
+  geom_label_repel(aes(y = temp.scale.pos$pos, label = paste0(DUR.SAMPLING, "; ", pct* 100, " %")),
+                   size = 4.5, nudge_x = 1, show.legend = FALSE) +
+ # guides(fill = guide_legend(title = "Group")) +
+  scale_y_continuous(breaks = temp.scale.pos$pos, labels = temp.scale$DUR.SAMPLING) +
+  theme_bw() +
+  theme(axis.ticks = element_blank(),
+        axis.title = element_blank(),
+        axis.text = element_blank(), #element_text(size = 15), 
+        legend.position = "none", # Removes the legend
+        panel.background = element_rect(fill = "white")) 
+```
+
+**Spatial scale of studies**
+
+*Preparing data*
+```{r}
+spatial.scale <- database %>%
+  filter(INCLUDED == TRUE) %>%
+
+    select(ID.P, ID.S,
+         SCALE) %>%
+  # na.omit() %>%
+  # filter(!SCALE == "NA")
+  mutate_if(is.character, as.factor) %>%
+  group_by(SCALE) %>%
+  summarise(count = n()) %>%
+  mutate(pct = count/sum(count)) %>% 
+  mutate(across(where(is.numeric), round, 3)) %>%
+  as.data.frame()
+
+# rename dataframe rows
+```
+
+
+```{r}
+spatial.scale.pos <- spatial.scale %>% 
+  mutate(csum = rev(cumsum(rev(count))), 
+         pos = count/2 + lead(csum, 1),
+         pos = if_else(is.na(pos), count/3, pos)) %>%
+  mutate(across(where(is.numeric), round, 3))
+
+labels <- c(PLOT.FARM = "Plot and farm", var2 = "Custom Value 2", var3 = "Custom Value 3")
+
+spatial.scale %>%
+  ggplot(aes(x = "", y = count, fill = SCALE), alpha = 0.6) +
+  geom_col(width = 1) +
+  scale_fill_discrete_qualitative(palette = "Dynamic") +
+  #geom_text(aes(label = count),
+  #         position = position_stack(vjust = 0.5)) +
+  coord_polar(theta = "y") +
+  geom_label_repel(aes(y = spatial.scale.pos$pos, label = paste0(pct* 100, " %")),
+                   size = 4.5, nudge_x = 1, show.legend = FALSE) +
+ # guides(fill = guide_legend(title = "Group")) +
+  scale_y_continuous(breaks = spatial.scale.pos$pos, labels = spatial.scale$SCALE) +
+  theme_bw() +
+  theme(axis.ticks = element_blank(),
+        axis.title = element_blank(),
+        axis.text = element_blank(), #element_text(size = 15), 
+        legend.position = "bottom", # Removes the legend
+        panel.background = element_rect(fill = "white")) 
+```
+
+**Approach for ES assessment**
+
+*Preparing data*
+```{r}
+#devtools::install_github("cardiomoon/webr")
+# library(webr)
+PD <- 
+  database %>% 
+  group_by(STUDY.FRAME, ST.TYPE) %>% 
+  summarise(n = n())
+```
+```{r}
+# Pie-Donut chart
+webr::PieDonut(PD, aes(STUDY.FRAME, ST.TYPE, count = n), ratioByGroup = FALSE,
+               title = "The Pie-Donut chart")
+```
+
+
+**Number of ES studies per paper**
 
 
