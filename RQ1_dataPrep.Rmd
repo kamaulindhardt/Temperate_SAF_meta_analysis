@@ -901,28 +901,6 @@ geom_bar(stat = "identity",
 
 **Ecosystem Services indicators - distribution and abundance**
 
-*Percentage of various ES representation*
-
-Calculating the percentage of various ES representation and isolating total n of ES to be used in plotting
-```{r Percentage of various ES representation}
-total_ES_pct <- ecosystem.sum.data %>%  
-  rename(count = value,
-         ES.INDICATORS =  key) %>%
-  dplyr::filter(ES.INDICATORS != "NA") %>%   # excluding 41 records of 'NA'
-  dplyr::filter(ES.INDICATORS != "ID.P" &
-                  ES.INDICATORS != "Provisioning ES" & 
-                  ES.INDICATORS != "Regulating ES" &
-                  ES.INDICATORS != "Supporting ES" &
-                  ES.INDICATORS != "Cultural ES" &
-                  ES.INDICATORS != "Ecosystem Services") %>% # excluding ID.P recordings
-  add_tally(wt = count) %>%
-  mutate(pct = (count/n)) %>%
-  select(n)
-
-total_n_records_ES_for_pct <- total_ES_pct[,1]
-total_n_records_ES_for_pct <- total_n_records_ES_for_pct[1]
-```
-
 *Preparing dataset*
 ```{r Preparing the ecosystem service data}
 # using n_independent_studies because biodiversity and ecosystem service related indicators do not (normally) vary between sites, because independent studies look at the same variables (biodiversity and ecosystem service) even if several individual study sites are used for the study. 
@@ -1001,7 +979,7 @@ ecosystem.data.renamed <- ecosystem.data %>%
          "Ecosystem Services" = ES)
   
 # ---------------------------------------------------------------------------------------------------   
-# sum the data using apply 
+# sum the ES data using apply 
 
 ecosystem.sum.data <- 
   data.frame(value = apply(ecosystem.data.renamed, MARGIN = 2, FUN = sum))
@@ -1027,6 +1005,28 @@ ecosystem.sum.data %>%
   arrange(desc(-count))
 
 ecosystem.plot.data
+```
+
+*Percentage of various ES representation*
+
+Calculating the percentage of various ES representation and isolating total n of ES to be used in plotting
+```{r Percentage of various ES representation}
+total_ES_pct <- ecosystem.sum.data %>%  
+  rename(count = value,
+         ES.INDICATORS =  key) %>%
+  dplyr::filter(ES.INDICATORS != "NA") %>%   # excluding 41 records of 'NA'
+  dplyr::filter(ES.INDICATORS != "ID.P" &
+                  ES.INDICATORS != "Provisioning ES" & 
+                  ES.INDICATORS != "Regulating ES" &
+                  ES.INDICATORS != "Supporting ES" &
+                  ES.INDICATORS != "Cultural ES" &
+                  ES.INDICATORS != "Ecosystem Services") %>% # excluding ID.P recordings
+  add_tally(wt = count) %>%
+  mutate(pct = (count/n)) %>%
+  select(n)
+
+total_n_records_ES_for_pct <- total_ES_pct[,1]
+total_n_records_ES_for_pct <- total_n_records_ES_for_pct[1]
 ```
 
 Plotting the broad categories of ecosystem services reported by independent studies
@@ -1789,22 +1789,50 @@ es.bd.cat.systrait.data <-
   database %>% 
   filter(INCLUDED == TRUE) %>%
   
-  select(ID.P, ID.S, 
-         starts_with("ES"), # selecting ecosystem services, biodiversity and categories data
+  dplyr::select(ID.P, ID.S, 
+         ST.TYPE,                 # selecting Silvoarable System Trait type
+         starts_with("ES"),       # selecting ecosystem services, biodiversity and categories data
          starts_with("BD"),
          starts_with("CAT")) %>% 
   mutate(across(matches("ES"), as.logical)) %>%
   mutate(across(matches("BD"), as.logical)) %>%
   mutate(across(matches("CAT"), as.logical)) %>%
-  mutate_at(vars(-c(ID.P, ID.S)), tidyr::replace_na, 0) %>%   # <- Including NA's as 0 (FALSE)
+  mutate(across(matches("ST.TYPE"), as.character)) %>%
+  mutate_at(vars(-c(ID.P, ID.S, ST.TYPE)), tidyr::replace_na, 0) %>%   # <- Including NA's as 0 (FALSE)
   mutate_if(is.logical, as.numeric) %>%
-  mutate_if(is.character, as.numeric)
+  mutate(across(matches("ID"), as.numeric))
+  # mutate_if(is.character, as.numeric)
 
 
 # ------------------------------------------------------------------------------------------------------------------------------------
 es.bd.cat.systrait.data.renamed <- 
   es.bd.cat.systrait.data %>%
-  rename("Food (yield)"                      = ES.SUB.PROV.FOOD,
+  
+     dplyr::mutate(ST.TYPE = case_when(
+      str_detect(ST.TYPE, "RBS") ~ "Riparian buffer strips",
+      str_detect(ST.TYPE, "SHB") ~ "Line belts *",
+      str_detect(ST.TYPE, "MIXED") ~ "Mixed systems",
+      str_detect(ST.TYPE, "TIMBER.ARABLE") ~ "Timber - Arable",
+      str_detect(ST.TYPE, "BIOMASS.ARABLE") ~ "Biomass - Arable",
+      str_detect(ST.TYPE, "NUT.ARABLE") ~ "Nut - Arable",
+      str_detect(ST.TYPE, "FRUIT.ARABLE") ~ "Fruit - Arable",
+      TRUE ~ as.character(as.character(ST.TYPE)))) %>%
+  
+  dplyr::mutate(ST.TYPE.PROD.TYPE = "x") %>%
+  dplyr::mutate(ST.TYPE.PROD.TYPE == case_when(
+      str_detect(ST.TYPE, "Timber - Arable") ~ "Biomass",
+      str_detect(ST.TYPE, "Biomass - Arable") ~ "Biomass",
+      str_detect(ST.TYPE, "Nut - Arable") ~ "Food",
+      str_detect(ST.TYPE, "Fruit - Arable") ~ "Food",
+      str_detect(ST.TYPE, "Riparian buffer strips") ~ "Multiple",
+      str_detect(ST.TYPE, "Line belts *") ~ "Multiple",
+      str_detect(ST.TYPE, "Mixed systems") ~ "Multiple",
+      TRUE ~ as.character(as.character(ST.TYPE.PROD.TYPE))))  %>%
+  
+  rename(
+         "SAF System Trait type"             = ST.TYPE,
+    
+         "Food (yield)"                      = ES.SUB.PROV.FOOD,
          "Feed"                              = ES.SUB.PROV.FEED,
          "Fibre"                             = ES.SUB.PROV.FIBRE,
          "Fuel (firewood etc.)"              = ES.SUB.PROV.FUEL,
@@ -1917,6 +1945,7 @@ Loading es.bd.cat.systrait.data.renamed dataset from local disc and preparing an
 
 es.bd.cat.systrait.data.renamed.load <- vroom::vroom("./DATASET.FROM.SCRIPT/es.bd.cat.systrait.data.renamed.csv") %>%
   dplyr::select(
+    "SAF System Trait type",
     "ID.P",
     "ID.S",
     
@@ -1948,13 +1977,42 @@ joined.es.bd.cat.systrait.crop <-
                    "ID.S" = "ID.S")) %>%
   select(-(ends_with(".x") | ends_with(".y"))) %>%
   mutate_at(c("ID.P", "ID.S"), as.numeric)    # <- converting ID columns from characters to numeric
+```
 
-joined.es.bd.cat.systrait.crop <- 
-  left_join(x = joined.es.bd.cat.systrait.crop, y = system.traits.data.raw,
-            by = c("ID.P" = "ID.P",
-                   "ID.S" = "ID.S")) %>%
-  select(-(ends_with(".x") | ends_with(".y"))) %>%
-  select(-ST.TYPE)
+*Preparing ES, BD, CAT - crop datasets for matrix plot*
+```{r Preparing the merged ES, BD, CAT - crop dataset}
+matrix.es.bd.cat.systrait.crop <- 
+  joined.es.bd.cat.systrait.crop %>%
+  filter(CROP.OUTPUT.GROUP != "NA") %>%
+  filter(!is.na(CROP.GENUS.GROUP))
+
+matrix.es.bd.cat.systrait.crop.all <- 
+  matrix.es.bd.cat.systrait.crop %>%
+    dplyr::select(
+    "SAF System Trait type",
+    
+    "Food (yield)",
+    "Feed",
+    "Fuel (firewood etc.)",
+    "Biodiversity",
+    "Disease regulation",
+    "Pest regulation",
+    "Water cycling",
+    "Economic management related",
+    "Economic profit related",
+    "Aboveground (crop-tree) light competition",
+    "Soil structure", 
+    "Chemical soil components",
+    "Biological soil components",
+    "Land equivalent ratio",
+    "Climate regulation",
+    "Greenhouse gas emissions",
+    "Carbon sequestration",
+    
+    "CROP.GENUS.GROUP",
+    "CROP.OUTPUT.GROUP") %>%
+  mutate_if(is.character, as.factor) %>%
+  relocate(`SAF System Trait type`, CROP.GENUS.GROUP, CROP.OUTPUT.GROUP)
 ```
 
 *Preparing a merged (joined) dataset of selected ecosystem services (including biodiversity and categories data) with crop based on ID.P and ID.S*
@@ -2025,6 +2083,8 @@ E_JOINED_D_C <-
   select(-count)
 ```
 
+
+
 *Plotting selected ecosystem services (including biodiversity and categories data) with crop groups*
 ```{r PLOTTING - selected ecosystem services (including biodiversity and categories data) with crop groups, warning=FALSE, message=FALSE}
 E_JOINED_D_C.plot <- E_JOINED_D_C %>%
@@ -2057,51 +2117,6 @@ E_JOINED_D_C.plot <- E_JOINED_D_C %>%
 E_JOINED_D_C.plot
 ```
 
-*Preparing ES, BD, CAT - crop datasets for matrix plot*
-```{r Preparing the merged ES, BD, CAT - crop dataset}
-matrix.es.bd.cat.systrait.crop <- 
-  joined.es.bd.cat.systrait.crop %>%
-  filter(CROP.OUTPUT.GROUP != "NA") %>%
-  filter(!is.na(CROP.GENUS.GROUP))
-
-matrix.es.bd.cat.systrait.crop.all <- 
-  matrix.es.bd.cat.systrait.crop %>%
-    dplyr::select(
-    "SAF System Trait type",
-    
-    "Food (yield)",
-    "Feed",
-    "Fuel (firewood etc.)",
-    "Biodiversity",
-    "Disease regulation",
-    "Pest regulation",
-    "Water cycling",
-    "Economic management related",
-    "Economic profit related",
-    "Aboveground (crop-tree) light competition",
-    "Soil structure", 
-    "Chemical soil components",
-    "Biological soil components",
-    "Land equivalent ratio",
-    "Climate regulation",
-    "Greenhouse gas emissions",
-    "Carbon sequestration",
-    
-    "CROP.GENUS.GROUP",
-    "CROP.OUTPUT.GROUP") %>%
-  mutate_if(is.character, as.factor) %>%
-  relocate(`SAF System Trait type`, CROP.GENUS.GROUP, CROP.OUTPUT.GROUP)
-```
-
-```{r}
-matrix.es.bd.cat.systrait.crop.all %>%
-  
-  group_by(CROP.GENUS.GROUP, `SAF System Trait type`) %>%
-  summarise(count = n()) %>%
-  ungroup() %>%
-  mutate(pct = (count/sum(count))) %>%
-  arrange(desc(count))
-```
 
 **Biodiversity - Crops**
 
@@ -2110,7 +2125,6 @@ matrix.es.bd.cat.systrait.crop.all %>%
 # using n_individual_study_sites because crop species vary between sites, as some studies include multiple sites with different species compositions and arrangements.
 
 biodiversity.data.raw <- 
-biodiversity.data <- 
   database %>% 
   filter(INCLUDED == TRUE) %>%
   # selecting Biodiversity columns
@@ -2220,7 +2234,6 @@ matrix.crop.biodiversity.all %>%
 # using n_individual_study_sites because crop species vary between sites, as some studies include multiple sites with different species compositions and arrangements.
 
 ecosystem.data.raw <- 
-ecosystem.data <- 
   database %>% 
   filter(INCLUDED == TRUE) %>%
   # selecting Ecosystem services columns
