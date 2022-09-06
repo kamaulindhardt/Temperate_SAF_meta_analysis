@@ -2657,36 +2657,62 @@ temp.scale <- database %>%
 
   summarise(count = n()) %>%
   mutate(pct = count/sum(count)) %>% 
-  mutate(across(where(is.numeric), round, 3))  
+  mutate(across(where(is.numeric), round, 3)) %>%
+ # filter(DUR.SAMPLING != "NA") %>%                           # removing one entry that has NA
+  mutate(Tier_2_scale = DUR.SAMPLING) %>%
+  mutate(Tier_2_scale = recode(Tier_2_scale,                 # rename dataframe rows
+                               `< 2 years` = "< 2 years",
+                               `2 - 4 years` = "2 - 4 years",
+                               `4 - 10 years` = "4 - 10 years",
+                               `> 10 years` = "> 10 years",
+                               .keep = "all")) %>%
+  mutate(Tier_1_scale = recode(Tier_2_scale,                 # rename dataframe rows
+                               `< 2 years` = "Short",
+                               `2 - 4 years` = "Medium",
+                               `4 - 10 years` = "Long",
+                               `> 10 years` = "Very long",
+                               .keep = "all")) %>%
+  relocate(Tier_1_scale, Tier_2_scale)
 ```
 
 ```{r}
-temp.scale.pos <- temp.scale %>% 
-  mutate(csum = rev(cumsum(rev(count))), 
-         pos = count/2 + lead(csum, 1),
-         pos = if_else(is.na(pos), count/3, pos)) %>%
-  mutate(across(where(is.numeric), round, 3))
-
-labels <- c(var1 = "Custom Value 1", var2 = "Custom Value 2", var3 = "Custom Value 3")
-
-temp.scale %>%
-  ggplot(aes(x = "", y = count, fill = DUR.SAMPLING), alpha = 0.6) +
-  geom_col(width = 1) +
-  scale_fill_discrete_qualitative(palette = "Dynamic") +
-  #geom_text(aes(label = count),
-  #         position = position_stack(vjust = 0.5)) +
-  coord_polar(theta = "y") +
-  geom_label_repel(aes(y = temp.scale.pos$pos, label = paste0(DUR.SAMPLING, "; ", pct* 100, " %")),
-                   size = 4.5, nudge_x = 1, show.legend = FALSE) +
- # guides(fill = guide_legend(title = "Group")) +
-  scale_y_continuous(breaks = temp.scale.pos$pos, labels = temp.scale$DUR.SAMPLING) +
-  theme_bw() +
-  theme(axis.ticks = element_blank(),
-        axis.title = element_blank(),
-        axis.text = element_blank(), #element_text(size = 15), 
-        legend.position = "none", # Removes the legend
-        panel.background = element_rect(fill = "white")) 
+# Building a table with the data for the plot
+temporal.scale.PD.data <- temp.scale %>% 
+  group_by(Tier_1_scale, Tier_2_scale) %>%
+  summarise(n = sum(count)) %>%
+  ungroup()
 ```
+
+```{r warning=FALSE, message=FALSE}
+# Pie-Donut chart
+webr::PieDonut(temporal.scale.PD.data, 
+               aes(Tier_1_scale, Tier_2_scale, count = n), 
+               ratioByGroup = TRUE,
+               showPieName = FALSE,
+               addDonutLabel = FALSE,
+               showRatioDonut = FALSE,
+               showRatioPie = TRUE,
+               title = "Temporal scale used by studies",
+               r0 = 0.5, 
+               r1 = 1.2,
+               r2 = 1.5,
+               start = 3*pi/4,
+               selected = c(1, 2),
+               explode = c(1, 2),
+               explodeDonut = TRUE,
+               explodePos = 0.15,
+               explodePie = TRUE,
+               labelpositionThreshold = 0.8,
+               showRatioThreshold = 0.001,
+               labelposition = 8,
+               maxx = 2, 
+               use.labels = TRUE,
+               donutLabelSize = 3.6,
+               pieLabelSize = 3.8,
+               pieAlpha = 0.8)
+               #scale_fill_manual(values = colorspace::qualitative_hcl(8, palette = "Dynamic")))
+```
+
 
 **Spatial scale of studies**
 
@@ -2704,56 +2730,347 @@ spatial.scale <- database %>%
   summarise(count = n()) %>%
   mutate(pct = count/sum(count)) %>% 
   mutate(across(where(is.numeric), round, 3)) %>%
-  as.data.frame()
-
-# rename dataframe rows
+  mutate(Tier_2_scale = SCALE) %>%
+  select(!SCALE) %>%
+  mutate(Tier_2_scale = recode(Tier_2_scale,                 # rename dataframe rows
+                               PLOT = "Plot",
+                               PLOT.FARM = "Plot and farm",
+                               FARM = "Farm",
+                               LAND = "Landscape",
+                               PLOT.REGI = "Plot and regional",
+                               REGI = "Regional",
+                               NATI = "National",
+                               INTE = "International",
+                               .keep = "all")) %>%
+  mutate(Tier_1_scale = recode(Tier_2_scale,                 # rename dataframe rows
+                               Plot = "Small scale",
+                               `Plot and farm` = "Small scale",
+                               Farm = "Small scale",
+                               Landscape = "Medium scale",
+                               `Plot and regional` = "Medium scale",
+                               Regional = "Medium scale",
+                               National = "Large scale",
+                               International = "Large scale",
+                               .keep = "all")) %>%
+  relocate(Tier_1_scale, Tier_2_scale)
 ```
-
 
 ```{r}
-spatial.scale.pos <- spatial.scale %>% 
-  mutate(csum = rev(cumsum(rev(count))), 
-         pos = count/2 + lead(csum, 1),
-         pos = if_else(is.na(pos), count/3, pos)) %>%
-  mutate(across(where(is.numeric), round, 3))
-
-labels <- c(PLOT.FARM = "Plot and farm", var2 = "Custom Value 2", var3 = "Custom Value 3")
-
-spatial.scale %>%
-  ggplot(aes(x = "", y = count, fill = SCALE), alpha = 0.6) +
-  geom_col(width = 1) +
-  scale_fill_discrete_qualitative(palette = "Dynamic") +
-  #geom_text(aes(label = count),
-  #         position = position_stack(vjust = 0.5)) +
-  coord_polar(theta = "y") +
-  geom_label_repel(aes(y = spatial.scale.pos$pos, label = paste0(pct* 100, " %")),
-                   size = 4.5, nudge_x = 1, show.legend = FALSE) +
- # guides(fill = guide_legend(title = "Group")) +
-  scale_y_continuous(breaks = spatial.scale.pos$pos, labels = spatial.scale$SCALE) +
-  theme_bw() +
-  theme(axis.ticks = element_blank(),
-        axis.title = element_blank(),
-        axis.text = element_blank(), #element_text(size = 15), 
-        legend.position = "bottom", # Removes the legend
-        panel.background = element_rect(fill = "white")) 
+# Building a table with the data for the plot
+spatial.scale.PD.data <- spatial.scale %>% 
+  group_by(Tier_1_scale, Tier_2_scale) %>%
+  summarise(n = sum(count)) %>%
+  ungroup()
 ```
+
+```{r warning=FALSE, message=FALSE}
+# Pie-Donut chart
+webr::PieDonut(spatial.scale.PD.data, 
+               aes(Tier_1_scale, Tier_2_scale, count = n), 
+               ratioByGroup = FALSE,
+               showPieName = FALSE,
+               addDonutLabel = FALSE,
+               showRatioDonut = TRUE,
+               showRatioPie = TRUE,
+               title = "Spatial scale used by studies",
+               r0 = 0.5, 
+               r1 = 1.2,
+               r2 = 1.5,
+               start = 3*pi/4,
+               selected = c(1, 2),
+               explode = c(2, 3),
+               explodeDonut = TRUE,
+               explodePos = 0.15,
+               explodePie = TRUE,
+               labelpositionThreshold = 0.8,
+               showRatioThreshold = 0.001,
+               labelposition = 8,
+               maxx = 2.1, 
+               use.labels = TRUE,
+               donutLabelSize = 3.6,
+               pieLabelSize = 3.8,
+               pieAlpha = 0.8)
+               #scale_fill_manual(values = colorspace::qualitative_hcl(8, palette = "Dynamic")))
+```
+
+
 
 **Approach for ES assessment**
 
+```{r}
+study.approach <- database %>%
+  filter(INCLUDED == TRUE) %>%
+  
+  select(ID.P,
+         STUDY.FRAME) %>%
+  mutate_at(vars(-c(STUDY.FRAME)), as.numeric)
+
+ecosystem.data.renamed.DP <- 
+  ecosystem.data.renamed %>%
+  dplyr::select(ID.P,
+                
+                `Provisioning ES`,
+                `Regulating ES`,
+                `Supporting ES`,
+                `Cultural ES`) %>%
+  pivot_longer(cols = ends_with("ES"),
+               names_to = "ES",
+               values_to = "count")
+```
+
+```{r}
+study.approach.ecosystem <- left_join(x = study.approach, y = ecosystem.data.renamed.DP, 
+            by = c("ID.P" = "ID.P"))  %>%
+  relocate(ID.P) %>%
+  mutate_if(is.character, as.factor) %>%
+  select(!ID.P)
+
+# ---------------------------------------------------------------------------------------------------   
+
+# Building a table with the data for the plot
+ES.study.approach.PD.data <- study.approach.ecosystem %>% 
+  group_by(STUDY.FRAME, ES) %>%
+  rename("Approach" = STUDY.FRAME) %>%
+  rename("Ecosystem_Service" = ES) %>%
+  summarise(n = sum(count)) %>%
+  ungroup() %>% 
+  mutate(Type = "Approach") %>%
+  mutate(Approach = recode(Approach,                 # rename dataframe rows
+                           BIO.PHYS = "Biophysical",
+                           MIXED = "Mixed approach",
+                           MONETARY = "Monetary",
+                           SOCIO.CUL = "Socio-cultural"))
+```
+
+```{r warning=FALSE, message=FALSE}
+# Pie-Donut chart
+webr::PieDonut(ES.study.approach.PD.data, 
+               aes(Approach, Ecosystem_Service, count = n), 
+               ratioByGroup = FALSE,
+               showPieName = FALSE,
+               addDonutLabel = FALSE,
+               showRatioDonut = FALSE,
+               showRatioPie = TRUE,
+               title = "Ecosystem services devided on study approach",
+               r0 = 0.4, 
+               r1 = 1.1,
+               r2 = 1.6,
+               explode = c(1, 2, 3, 4),
+               start = 3*pi/5,
+               #selected = c(1, 2, 3, 4, 5, 6, 7),
+               explodeDonut = FALSE,
+               explodePos = 0.4,
+               labelpositionThreshold = 0.3,
+               showRatioThreshold = 0.001,
+               labelposition = 0.3,
+               maxx = 2.7, 
+               use.labels = FALSE,
+               donutLabelSize = 3.6,
+               pieLabelSize = 3.8,
+               pieAlpha = 0.8) 
+```
+```{r}
+ES.study.approach.PD.data.pie <- study.approach.ecosystem %>% 
+  group_by(STUDY.FRAME) %>%
+  rename("Approach" = STUDY.FRAME) %>%
+  summarise(n = sum(count)) %>%
+  ungroup() %>%
+  mutate(pct = (n/sum(n)*100)) %>%
+  mutate(across(where(is.numeric), round, 1))  
+
+#Dummy group variable
+ES.study.approach.PD.data.pie$row <- 1
+
+ES.study.approach.PD.data.pie %>%
+ggplot(aes(x = row, y = n, fill = Approach)) +
+    geom_bar(stat = "identity", alpha = 0.8) + 
+    geom_text(aes(label = pct), 
+        position = position_stack(vjust = 0.5)) +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 0, hjust = 1), legend.position = "bottom",
+        axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.line.y = element_blank(),
+        axis.text = element_text(size = 20))  +
+  scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              labels = trans_format("log10", math_format(10^.x))) +
+    labs(title = "",
+       caption = paste0("Total number of independent studies = ", n_independent_studies),
+       x = "", 
+       y = "Number of studies [log10 scale]") +
+  coord_flip()
+```
+
+
+**ES assessment**
+
 *Preparing data*
 ```{r}
-#devtools::install_github("cardiomoon/webr")
-# library(webr)
-PD <- 
-  database %>% 
-  group_by(STUDY.FRAME, ST.TYPE) %>% 
-  summarise(n = n())
+# ---------------------------------------------------------------------------------------------------   
+# summarising ES Tier 2 data using the base R apply function
+
+ecosystem.sum.data.PD <- 
+  data.frame(value = apply(ecosystem.data.renamed, # the dataset ecosystem.data.renamed has been generated earlier in the script
+                           MARGIN = 2, FUN = sum))
+
+
+ecosystem.sum.data.PD$ES.TIER2.GROUP = rownames(ecosystem.sum.data.PD) # providing the row names from the original dataset
+
+# --------------------------------------------------------------------------------------------------- 
+# Adding a column for Tier 1 ES ()
+
+ecosystem.sum.data.PD.tier1.tier2 <- 
+  ecosystem.sum.data.PD %>%
+  dplyr::select(!key) %>%
+  dplyr::filter(!ES.TIER2.GROUP %in% c("ID.P", # excluding ID.P and Tier 1 ES rows as that would not make sense in the Pie-Donut chart
+                                      "Provisioning ES",
+                                      "Regulating ES",
+                                      "Supporting ES",
+                                      "Cultural ES",
+                                      "Ecosystem Services")) %>%
+  as.tibble() %>%
+  
+     # --------------------------------------------------------------------------------------------------- 
+    # Specifying ES + CAT groups into ONLY ES = prov, regu, supp and cult. (CAT = agronomy, environment, economic and socio-cultural)
+    # --------------------------------------------------------------------------------------------------- 
+  mutate(ES.TIER1.GROUP = "x") %>%
+  mutate(ES.TIER1.GROUP = case_when(
+    str_detect(ES.TIER2.GROUP, "Food") ~ "Povisioning ES",
+    str_detect(ES.TIER2.GROUP, "Feed") ~ "Povisioning ES",
+    str_detect(ES.TIER2.GROUP, "Fibre") ~ "Povisioning ES",
+    str_detect(ES.TIER2.GROUP, "Fuel") ~ "Povisioning ES",               # "Fuel (firewood etc.)"
+    str_detect(ES.TIER2.GROUP, "Genetic resources") ~ "Povisioning ES",
+    str_detect(ES.TIER2.GROUP, "Biochemicals") ~ "Povisioning ES",
+    str_detect(ES.TIER2.GROUP, "Ornamentals") ~ "Povisioning ES",
+    str_detect(ES.TIER2.GROUP, "Fresh water") ~ "Povisioning ES",
+ 
+    # --------------------------------------------------------------------------------------------------- 
+    str_detect(ES.TIER2.GROUP, "Air regulation") ~ "Regulating ES",
+    str_detect(ES.TIER2.GROUP, "Climate regulation") ~ "Regulating ES",
+    str_detect(ES.TIER2.GROUP, "Carbon sequestration") ~ "Regulating ES",
+    str_detect(ES.TIER2.GROUP, "Water regulation") ~ "Regulating ES",
+    str_detect(ES.TIER2.GROUP, "Water purification") ~ "Regulating ES",
+    str_detect(ES.TIER2.GROUP, "Nutrient leaching regulation") ~ "Regulating ES",
+    str_detect(ES.TIER2.GROUP, "Erosion regulation") ~ "Regulating ES",
+    str_detect(ES.TIER2.GROUP, "Water availability") ~ "Regulating ES",
+    str_detect(ES.TIER2.GROUP, "Disease regulation") ~ "Regulating ES",
+    str_detect(ES.TIER2.GROUP, "Pest regulation") ~ "Regulating ES",
+    str_detect(ES.TIER2.GROUP, "Polination regulation") ~ "Regulating ES",
+    str_detect(ES.TIER2.GROUP, "Polination regulation") ~ "Regulating ES",
+    str_detect(ES.TIER2.GROUP, "Natural hazards regulation") ~ "Regulating ES",
+    # ---------------------------------------------------------------------------------------------------                 
+                  
+    str_detect(ES.TIER2.GROUP, "Soil formation") ~ "Supporting ES", 
+    str_detect(ES.TIER2.GROUP, "Photosynthesis") ~ "Supporting ES",
+    str_detect(ES.TIER2.GROUP, "Primary production") ~ "Supporting ES",   
+    str_detect(ES.TIER2.GROUP, "Nutrient cycling") ~ "Supporting ES",
+    str_detect(ES.TIER2.GROUP, "Water cycling") ~ "Supporting ES",
+    # --------------------------------------------------------------------------------------------------- 
+    
+    str_detect(ES.TIER2.GROUP, "Cultural diversity") ~ "Cultural ES",
+    str_detect(ES.TIER2.GROUP, "Spiritual value") ~ "Cultural ES",
+    str_detect(ES.TIER2.GROUP, "Knowledge systems") ~ "Cultural ES",
+    str_detect(ES.TIER2.GROUP, "Educational value") ~ "Cultural ES",
+    str_detect(ES.TIER2.GROUP, "Inspirational value") ~ "Cultural ES",
+    str_detect(ES.TIER2.GROUP, "Aesthetic value") ~ "Cultural ES",
+    str_detect(ES.TIER2.GROUP, "Social relations") ~ "Cultural ES",
+    str_detect(ES.TIER2.GROUP, "Sense of place") ~ "Cultural ES",
+    str_detect(ES.TIER2.GROUP, "Cultural heritage value") ~ "Cultural ES",
+    str_detect(ES.TIER2.GROUP, "Recreational and ecotourism") ~ "Cultural ES",
+    # --------------------------------------------------------------------------------------------------- 
+    
+    str_detect(ES.TIER2.GROUP, "Food (yield)") ~ "Povisioning ES",
+    str_detect(ES.TIER2.GROUP, "Biomass") ~ "Povisioning ES",
+    str_detect(ES.TIER2.GROUP, "Land equivalent ratio") ~ "Povisioning ES",
+    str_detect(ES.TIER2.GROUP, "Pests") ~ "Regulating ES",
+    str_detect(ES.TIER2.GROUP, "Diseases") ~ "Regulating ES",
+    str_detect(ES.TIER2.GROUP, "Weeds") ~ "Regulating ES",
+    str_detect(ES.TIER2.GROUP, "Product quality") ~ "Povisioning ES",
+    str_detect(ES.TIER2.GROUP, "Product stability") ~ "Povisioning ES",
+    str_detect(ES.TIER2.GROUP, "Mechanisa") ~ "Povisioning ES",           # "Mechanisation"
+    str_detect(ES.TIER2.GROUP, "Belowground") ~ "Povisioning ES",         # "Belowground (crop-tree) competition" 
+    str_detect(ES.TIER2.GROUP, "Aboveground") ~ "Povisioning ES",         # "Aboveground (crop-tree) light competition" 
+    str_detect(ES.TIER2.GROUP, "Nutrient use") ~ "Povisioning ES",
+    str_detect(ES.TIER2.GROUP, "Nutrient use effeciency") ~ "Povisioning ES",
+    str_detect(ES.TIER2.GROUP, "Breeding and selection") ~ "Povisioning ES",
+    # ---------------------------------------------------------------------------------------------------
+    
+    str_detect(ES.TIER2.GROUP, "Soil quality") ~ "Supporting ES",
+    str_detect(ES.TIER2.GROUP, "Biodiversity") ~ "Regulating ES",
+    str_detect(ES.TIER2.GROUP, "Carbon stock") ~ "Regulating ES",
+    str_detect(ES.TIER2.GROUP, "Greenhouse gas emissions") ~ "Regulating ES",
+    str_detect(ES.TIER2.GROUP, "Pollination") ~ "Regulating ES",
+    str_detect(ES.TIER2.GROUP, "Soil structure") ~ "Supporting ES",
+    str_detect(ES.TIER2.GROUP, "Chemical soil components") ~ "Supporting ES",
+    str_detect(ES.TIER2.GROUP, "Biological soil components") ~ "Supporting ES",
+    str_detect(ES.TIER2.GROUP, "Soil water") ~ "Supporting ES",
+    str_detect(ES.TIER2.GROUP, "Soil erosion") ~ "Regulating ES",
+    str_detect(ES.TIER2.GROUP, "Soil formations") ~ "Supporting ES",
+    str_detect(ES.TIER2.GROUP, "Water quality") ~ "Regulating ES",
+    str_detect(ES.TIER2.GROUP, "Water perculation") ~ "Regulating ES",
+    str_detect(ES.TIER2.GROUP, "Water cyclings") ~ "Supporting ES",
+    str_detect(ES.TIER2.GROUP, "Water availability") ~ "Regulating ES",
+    str_detect(ES.TIER2.GROUP, "Hydraulic lift") ~ "Regulating ES",
+    # ---------------------------------------------------------------------------------------------------
+    
+    str_detect(ES.TIER2.GROUP, "Economic profit related") ~ "Povisioning ES",
+    str_detect(ES.TIER2.GROUP, "Economic management related") ~ "Povisioning ES",
+    str_detect(ES.TIER2.GROUP, "Economic market related") ~ "Povisioning ES",
+    # ---------------------------------------------------------------------------------------------------
+    
+    str_detect(ES.TIER2.GROUP, "Landscape aesthetics") ~ "Cultural ES",
+    str_detect(ES.TIER2.GROUP, "Recreational and ecotourism") ~ "Cultural ES",
+    str_detect(ES.TIER2.GROUP, "Spiritual values") ~ "Cultural ES",
+    str_detect(ES.TIER2.GROUP, "Perception of adoptation") ~ "Cultural ES",
+    str_detect(ES.TIER2.GROUP, "Policy information") ~ "Cultural ES")) %>%
+  
+  relocate(ES.TIER1.GROUP, ES.TIER2.GROUP, value)
+
+ecosystem.sum.data.PD.tier1.tier2
 ```
+
+
+
 ```{r}
-# Pie-Donut chart
-webr::PieDonut(PD, aes(STUDY.FRAME, ST.TYPE, count = n), ratioByGroup = FALSE,
-               title = "The Pie-Donut chart")
+# Building a table with the data for the plot
+ES.PD.data <- ecosystem.sum.data.PD.tier1.tier2 %>% 
+  group_by(ES.TIER1.GROUP, ES.TIER2.GROUP) %>%
+  rename("ES_Tier_1" = ES.TIER1.GROUP) %>%
+  rename("ES_Tier_2" = ES.TIER2.GROUP) %>%
+  summarise(n = sum(value)) %>%
+  ungroup()
 ```
+
+```{r warning=FALSE, message=FALSE}
+# Pie-Donut chart
+webr::PieDonut(ES.PD.data, 
+               aes(ES_Tier_1, ES_Tier_2, count = n), 
+               ratioByGroup = TRUE,
+               showPieName = FALSE,
+               addDonutLabel = FALSE,
+               showRatioDonut = FALSE,
+               showRatioPie = FALSE,
+               title = "Ecosystem services frequency of occurance",
+               r0 = 0.4, 
+               r1 = 1.1,
+               r2 = 1.6,
+               explode = c(1, 2, 3, 4),
+               start = 3*pi/2,
+               #selected = c(1, 2, 3, 4, 5, 6, 7),
+               explodeDonut = TRUE,
+               explodePos = 0.05,
+               labelpositionThreshold = 0.2,
+               showRatioThreshold = 0.001,
+               labelposition = 0.3,
+               maxx = 2.2, 
+               use.labels = FALSE,
+               donutLabelSize = 2.8,
+               pieLabelSize = 3.1,
+               pieAlpha = 0.8) 
+```
+
+
+
 
 
 **Number of ES studies per paper**

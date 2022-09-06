@@ -46,15 +46,16 @@ pacman::p_load(tidyverse,
                rnaturalearthdata,  # holds data used by rnaturalearth package from Natural Earth.
                
                readr,
-               vroom,              # for crazy fast method of loading/reading datasets from local disc
+               vroom,       # for crazy fast method of loading/reading datasets from local disc
                readxl,
                ggplot2,
                ggdensity,
                
-               raster,             # for general spatial analysis and in particular for downloading BioClim variables from WorldClim
+               raster,      # for general spatial analysis and in particular for downloading BioClim variables from WorldClim
                sp,
+               sf,
                
-               soilDB,             # for downloading predicted soil properties from ISRIC SoilGrids
+               soilDB,      # for downloading predicted soil properties from ISRIC SoilGrids
                aqp)        
 
   })
@@ -75,31 +76,31 @@ database.geospatial <- read_excel("DATA/DATABASE_2.0.xlsx",
 
 
 **Deriving latitude and longitude of study site locations** - *be aware: this piece of code takes a while to run*
-```{r Deriving latitude and longitude, eval = FALSE}
+```{r Deriving latitude and longitude, warning=FALSE, message=FALSE, eval = FALSE}
 # Notice this piece of code takes a ffew minutes, as hundreds of lat long coordinates has to be derived based on names in the STUDY.LOC.SPEC.COORDS column
 
-database.lat.long <- database.geospatial %>%
+database.lat.lon <- database.geospatial %>%
   tidygeocoder::geocode(STUDY.LOC.SPEC.COORDS, method = 'osm', lat = latitude , long = longitude) 
 
 # Saving the dataset with derived coordinates unto local disc
-readr::write_rds(database.lat.long, "./DATASET.FROM.SCRIPT/database.lat.long.Rds")
+readr::write_csv(database.lat.lon, "./DATASET.FROM.SCRIPT/database.lat.lon.csv")
 ```
 
 Loading dataset with lat long coordinates from local disc
 ```{r Loading dataset with lat long coordinates}
 
-database.lat.long <- vroom::vroom("./DATASET.FROM.SCRIPT/database.lat.long.Rds")
+database.lat.lon <- vroom::vroom("./DATASET.FROM.SCRIPT/database.lat.lon.csv")
 ```
 
 Defining number of independent studies and number of observations based on individual study sites
 ```{r Number of studies and study sites}
-n_independent_studies <- database.lat.long %>% 
+n_independent_studies <- database.lat.lon %>% 
   distinct(ID.P) %>%
   nrow()
 
 # n_independent_studies = 73 (16 aug. 2022)
 
-n_individual_study_sites <- database.lat.long %>%
+n_individual_study_sites <- database.lat.lon %>%
   distinct(ID.P, ID.S) %>%
   nrow()
 
@@ -108,18 +109,18 @@ n_individual_study_sites <- database.lat.long %>%
 
 Re-locating the column names to get a better overview of lat long
 ```{r Re-locating the column names to get lat long}
-database.lat.long <-
-  database.lat.long %>%
+database.lat.lon <-
+  database.lat.lon %>%
   relocate(ID.P, ID.S, TITLE,
            latitude, longitude, STUDY.LOC.COUNTRY, STUDY.LOC.SPEC, STUDY.LOC.SPEC.COORDS)
 
-# View(database.lat.long) # <-  un-comment to see the database with lat long
+# View(database.lat.lon) # <-  un-comment to see the database with lat long
 ```
 
 
 *Listing study sites with missing value in the latitude column*
 ```{r Study sites with missing lat (long) values, eval=FALSE}
-location.missing <- database.lat.long %>%
+location.missing <- database.lat.lon %>%
   filter_all(any_vars(is.na(latitude))) %>%
   relocate(ID.P, ID.S, TITLE,
            latitude, longitude, STUDY.LOC.COUNTRY, STUDY.LOC.SPEC, STUDY.LOC.SPEC.COORDS)
@@ -137,7 +138,7 @@ Visualising the locations on a map
 ```{r Quick plot of the locations on a map}
 # using n_individual_study_sites because some studies include multiple sites with different system traits, species compositions and arrangements. 
 
-database.lat.long %>%
+database.lat.lon %>%
 ggplot(aes(longitude, latitude), color = "grey99") +
   borders("world") + 
   geom_point(aes(color = ST.TYPE), size = 0.5, alpha = 0.8) +
@@ -155,22 +156,22 @@ Most prevailing countries - where most studies (study sites) have been conducted
 ```{r Where most studies (study sites) have been conducted}
 # using n_individual_study_sites because system traits vary between sites, as some studies include multiple sites with different species compositions and arrangements. 
 
-database.lat.long %>%
+database.lat.lon %>%
   count(STUDY.LOC.COUNTRY, sort = TRUE) 
 
 
 # using n_independent_studies  
 
 pub.country.geo <- 
-  database.lat.long %>% 
-  filter(INCLUDED == TRUE) %>%
-  select(ID.P, STUDY.LOC.COUNTRY) %>%
+  database.lat.lon %>% 
+  dplyr::filter(INCLUDED == TRUE) %>%
+  dplyr::select(ID.P, STUDY.LOC.COUNTRY) %>%
   distinct(ID.P,  STUDY.LOC.COUNTRY) %>%
   group_by(STUDY.LOC.COUNTRY) %>% 
 
   summarise(no_studies = n()) %>%
-  mutate_if(is.integer, as.numeric) %>%
-  filter(no_studies > 2) %>%
+  dplyr::mutate_if(is.integer, as.numeric) %>%
+  dplyr::filter(no_studies > 2) %>%
   arrange(desc(no_studies)) 
 ```
 
@@ -229,7 +230,7 @@ see also more information: https://worldclim.org/data/v1.4/formats.html and on t
 Dataframe with coordinates 
 ```{r Creating the simple dataframe with coordinates}
 # Make a dataframe with coordinates
-study.site.coords <- database.lat.long %>%
+study.site.coords <- database.lat.lon %>%
   relocate(ID.P, ID.S, TITLE,
            latitude, longitude, STUDY.LOC.COUNTRY, STUDY.LOC.SPEC, STUDY.LOC.SPEC.COORDS) %>%
   dplyr::select(longitude, latitude)
@@ -248,7 +249,7 @@ coords <- data.frame(x = longitude,
 ```
 
 Extracting/downloading BioClim variables using the getData() function from the raster package
-```{r Extracting/downloading BioClim variables, eval=FALSE}
+```{r Extracting/downloading BioClim variables, warning=FALSE, message=FALSE, eval=FALSE}
 # downloading bioclimatic variables from worldclim at a resolution of 2.5 minutes
 # this is saved as a RasterStack object that contains all the 19 bioclim variables
 
@@ -265,18 +266,19 @@ points <- SpatialPoints(coords, proj4string = bioclim.temp.precip@crs)
 
 # extracting point-specific information on temperature and precipitation from the bioclim RasterStack object using the point coordinates
 temp.precip.values <- raster::extract(x = bioclim.temp.precip, 
-                                      y = points)
+                                      y = points) %>%
+  as.data.frame()
 
 
 # Saving the temp.precip.values dataset with derived coordinates unto local disc
-readr::write_rds(temp.precip.values, "./DATASET.FROM.SCRIPT/temp.precip.values.Rds")
+readr::write_csv(temp.precip.values, "./DATASET.FROM.SCRIPT/temp.precip.values.csv")
 ```
 
 
 Loading BioClim dataset (temperature and precipitation) with lat long coordinates from local disc
 ```{r Loading dataset with lat long coordinates}
 
-temp.precip.values <- vroom::vroom("./DATASET.FROM.SCRIPT/temp.precip.values.Rds")
+temp.precip.values <- vroom::vroom("./DATASET.FROM.SCRIPT/temp.precip.values.csv")
 ```
 
 *Merging (joining) the location-specific temperature and precipitation values to the coordinates (x,y)*
@@ -291,7 +293,7 @@ bioclim.point.data.tbl <- as_tibble(bioclim.point.data)
 
 # ------------------------------------------------------------------------------------------------
 database.coords.bioclim  <- 
-  left_join(x = database.lat.long, y = bioclim.point.data.tbl, 
+  left_join(x = database.lat.lon, y = bioclim.point.data.tbl, 
             by = c("longitude" = "longitude",
                    "latitude" = "latitude"))  %>%
   mutate_at(c("ID.P", "ID.S"), as.numeric) %>%
@@ -337,8 +339,8 @@ Dataframe with coordinates and id
 ```{r Creating the study site location dataframe}
 # creating simple dataframe that only contains id and location (lat., lon.)
 database.locations.df <- 
-  database.lat.long %>% 
-  select(ID.P, ID.S,
+  database.lat.lon %>% 
+  dplyr::select(ID.P, ID.S,
          latitude, longitude) %>%
   dplyr::mutate_at(vars(ID.P, ID.S), as.numeric) %>%
   
@@ -353,17 +355,17 @@ database.locations.df <-
                 "lon" = longitude,
                 "id" = ID) %>%
   dplyr::mutate_at(vars(id), as.numeric) %>%
-  select(id, lat, lon) %>%
+  dplyr::select(id, lat, lon) %>%
   as.data.frame()
 ```
 
 Extracting/downloading soil variables from ISRIC SoilGrids using the fetchSoilGrids() function from the soilsDB package.
-```{r Extracting/downloading SoilGrids soil variables, eval=FALSE}
+```{r Extracting/downloading SoilGrids soil variables, warning=FALSE, message=FALSE, eval=FALSE}
 # be aware that this function call takes quite some time, this is also why results are saved to local disc
 SoilGrids.data <- soilDB::fetchSoilGrids(x = database.locations.df,
-                                         progress = TRUE)
+                                         progress = TRUE) 
 
-# class(SoilGrids.data)
+# not a dataframe: class(SoilGrids.data)
 
 # Saving the downloaded SoilGrids dataset unto local disc
 readr::write_rds(SoilGrids.data, "./DATASET.FROM.SCRIPT/SoilGrids.data.Rds")
@@ -372,7 +374,7 @@ readr::write_rds(SoilGrids.data, "./DATASET.FROM.SCRIPT/SoilGrids.data.Rds")
 Loading SoilGrids dataset from local disc
 ```{r Loading SoilGrids dataset}
 
-SoilGrids.data <- vroom::vroom("./DATASET.FROM.SCRIPT/SoilGrids.data.Rds")
+SoilGrids.data <- readr::read_rds("./DATASET.FROM.SCRIPT/SoilGrids.data.Rds")
 ```
 
 Generating dataframe with fetched soil variables 
@@ -398,7 +400,7 @@ merged.soilgrids <-
 
 # secondly, we join this newly formed dataset to the 'original' dataframe that contains all other information (using coordinates)
 database.coords.soilgrids <- 
-  left_join(x = merged.soilgrids, y = database.lat.long,
+  left_join(x = merged.soilgrids, y = database.lat.lon,
           by = c("lat" = "latitude",
                  "lon" = "longitude")) %>%
   mutate_at(c("ID.P", "ID.S"), as.numeric) %>%
@@ -421,13 +423,13 @@ merged.database.coords.biophys <-
            claymean, sandmean, siltmean, bdodmean, nitrogenmean, socmean, phh2omean, cecmean)
 
 # Saving the combined dataset with biopphysical information unto local disc
-readr::write_rds(merged.database.coords.biophys, "./DATASET.FROM.SCRIPT/merged.database.coords.biophys.Rds")
+readr::write_csv(merged.database.coords.biophys, "./DATASET.FROM.SCRIPT/merged.database.coords.biophys.csv")
 ```
 
-Loading the combined database with location-specific biopphysical data from local disc
-```{r Loading location-specific biopphysical dataset}
+Loading the combined database with location-specific biophysical data from local disc
+```{r Loading location-specific biopphysical dataset, warning=FALSE, message=FALSE}
 
-database.biopphys <- vroom::vroom("./DATASET.FROM.SCRIPT/merged.database.coords.biophys.Rds")
+database.biophys <- vroom::vroom("./DATASET.FROM.SCRIPT/merged.database.coords.biophys.csv")
 ```
 
 
@@ -435,8 +437,9 @@ database.biopphys <- vroom::vroom("./DATASET.FROM.SCRIPT/merged.database.coords.
 
 **Tree species - Temperature**
 
-Merging with trees family groups with the biophys database
-```{r Merging with trees family groups with the biophys database}
+*Preparing the trees data*
+Preparing the trees data and adding new columns with group (genera) names
+```{r Preparing the tree data}
 # loading the trees data
 trees <- read_excel("DATA/DATABASE_2.0.xlsx", 
     sheet = "TREE_SPECIES") %>%
@@ -450,15 +453,19 @@ trees <- read_excel("DATA/DATABASE_2.0.xlsx",
   filter(TREE.FAMILY.GROUP != "NA") %>%
   relocate(ID.P, ID.S, TREE.SPECIES, TREE.FAMILY.GROUP) %>%
   mutate_at(c("ID.P", "ID.S"), as.numeric)
-  
+```
 
+*Merging tree data with biophys data*
+Merging with trees family groups with the biophys database
+
+```{r Merging with trees family groups with the biophys database}
 # merging trees data with the biophys database
 trees.coords.data <- 
   full_join(database.biopphys, trees,
             by = c("ID.P" = "ID.P",
                    "ID.S" = "ID.S")) %>%
-  dplyr::select(TREE.FAMILY.GROUP, lat, lon, Temp) %>%
-  dplyr::distinct(TREE.FAMILY.GROUP, lat, lon, Temp)
+  dplyr::select(TREE.FAMILY.GROUP, lat, lon, Temp, Prec) %>%
+  dplyr::distinct(TREE.FAMILY.GROUP, lat, lon, Temp, Prec)
 ```
 
 
@@ -506,7 +513,7 @@ trees.temp.violin.plot
 
 
 ```{r}
-model.lm <- lm(Temp ~ TREE.FAMILY.GROUP, data = trees.coord.data)
+model.lm <- lm(Temp ~ TREE.FAMILY.GROUP, data = trees.coords.data)
 summary(model.lm)
 ```
 
@@ -547,7 +554,7 @@ trees.coords.data <-
 Interrow distance and latitude
 ```{r}
 data <- 
-database.lat.long.bioclim %>%
+database.lat.lon %>%
   filter(CA.DIST.INTERROW != "NA" & latitude != "NA") %>%
   mutate_at('CA.DIST.INTERROW', as.numeric) %>%
   filter(CA.DIST.INTERROW <= 80) %>%
@@ -567,7 +574,7 @@ lm_eqn <- function(df){
 
 ```{r}
 lat.interrow.plot <- 
-database.lat.long.bioclim %>%
+database.lat.lon %>%
   filter(CA.DIST.INTERROW != "NA" & latitude != "NA") %>%
   mutate_at('CA.DIST.INTERROW', as.numeric) %>%
   filter(CA.DIST.INTERROW <= 80) %>%
@@ -589,6 +596,8 @@ database.lat.long.bioclim %>%
        x = "Alley crop interrow distance [m]",
        y = "Latitude") 
   #ggtitle("B")
+
+lat.interrow.plot
 ```
 
 ```{r}
@@ -605,7 +614,7 @@ ggplot() +
     color = "white", fill = "lightgray", size = 0.1
   ) +
   geom_point(
-    data = database.lat.long.bioclim,
+    data = database.biophys,
     aes(longitude, latitude, color = "red"),
     alpha = 0.95, size = 0.2
   ) +
@@ -630,6 +639,8 @@ Zooming in on Europe
 Now what if we wanted to use the Mollweide projection again as target projection
 ```{r}
 # At first, we set the target CRS and transform the whole worldmap dataset to that CRS.
+worldmap <- ne_countries(scale = 'medium', type = 'map_units',
+                         returnclass = 'sf')
 target_crs <- '+proj=moll'
 worldmap_trans <- st_transform(worldmap, crs = target_crs)
 
@@ -698,7 +709,7 @@ ggplot() + geom_sf(data = worldmap) +
   
     coord_sf(xlim = lon_bounds.eu, ylim = lat_bounds.eu) + theme_bw() +
     geom_point(
-    data = database.lat.long.bioclim,
+    data = database.biophys,
     aes(longitude, latitude, color = "red"),
     alpha = 0.7, size = 0.5
   ) +
@@ -726,7 +737,7 @@ ggplot() + geom_sf(data = worldmap) +
   
     coord_sf(xlim = lon_bounds.na, ylim = lat_bounds.na) + theme_bw() +
     geom_point(
-    data = database.lat.long.bioclim,
+    data = database.biophys,
     aes(longitude, latitude, color = "red"),
     alpha = 0.7, size = 0.5
   ) +
@@ -760,11 +771,11 @@ p
 **Trees - Precipitation**
 
 ```{r warning=FALSE, message=FALSE}
-trees.coord.data %>%
+trees.coords.data %>%
   filter(TREE.FAMILY.GROUP != "NA") %>%
   filter(Prec > 0) %>%
   group_by(TREE.FAMILY.GROUP) %>% 
-  filter(n() >= 35) %>%
+  filter(n() >= 10) %>%
 
   ggplot(aes(y = Prec, x = reorder(TREE.FAMILY.GROUP, Prec))) +
   geom_violin(aes(fill = TREE.FAMILY.GROUP, alpha = 0.8)) +

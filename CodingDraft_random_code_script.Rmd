@@ -1728,3 +1728,217 @@ joined.es.bd.cat.systrait.crop <-
   select(-ST.TYPE)
 ```
 
+*Preparing data*
+```{r}
+#devtools::install_github("cardiomoon/webr")
+# library(webr)
+PD <- 
+  database %>% 
+  group_by(STUDY.FRAME, ST.TYPE) %>% 
+  summarise(n = n())
+```
+```{r}
+# Pie-Donut chart
+webr::PieDonut(PD, aes(STUDY.FRAME, ST.TYPE, count = n), ratioByGroup = FALSE,
+               title = "The Pie-Donut chart")
+```
+
+```{r}
+  dplyr::group_by(`Food (yield)`, 
+                  `Feed`,
+                  `Fibre`,
+                  `Fuel (firewood etc.)`,
+                  `Genetic resources`,
+                  `Biochemicals`,
+                  `Ornamentals`,
+                  `Fresh water`,
+                  
+                  `Air regulation`,
+                  `Climate regulation`,
+                  `Carbon sequestration`,
+                  `Water regulation`,
+                  `Erosion regulation`,
+                  `Water purification`,
+                  `Disease regulation`,
+                  `Pest regulation`,
+                  `Polination regulation`,
+                  `Natural hazards regulation`,
+                  
+                  `Soil formation`,
+                  `Photosynthesis`,
+                  `Primary production`,
+                  `Nutrient cycling`,
+                  `Water cycling`,
+     
+                  `Cultural diversity`,
+                  `Spiritual value`,
+                  `Knowledge systems`,
+                  `Educational value`,
+                  `Inspirational value`,
+                  `Aesthetic value`,
+                  `Social relations`,
+                  `Sense of place`,
+                  `Cultural heritage value`,
+                  `Recreational and ecotourism`) %>% 
+  summarise(n = sum()) %>%
+  ungroup()
+```
+
+
+Food (yield)
+Feed
+Fibre
+Fuel (firewood etc.)
+Genetic resources
+Biochemicals
+Ornamentals
+Fresh water
+       
+Air regulation
+Climate regulation
+Carbon sequestration
+Water regulation
+Erosion regulation
+Water purification
+Disease regulation
+Pest regulation
+Polination regulation
+Natural hazards regulation
+       
+Soil formation
+Photosynthesis
+Primary production
+Nutrient cycling
+Water cycling
+     
+Cultural diversity
+Spiritual value
+Knowledge systems
+Educational value
+Inspirational value
+Aesthetic value
+Social relations
+Sense of place
+Cultural heritage value
+Recreational and ecotourism
+         
+Provisioning ES
+Regulating ES
+Supporting ES
+Cultural ES
+Ecosystem Services
+
+```{r}
+```{r}
+#devtools::install_github("cardiomoon/webr")
+# library(webr)
+ES.TIER1 <- 
+ ecosystem.data.renamed %>%
+  dplyr::select(ID.P,
+                `Provisioning ES`, `Regulating ES`, `Supporting ES`, `Cultural ES`) %>%
+  pivot_longer(cols = !ID.P,
+               names_to = "ES.TIER1.GROUP",
+               values_to = "value") 
+
+ES.TIER2 <- 
+ ecosystem.data.renamed %>%
+  dplyr::select(ID.P,
+                !c(`Ecosystem Services`, `Provisioning ES`, `Regulating ES`, `Supporting ES`, `Cultural ES`)) %>%
+  pivot_longer(cols = !ID.P,
+               names_to = "ES.TIER2.GROUP",
+               values_to = "value")
+ 
+ES.TIER2
+```
+
+```{r}
+ES.PD.data <- 
+  left_join(x = ES.TIER1, y = ES.TIER2, 
+            by = c("ID.P" = "ID.P"))  %>%
+  select(-(ends_with(".x") | ends_with(".y"))) %>%
+  relocate(ID.P) %>%
+  group_by(ES.TIER1.GROUP, ES.TIER2.GROUP) %>%
+  summarise(n_ES.GROUP = n())
+
+
+  dplyr::group_by(ES.TIER1.GROUP, ES.TIER2.GROUP) %>%
+  summarise(count = n()) %>%
+  ungroup()
+
+# Building a table with the data for the plot
+ES.PD.data <- ES.PD.data %>% 
+  dplyr::group_by(ES.TIER1.GROUP, ES.TIER2.GROUP) %>% 
+  summarise(n = sum(count))
+```
+
+```{r}
+spatial.scale.pos <- spatial.scale %>% 
+  mutate(csum = rev(cumsum(rev(count))), 
+         pos = count/2 + lead(csum, 1),
+         pos = if_else(is.na(pos), count/3, pos)) %>%
+  mutate(across(where(is.numeric), round, 3))
+
+labels <- c(PLOT.FARM = "Plot and farm", var2 = "Custom Value 2", var3 = "Custom Value 3")
+
+spatial.scale %>%
+  ggplot(aes(x = "", y = count, fill = SCALE), alpha = 0.6) +
+  geom_col(width = 1) +
+  scale_fill_discrete_qualitative(palette = "Dynamic") +
+  #geom_text(aes(label = count),
+  #         position = position_stack(vjust = 0.5)) +
+  coord_polar(theta = "y") +
+  geom_label_repel(aes(y = spatial.scale.pos$pos, label = paste0(pct* 100, " %")),
+                   size = 4.5, nudge_x = 1, show.legend = FALSE) +
+ # guides(fill = guide_legend(title = "Group")) +
+  scale_y_continuous(breaks = spatial.scale.pos$pos, labels = spatial.scale$SCALE) +
+  theme_bw() +
+  theme(axis.ticks = element_blank(),
+        axis.title = element_blank(),
+        axis.text = element_blank(), #element_text(size = 15), 
+        legend.position = "bottom", # Removes the legend
+        panel.background = element_rect(fill = "white")) 
+```
+
+```{r}
+temp.scale.pos <- temp.scale %>% 
+  mutate(csum = rev(cumsum(rev(count))), 
+         pos = count/2 + lead(csum, 1),
+         pos = if_else(is.na(pos), count/3, pos)) %>%
+  mutate(across(where(is.numeric), round, 3))
+
+labels <- c(var1 = "Custom Value 1", var2 = "Custom Value 2", var3 = "Custom Value 3")
+
+temp.scale %>%
+  ggplot(aes(x = "", y = count, fill = DUR.SAMPLING), alpha = 0.6) +
+  geom_col(width = 1) +
+  scale_fill_discrete_qualitative(palette = "Dynamic") +
+  #geom_text(aes(label = count),
+  #         position = position_stack(vjust = 0.5)) +
+  coord_polar(theta = "y") +
+  geom_label_repel(aes(y = temp.scale.pos$pos, label = paste0(DUR.SAMPLING, "; ", pct* 100, " %")),
+                   size = 4.5, nudge_x = 1, show.legend = FALSE) +
+ # guides(fill = guide_legend(title = "Group")) +
+  scale_y_continuous(breaks = temp.scale.pos$pos, labels = temp.scale$DUR.SAMPLING) +
+  theme_bw() +
+  theme(axis.ticks = element_blank(),
+        axis.title = element_blank(),
+        axis.text = element_blank(), #element_text(size = 15), 
+        legend.position = "none", # Removes the legend
+        panel.background = element_rect(fill = "white")) 
+```
+
+```{r}
+temporal.scale.PD.data %>%
+ggplot(aes(x = 2, y = n, fill = Tier_1_scale)) +
+  geom_col(alpha = 0.8) +
+  coord_polar(theta = "y") +
+  theme(panel.background = element_blank(),
+        axis.line = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        axis.title = element_blank(),
+        plot.title = element_text(hjust = 0.5, size = 12)) +
+  ggtitle("Temporal scale used by studies") +
+  #scale_fill_manual(values = colours) +
+  xlim(c(0.2, 2 + 0.5)) 
+```
