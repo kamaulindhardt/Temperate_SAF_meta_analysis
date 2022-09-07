@@ -1942,3 +1942,100 @@ ggplot(aes(x = 2, y = n, fill = Tier_1_scale)) +
   #scale_fill_manual(values = colours) +
   xlim(c(0.2, 2 + 0.5)) 
 ```
+
+Creating a function for plotting tree genera vs. soil variables
+
+
+```{r}
+fun.tree.genera.soil <- function(tree.soil.data, soil.variable){
+
+trees.soil.data <- tree.soil.data
+sandmean <- soil.variable
+
+# ------------------------------------------------------------------------------------------------------   
+# generating plot
+trees.sand.violin.plot <- 
+trees.soil.data %>%
+  filter(TREE.FAMILY.GROUP != "NA") %>%
+  filter(sandmean > 0) %>%
+  group_by(TREE.FAMILY.GROUP) %>% 
+  filter(n() >= 10) %>%
+
+  ggplot(aes(y = sandmean, x = reorder(TREE.FAMILY.GROUP, sandmean))) +
+  geom_violin(aes(fill = TREE.FAMILY.GROUP, alpha = 0.7)) +
+  stat_summary(
+    fun.data = "mean_sdl",  fun.args = list(mult = 1), 
+    geom = "pointrange", color = "black"
+    ) +
+  geom_jitter(height = 5, width = 0.1,
+              size = 1.1, aes(col = TREE.FAMILY.GROUP, alpha = 0.8)) +
+  theme_bw() +
+  ylim(0, 50) +
+  theme(axis.text.x = element_text(angle = 0, hjust = 1), legend.position = "none") +
+  scale_colour_discrete_qualitative(palette = "Dynamic") +
+  labs(title = "Distribution of tree genera across soil sand content gradients",
+       subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
+       caption = paste0("Total number of independent studies = ", n_independent_studies),
+       x = "Tree genera",
+       y = "Soil sand content [%]") +
+  coord_flip()
+  
+
+trees.sand.violin.plot
+
+# ------------------------------------------------------------------------------------------------------ 
+# printing the output of the function (essentially the plot)
+
+return(trees.sand.violin.plot)
+  
+}
+```
+
+Testing function
+```{r}
+fun.tree.genera.soil(tree.soil.data = trees.soil.data, 
+                     soil.variable = "bdodmean")
+```
+
+Europe map
+```{r}
+# We can now plot the map with the specified display window for zoom level 2, highlighting the zoom center for Europe
+sample <- data.frame(Longitude=c(-1+rnorm(50,0,.5),-2+rnorm(50,0,0.5),-4.5+rnorm(50,0,.5)),
+                     Latitude =c(52+rnorm(50,0,.5),54+rnorm(50,0,0.5),56+rnorm(50,0,.5)))
+UKmap  <- readOGR(dsn = ".", layer = "GBR_adm1")
+map.df <- fortify(worldmap)
+
+database.lat.lon %>%
+ggplot(aes(x = longitude, y = latitude)) + 
+  stat_density2d(aes(fill = ..level..), alpha = 0.5, geom = "polygon") +
+  geom_point(colour = "red") +
+  geom_sf(data = worldmap) +
+  scale_fill_gradientn(colours = rev(brewer.pal(7, "Spectral")))+
+  xlim(-10, +2.5) +
+  coord_fixed()
+
+
+ggplot() + geom_sf(data = worldmap) +
+    geom_sf(data = st_sfc(st_point(zoom_to.eu), crs = 4326),
+            color = 'blue', alpha = 0) +
+  
+    coord_sf(xlim = lon_bounds.eu, ylim = lat_bounds.eu) + theme_bw() +
+    geom_point(
+    data = database.lat.lon,
+    aes(longitude, latitude, color = ST.TYPE),
+    alpha = 0.7, size = 0.8
+  ) +
+  scale_x_continuous(label = abs) +
+    scale_y_continuous(label = abs) +
+    theme_bw() +
+   theme(axis.text.x = element_text(angle = 0, hjust = 1), legend.position = "none",
+         plot.margin = margin(t = 0, r = 58, b = 0, l = 0, unit = "pt")) +
+    labs(#title = "Locations of study sites for peer-reviewed silvoarable agroforestry",
+      # subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
+      # caption = paste0("Total number of independent studies = ", n_independent_studies),
+       x = "Longitude",
+       y = "Latitude") 
+  #labs(title = "Locations of study sites in Europe")
+
+map.europe
+```

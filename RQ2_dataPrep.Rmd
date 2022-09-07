@@ -29,6 +29,7 @@ Packages to be installed first
 # install.packages("gridExtra")
 # install.packages("soilDB")
 # install.packages("aqp")
+# install.packages("geodata")
 ```
 
 Loading packages and libraries
@@ -52,6 +53,7 @@ pacman::p_load(tidyverse,
                ggdensity,
                
                raster,      # for general spatial analysis and in particular for downloading BioClim variables from WorldClim
+               #geodata     # use geodata::worldclim_global() instead of raster::getData() if encounting issues
                sp,
                sf,
                
@@ -89,7 +91,30 @@ readr::write_csv(database.lat.lon, "./DATASET.FROM.SCRIPT/database.lat.lon.csv")
 Loading dataset with lat long coordinates from local disc
 ```{r Loading dataset with lat long coordinates}
 
-database.lat.lon <- vroom::vroom("./DATASET.FROM.SCRIPT/database.lat.lon.csv")
+database.lat.lon <- vroom::vroom("./DATASET.FROM.SCRIPT/database.lat.lon.csv") %>%
+  filter(INCLUDED == TRUE) %>%
+  
+  mutate(`SAF System Trait type` = recode(ST.TYPE,                      # rename dataframe rows
+                                          RBS = "Riparian buffer strips",
+                                          SHB = "Line belts *",
+                                          MIXED = "Mixed systems",
+                                          TIMBER.ARABLE = "Timber - Arable",
+                                          BIOMASS.ARABLE = "Biomass - Arable",
+                                          NUT.ARABLE = "Nut - Arable",
+                                          FRUIT.ARABLE = "Fruit - Arable",
+                                          .keep = "all")) %>%
+  
+  dplyr::mutate(ST.TYPE.PROD.TYPE = "x") %>%
+  mutate(ST.TYPE.PROD.TYPE = recode(ST.TYPE,                      # rename dataframe rows
+                                    TIMBER.ARABLE = "Biomass",
+                                    BIOMASS.ARABLE = "Biomass",
+                                    NUT.ARABLE = "Food",
+                                    FRUIT.ARABLE = "Food",
+                                    RBS = "Multiple",
+                                    SHB = "Multiple",
+                                    MIXED = "Multiple",
+                                    .keep = "all")) 
+glimpse(database.lat.lon)
 ```
 
 Defining number of independent studies and number of observations based on individual study sites
@@ -253,7 +278,9 @@ Extracting/downloading BioClim variables using the getData() function from the r
 # downloading bioclimatic variables from worldclim at a resolution of 2.5 minutes
 # this is saved as a RasterStack object that contains all the 19 bioclim variables
 
-bioclim.rasterstack <- raster::getData("worldclim",
+# be aware of the warning ""getData will be removed in a future version of raster\n. Please use the geodata package instead"
+# in the future the getData() function from raster might be depreciated. Instead use geodata::worldclim_global()
+bioclim.rasterstack <- raster::getData("worldclim",     
                                var = "bio",
                                res = 2.5)
 
@@ -435,11 +462,11 @@ database.biophys <- vroom::vroom("./DATASET.FROM.SCRIPT/merged.database.coords.b
 
 ## RQ2.a - How does the system properties temperature and precipitation drive inter-site differences?
 
-**Tree species - Temperature**
+**Tree genera - Temperature**
 
 *Preparing the trees data*
 Preparing the trees data and adding new columns with group (genera) names
-```{r Preparing the tree data}
+```{r Preparing the tree data, warning=FALSE, message=FALSE}
 # loading the trees data
 trees <- read_excel("DATA/DATABASE_2.0.xlsx", 
     sheet = "TREE_SPECIES") %>%
@@ -455,7 +482,7 @@ trees <- read_excel("DATA/DATABASE_2.0.xlsx",
   mutate_at(c("ID.P", "ID.S"), as.numeric)
 ```
 
-*Merging tree data with biophys data*
+*Merging tree data with biophys data (including both temperature and precipitation)*
 Merging with trees family groups with the biophys database
 
 ```{r Merging with trees family groups with the biophys database}
@@ -464,12 +491,12 @@ trees.coords.data <-
   full_join(database.biopphys, trees,
             by = c("ID.P" = "ID.P",
                    "ID.S" = "ID.S")) %>%
-  dplyr::select(TREE.FAMILY.GROUP, lat, lon, Temp, Prec) %>%
+  dplyr::select(TREE.FAMILY.GROUP, lat, lon, Temp, Prec) %>% # including both temperature and precipitation
   dplyr::distinct(TREE.FAMILY.GROUP, lat, lon, Temp, Prec)
 ```
 
 
-```{r warning=FALSE, message=FALSE}
+```{r PLOTTING - tree genera in relation to temperature, warning=FALSE, message=FALSE}
 # number of observations per tree group
 trees.coords.data.N <- 
   trees.coords.data %>%
@@ -491,69 +518,395 @@ trees.coords.data %>%
 
   ggplot(aes(y = Temp/10, x = reorder(TREE.FAMILY.GROUP, Temp))) +
   geom_violin(aes(fill = TREE.FAMILY.GROUP, alpha = 0.8)) +
+  geom_jitter(height = 5, width = 0.1,
+              size = 1.1, aes(col = TREE.FAMILY.GROUP, alpha = 1)) +
   stat_summary(
     fun.data = "mean_sdl",  fun.args = list(mult = 1), 
     geom = "pointrange", color = "black"
     ) +
-  geom_jitter(height = 5, width = 0.1,
-              size = 1.1, aes(col = TREE.FAMILY.GROUP, alpha = 1)) +
   theme_bw() +
   ylim(0, 20) +
   theme(axis.text.x = element_text(angle = 0, hjust = 1), legend.position = "none") +
-  labs(title = "Distribution of tree family groups across temperature regimes",
+  scale_colour_discrete_qualitative(palette = "Dynamic") +
+  labs(title = "Distribution of tree genera across temperature gradients",
        subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
        caption = paste0("Total number of independent studies = ", n_independent_studies),
-       x = "Tree family groups",
+       x = "Tree genera",
        y = "Annual Mean Temperature [C]") +
   coord_flip()
   
 
 trees.temp.violin.plot
 ```
+**Tree genera - Precipitation**
 
+```{r PLOTTING - tree genera in relation to precipitation, warning=FALSE, message=FALSE}
+trees.coords.data %>%
+  filter(TREE.FAMILY.GROUP != "NA") %>%
+  filter(Prec > 0) %>%
+  group_by(TREE.FAMILY.GROUP) %>% 
+  filter(n() >= 10) %>%
 
+  ggplot(aes(y = Prec, x = reorder(TREE.FAMILY.GROUP, Prec))) +
+  geom_violin(aes(fill = TREE.FAMILY.GROUP, alpha = 0.8)) +
+  geom_jitter(height = 5, width = 0.1,
+              size = 1.1, aes(col = TREE.FAMILY.GROUP, alpha = 1)) +
+    stat_summary(
+    fun.data = "mean_sdl",  fun.args = list(mult = 1), 
+    geom = "pointrange", color = "black"
+    ) +
+  theme_bw() +
+  ylim(0, 1500) +
+  theme(axis.text.x = element_text(angle = 0, hjust = 1), legend.position = "none") +
+  labs(title = "Distribution of tree family genera across precipitation gradients",
+       subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
+       caption = paste0("Total number of independent studies = ", n_independent_studies),
+       x = "Tree genera",
+       y = "Annual Precipitation [mm]") +
+  coord_flip()
+```
+
+Random lm model to check for relationships
 ```{r}
 model.lm <- lm(Temp ~ TREE.FAMILY.GROUP, data = trees.coords.data)
 summary(model.lm)
 ```
 
 
-**Crop species - Temperature**
+**Crop species groups - Temperature**
 
-Merging dataset on crop species group family groups with the biophys database
-```{r Merging with trees family groups with the biophys database}
+*Preparing the crops data*
+```{r }
 # loading the trees data
-trees <- read_excel("DATA/DATABASE_2.0.xlsx", 
-    sheet = "TREE_SPECIES") %>%
-  # Generating broad categories of tree species - based on families, genus and hybrids
-    separate(TREE.SPECIES, c("TREE.FAMILY.GROUP", "TREE.GENUS.GROUP"), "^\\S*\\K\\s+", remove = FALSE) %>% 
-    separate(TREE.GENUS.GROUP, c("TREE.HYBRID.SPEC.1", "TREE.HYBRID.SPEC.2"), "^\\S*\\K\\s+", remove = FALSE) %>%
-  
-    dplyr::mutate(TREE.FAMILY.GROUP = case_when(
-      str_detect(TREE.FAMILY.GROUP, '(?<![:alpha:])UNSPECIFIED(?![:alpha:])') ~ 'Unspecified trees', 
-      TRUE ~ as.character(as.character(TREE.FAMILY.GROUP)))) %>%
-  filter(TREE.FAMILY.GROUP != "NA") %>%
-  relocate(ID.P, ID.S, TREE.SPECIES, TREE.FAMILY.GROUP) %>%
-  mutate_at(c("ID.P", "ID.S"), as.numeric)
-  
-
-# merging trees data with the biophys database
-trees.coords.data <- 
-  full_join(database.biopphys, trees,
-            by = c("ID.P" = "ID.P",
-                   "ID.S" = "ID.S")) %>%
-  dplyr::select(TREE.FAMILY.GROUP, lat, lon, Temp) %>%
-  dplyr::distinct(TREE.FAMILY.GROUP, lat, lon, Temp)
+crops <- read_excel("DATA/DATABASE_2.0.xlsx", 
+    sheet = "CROP_SPECIES") %>%
+  # Generating broad categories of crop species - based on broad output product 
+  # based on FAO, 2019. FAOSTAT database. http://www.fao.org/faostat/en/#data.
+    mutate(CROP.OUTPUT.GROUP = case_when(str_detect(CROP.SPECIES, "Triticum") ~ "CEREALS CROPS",
+                                         str_detect(CROP.SPECIES, "Zea") ~ "CEREALS CROPS",
+                                         str_detect(CROP.SPECIES, "Hordeum") ~ "CEREALS CROPS",
+                                         str_detect(CROP.SPECIES, "Secale") ~ "CEREALS CROPS",
+                                         str_detect(CROP.SPECIES, "Avena") ~ "CEREALS CROPS",
+                                         str_detect(CROP.SPECIES, "Sorghum") ~ "CEREALS CROPS",
+                                         str_detect(CROP.SPECIES, "Fagopyrum") ~ "CEREALS CROPS",
+                                         
+                                         str_detect(CROP.SPECIES, "Glycine") ~ "PULSES",
+                                         str_detect(CROP.SPECIES, "Pisum") ~ "PULSES",
+                                         str_detect(CROP.SPECIES, "Cicer") ~ "PULSES",
+                                         str_detect(CROP.SPECIES, "Lupinus") ~ "PULSES",
+                                         
+                                         str_detect(CROP.SPECIES, "Beta") ~ "SUGAR CROPS",
+                                         
+                                         str_detect(CROP.SPECIES, "Cucurbita") ~ "VEGETABLES CROPS",
+                                         str_detect(CROP.SPECIES, "UNSPECIFIED.VEGETABLES") ~ "VEGETABLES CROPS",
+                                         str_detect(CROP.SPECIES, "Asparagus") ~ "VEGETABLES CROPS",
+                                         str_detect(CROP.SPECIES, "Brassica oleracea") ~ "VEGETABLES CROPS",
+                                         str_detect(CROP.SPECIES, "Capsicum") ~ "VEGETABLES CROPS",
+                                         str_detect(CROP.SPECIES, "Citrullus") ~ "VEGETABLES CROPS",
+                                         str_detect(CROP.SPECIES, "Cucumis") ~ "VEGETABLES CROPS",
+                                         str_detect(CROP.SPECIES, "Lactuca") ~ "VEGETABLES CROPS",
+                                         str_detect(CROP.SPECIES, "Solanum lycopersicum") ~ "VEGETABLES CROPS",
+                                         
+                                         str_detect(CROP.SPECIES, "Brassica napus subsp. napus") ~ "OIL CROPS",
+                                         str_detect(CROP.SPECIES, "Helianthus") ~ "OIL CROPS",
+                                         str_detect(CROP.SPECIES, "Sinapsis") ~ "OIL CROPS",
+                                         str_detect(CROP.SPECIES, "Brassica alba") ~ "OIL CROPS",
+                                         
+                                         str_detect(CROP.SPECIES, "Ribes") ~ "FRUIT CROPS",
+                                         str_detect(CROP.SPECIES, "Rubus") ~ "FRUIT CROPS",
+                                         str_detect(CROP.SPECIES, "Aronia") ~ "FRUIT CROPS",
+                                         str_detect(CROP.SPECIES, "Fragaria") ~ "FRUIT CROPS",
+                                         
+                                         str_detect(CROP.SPECIES, "Solanum tuberosum") ~ "ROOTS AND TUBER CROPS",
+                                         
+                                         str_detect(CROP.SPECIES, "HERBS") ~ "OTHER CROPS FOR HUMAN CONS.",
+                                         str_detect(CROP.SPECIES, "	SP.BEEF.CATTLE") ~ "OTHER CROPS FOR HUMAN CONS.",
+                                         str_detect(CROP.SPECIES, "	SP.DAIRY.CATTLE") ~ "OTHER CROPS FOR HUMAN CONS.",
+                                         str_detect(CROP.SPECIES, "	SP.PIG") ~ "OTHER CROPS FOR HUMAN CONS.",
+                                         
+                                         str_detect(CROP.SPECIES, "Lolium") ~ "FORAGE CROPS",
+                                         str_detect(CROP.SPECIES, "Vicia") ~ "FORAGE CROPS",
+                                         str_detect(CROP.SPECIES, "Poa") ~ "FORAGE CROPS",
+                                         str_detect(CROP.SPECIES, "Festuca") ~ "FORAGE CROPS",
+                                         str_detect(CROP.SPECIES, "Medicago") ~ "FORAGE CROPS",
+                                         str_detect(CROP.SPECIES, "Panicum") ~ "FORAGE CROPS",
+                                         str_detect(CROP.SPECIES, "Trifolium") ~ "FORAGE CROPS",
+                                         str_detect(CROP.SPECIES, "HAY.FODDER") ~ "FORAGE CROPS",
+                                         str_detect(CROP.SPECIES, "UNSPECIFIED.CLOVERLAY") ~ "FORAGE CROPS",
+                                         
+                                         str_detect(CROP.SPECIES, "UNSPECIFIED.FALLOW") ~ "FALLOW")) %>%
+  # removing 'unreal' species
+filter(!grepl("HAY|UNSPECIFIED|HERBS|SP|NA|NS", CROP.SPECIES)) %>% 
+# Generating broad categories of crop species - based on genus
+  separate(CROP.SPECIES, c("CROP.GENUS.GROUP", "CROP.SPECIES.GROUP"), "^\\S*\\K\\s+", remove = FALSE)
 ```
 
-**System Trait types - Temperature**
+*Merging crops data with the biophys data (including both temperature and precipitation)*
+Merging dataset on crop species group family groups with the biophys database
+```{r Merging with crop groups data with biophys database}
+# merging crops data with the biophys database
+crops.coords.data <- 
+  full_join(database.biophys, crops,
+            by = c("ID.P" = "ID.P",
+                   "ID.S" = "ID.S")) %>%
+  dplyr::select(CROP.GENUS.GROUP, lat, lon, Temp, Prec) %>% # including both temperature and precipitation
+  dplyr::distinct(CROP.GENUS.GROUP, lat, lon, Temp, Prec)
+```
+
+```{r PLOTTING - crop groups in relation to temperature, warning=FALSE, message=FALSE}
+# number of observations per tree group
+crops.coords.data.N <- 
+  crops.coords.data %>%
+  filter(CROP.GENUS.GROUP != "NA") %>%
+  filter(Temp > 0) %>%
+  group_by(CROP.GENUS.GROUP) %>% 
+  mutate(N = n()) %>%
+  mutate(N = ifelse(CROP.GENUS.GROUP == max(CROP.GENUS.GROUP, na.rm = T), paste0('n=', N), NA)) %>%
+  filter(n() >= 5) %>%
+  distinct(N)
+
+# generating plot
+crops.temp.violin.plot <- 
+crops.coords.data %>%
+  filter(CROP.GENUS.GROUP != "NA") %>%
+  filter(Temp > 0) %>%
+  group_by(CROP.GENUS.GROUP) %>% 
+  filter(n() >= 8) %>%
+
+  ggplot(aes(y = Temp/10, x = reorder(CROP.GENUS.GROUP, Temp))) +
+  geom_violin(aes(fill = CROP.GENUS.GROUP, alpha = 0.8)) +
+  geom_jitter(height = 5, width = 0.1,
+              size = 1.1, aes(col = CROP.GENUS.GROUP, alpha = 1)) +
+  stat_summary(
+    fun.data = "mean_sdl",  fun.args = list(mult = 1), 
+    geom = "pointrange", color = "black"
+    ) +
+  theme_bw() +
+  ylim(0, 20) +
+  theme(axis.text.x = element_text(angle = 0, hjust = 1), legend.position = "none") +
+  scale_colour_discrete_qualitative(palette = "Dynamic") +
+  labs(title = "Distribution of crop groups across temperature gradients",
+       subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
+       caption = paste0("Total number of independent studies = ", n_independent_studies),
+       x = "Crop groups",
+       y = "Annual Mean Temperature [C]") +
+  coord_flip()
+  
+
+crops.temp.violin.plot
+```
+
+**Crop species groups - Precipitation**
+
+```{r PLOTTING - crop groups in relation to precipitation, warning=FALSE, message=FALSE}
+# number of observations per tree group
+crops.coords.data.N <- 
+  crops.coords.data %>%
+  filter(CROP.GENUS.GROUP != "NA") %>%
+  filter(Prec > 0) %>%
+  group_by(CROP.GENUS.GROUP) %>% 
+  mutate(N = n()) %>%
+  mutate(N = ifelse(CROP.GENUS.GROUP == max(CROP.GENUS.GROUP, na.rm = T), paste0('n=', N), NA)) %>%
+  filter(n() >= 5) %>%
+  distinct(N)
+
+# generating plot
+crops.prec.violin.plot <- 
+crops.coords.data %>%
+  filter(CROP.GENUS.GROUP != "NA") %>%
+  filter(Prec > 0) %>%
+  group_by(CROP.GENUS.GROUP) %>% 
+  filter(n() >= 8) %>%
+
+  ggplot(aes(y = Prec, x = reorder(CROP.GENUS.GROUP, Prec))) +
+  geom_violin(aes(fill = CROP.GENUS.GROUP, alpha = 0.8)) +
+  geom_jitter(height = 5, width = 0.1,
+              size = 1.1, aes(col = CROP.GENUS.GROUP, alpha = 1)) +
+  stat_summary(
+    fun.data = "mean_sdl",  fun.args = list(mult = 1), 
+    geom = "pointrange", color = "black"
+    ) +
+  theme_bw() +
+  ylim(0, 1500) +
+  theme(axis.text.x = element_text(angle = 0, hjust = 1), legend.position = "none") +
+  scale_colour_discrete_qualitative(palette = "Dynamic") +
+  labs(title = "Distribution of crop groups across precipitation gradients",
+       subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
+       caption = paste0("Total number of independent studies = ", n_independent_studies),
+       x = "Crop groups",
+       y = "Annual Precipitation [mm]") +
+  coord_flip()
+  
+
+crops.prec.violin.plot
+```
+
+
+**SAF system Trait types - Temperature**
+
+*Preparing system trait types data*
+```{r Preparing system traits type data}
+# using n_individual_study_sites because system trait types vary between sites, as some studies include multiple sites with different species compositions and arrangements.
+
+system.traits.data <- 
+  database.lat.lon %>% 
+  filter(INCLUDED == TRUE) %>%
+  
+  # selecting system trait columns
+  group_by(`SAF System Trait type`) %>%
+  dplyr::select(ID.P, ID.S, `SAF System Trait type`, MANAGEMENT) %>% 
+  mutate_at(c("ID.P", "ID.S"), as.numeric)    # <- converting ID columns from characters to numeric
+
+system.traits.data
+```
+
+*Merging system trait types data with the biophys data (including both temperature and precipitation)*
+Merging dataset on system trait types with the biophys database
+```{r Merging system trait types with biophys database}
+
+systrait.coords.data <- 
+  full_join(database.biophys, system.traits.data,
+            by = c("ID.P" = "ID.P",
+                   "ID.S" = "ID.S")) %>%
+  dplyr::select(`SAF System Trait type`, lat, lon, Temp, Prec) %>% # including both temperature and precipitation
+  dplyr::distinct(`SAF System Trait type`, lat, lon, Temp, Prec)
+```
+
+
+```{r PLOTTING - system trait types in relation to temperature, warning=FALSE, message=FALSE}
+# number of observations per system trait types
+systrait.coords.data.N <- 
+  systrait.coords.data %>%
+  filter(`SAF System Trait type` != "NA") %>%
+  filter(Temp > 0) %>%
+  group_by(`SAF System Trait type`) %>% 
+  mutate(N = n()) %>%
+  mutate(N = ifelse(`SAF System Trait type` == max(`SAF System Trait type`, na.rm = T), paste0('n=', N), NA)) %>%
+  filter(n() >= 5) %>%
+  distinct(N)
+
+# generating plot
+systrait.temp.violin.plot <- 
+systrait.coords.data %>%
+  filter(`SAF System Trait type` != "NA") %>%
+  filter(Temp > 0) %>%
+  group_by(`SAF System Trait type`) %>% 
+  filter(n() >= 5) %>%
+
+  ggplot(aes(y = Temp/10, x = reorder(`SAF System Trait type`, Temp))) +
+  geom_violin(aes(fill = `SAF System Trait type`, alpha = 0.8)) +
+  geom_jitter(height = 5, width = 0.1,
+              size = 1.1, aes(col = `SAF System Trait type`, alpha = 1)) +
+  stat_summary(
+    fun.data = "mean_sdl",  fun.args = list(mult = 1), 
+    geom = "pointrange", color = "black"
+    ) +
+  theme_bw() +
+  #ylim(0, 20) +
+  theme(axis.text.x = element_text(angle = 0, hjust = 1), legend.position = "none") +
+  scale_colour_discrete_qualitative(palette = "Dynamic") +
+  labs(title = "Distribution of SAF system trait types across temperature gradients",
+       subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
+       caption = paste0("Total number of independent studies = ", n_independent_studies),
+       x = "SAF system trait types",
+       y = "Annual Mean Temperature [C]") +
+  coord_flip()
+  
+
+systrait.temp.violin.plot
+```
+
+**System Trait types - Precipitation**
+
+```{r PLOTTING - system trait types in relation to precipitation, warning=FALSE, message=FALSE}
+# number of observations per tree group
+systrait.coords.data.N <- 
+  systrait.coords.data %>%
+  filter(`SAF System Trait type` != "NA") %>%
+  filter(Prec > 0) %>%
+  group_by(`SAF System Trait type`) %>% 
+  mutate(N = n()) %>%
+  mutate(N = ifelse(`SAF System Trait type` == max(`SAF System Trait type`, na.rm = T), paste0('n=', N), NA)) %>%
+  filter(n() >= 5) %>%
+  distinct(N)
+
+# generating plot
+systrait.prec.violin.plot <- 
+systrait.coords.data %>%
+  filter(`SAF System Trait type` != "NA") %>%
+  filter(Prec > 0) %>%
+  group_by(`SAF System Trait type`) %>% 
+  filter(n() >= 5) %>%
+
+  ggplot(aes(y = Prec, x = reorder(`SAF System Trait type`, Prec))) +
+  geom_violin(aes(fill = `SAF System Trait type`, alpha = 0.8)) +
+  geom_jitter(height = 5, width = 0.1,
+              size = 1.1, aes(col = `SAF System Trait type`, alpha = 1)) +
+  stat_summary(
+    fun.data = "mean_sdl",  fun.args = list(mult = 1), 
+    geom = "pointrange", color = "black"
+    ) +
+  theme_bw() +
+  ylim(0, 1500) +
+  theme(axis.text.x = element_text(angle = 0, hjust = 1), legend.position = "none") +
+  scale_colour_discrete_qualitative(palette = "Dynamic") +
+  labs(title = "Distribution of SAF system trait types across precipitation gradients",
+       subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
+       caption = paste0("Total number of independent studies = ", n_independent_studies),
+       x = "SAF system trait types",
+       y = "Annual Precipitation [mm]") +
+  coord_flip()
+  
+
+systrait.prec.violin.plot
+```
+
+**Merging SAF system trait type plots in relation to bioclim variables**
+
+*Making systrait.bioclim.data in long format*
+```{r}
+systrait.bioclim.data.long <- 
+  systrait.coords.data %>% 
+  dplyr::select(-c(lat, lon)) %>%
+  drop_na() %>%
+  group_by(`SAF System Trait type`) %>%
+  summarise(mean_temp = mean(Temp),
+            mean_prec = mean(Prec)) %>%
+  pivot_longer(cols = -c(`SAF System Trait type`),
+                                      names_to = "bioclim_variable",
+                                      values_to = "value") 
+```
+
+
+```{r}
+systrait.bioclim.data.long %>%
+ggplot(aes(x = `SAF System Trait type`, 
+           y = value, 
+           fill = `SAF System Trait type`,
+           alpha = 0.9)) +
+  # geom_col() is replacement for geom_bar(stat = "identity")
+  geom_col() +
+  # independent x-axis scale in each facet, 
+  # drop absent factor levels (not the case here)
+  facet_wrap(~ bioclim_variable, scales = "free_y", drop = TRUE) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 75, hjust = 1), legend.position = "none") +
+  scale_colour_discrete_qualitative(palette = "Dynamic") +
+  labs(title = "Distribution of SAF system trait types across mean bioclim variables",
+       subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
+       caption = paste0("Total number of independent studies = ", n_independent_studies),
+       x = "SAF system trait types",
+       y = "") 
+
+```
+
 
 
 **Interrow distances - Latitude**
 
 Interrow distance and latitude
 ```{r}
-data <- 
+interrow.data <- 
 database.lat.lon %>%
   filter(CA.DIST.INTERROW != "NA" & latitude != "NA") %>%
   mutate_at('CA.DIST.INTERROW', as.numeric) %>%
@@ -562,7 +915,7 @@ database.lat.lon %>%
 
 
 lm_eqn <- function(df){
-    m <- lm(latitude ~ CA.DIST.INTERROW, data);
+    m <- lm(latitude ~ CA.DIST.INTERROW, interrow.data);
       eq <- substitute(italic(y) == a + b %.% italic(x)*","~~italic(r)^2~"="~r2, 
          list(a = format(unname(coef(m)[1]), digits = 2),
               b = format(unname(coef(m)[2]), digits = 2),
@@ -581,10 +934,15 @@ database.lat.lon %>%
   
   ggplot(aes(x = CA.DIST.INTERROW,
              y = latitude)) +
-  geom_jitter(size = 0.2, alpha = 0.95, width = 3, height = 4) +
+  geom_jitter(aes(x = CA.DIST.INTERROW,
+             y = latitude, colour = `SAF System Trait type`),
+             size = 0.4, 
+              alpha = 1, 
+              width = 3, 
+              height = 4) +
   geom_hdr(xlim = c(0, 80), ylim = c(0, 60), alpha = 0.2) +
-  geom_smooth(method = lm, se = TRUE, level = 0.95, colour = "brown", span = 0.8) + # add linear trend line formula = y ~ splines::bs(x, 3)
-  geom_text(x = 35, y = 65, label = lm_eqn(data), parse = TRUE, size = 3, col = "brown") + 
+  geom_smooth(method = lm, se = FALSE, colour = "black") + # add linear trend line formula = y ~ splines::bs(x, 3)
+  geom_text(x = 35, y = 65, label = lm_eqn(data), parse = TRUE, size = 3, col = "black") + 
   labs(x = "Silvoarable system trait type",                       
        y = "n (records)") + 
   theme_classic() +
@@ -614,16 +972,18 @@ ggplot() +
     color = "white", fill = "lightgray", size = 0.1
   ) +
   geom_point(
-    data = database.biophys,
-    aes(longitude, latitude, color = "red"),
-    alpha = 0.95, size = 0.2
+    data = database.lat.lon,
+    aes(longitude, latitude, color = `SAF System Trait type`),
+    alpha = 1, size = 0.2
   ) +
   geom_rect(
     aes(xmin = -15, xmax = 35, ymin = 35.5, ymax = 59), 
     color = "black", fill = NA, inherit.aes = FALSE) +
     theme_bw() +
-  theme(axis.text.x = element_text(angle = 0, hjust = 1), legend.position = "none", 
-        plot.margin = margin(t = 0, r = 5, b = 0, l = 5, unit = "pt"))  +
+  theme(axis.text.x = element_text(angle = 0, hjust = 1), legend.position = "top", 
+        plot.margin = margin(t = 0, r = 5, b = 0, l = 5, unit = "pt")) +
+  #scale_colour_discrete_qualitative(palette = "Dynamic", nmax = 8) +
+  guides(color = guide_legend(override.aes = list(size = 1.5))) +
   coord_sf(ylim = c(20, 70), xlim = c(-140, 140)) +
   labs(#title = "Locations of study sites for peer-reviewed silvoarable agroforestry",
       # subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
@@ -709,22 +1069,26 @@ ggplot() + geom_sf(data = worldmap) +
   
     coord_sf(xlim = lon_bounds.eu, ylim = lat_bounds.eu) + theme_bw() +
     geom_point(
-    data = database.biophys,
-    aes(longitude, latitude, color = "red"),
-    alpha = 0.7, size = 0.5
+    data = database.lat.lon,
+    aes(longitude, latitude, color = `SAF System Trait type`),
+    alpha = 1, size = 0.5
   ) +
   scale_x_continuous(label = abs) +
     scale_y_continuous(label = abs) +
     theme_bw() +
    theme(axis.text.x = element_text(angle = 0, hjust = 1), legend.position = "none",
          plot.margin = margin(t = 0, r = 58, b = 0, l = 0, unit = "pt")) +
+ # scale_colour_discrete_qualitative(palette = "Dynamic") +
     labs(#title = "Locations of study sites for peer-reviewed silvoarable agroforestry",
       # subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
       # caption = paste0("Total number of independent studies = ", n_independent_studies),
        x = "Longitude",
        y = "Latitude") 
   #labs(title = "Locations of study sites in Europe")
+
+map.europe
 ```
+
 
 North America map
 ```{r}
@@ -737,14 +1101,15 @@ ggplot() + geom_sf(data = worldmap) +
   
     coord_sf(xlim = lon_bounds.na, ylim = lat_bounds.na) + theme_bw() +
     geom_point(
-    data = database.biophys,
-    aes(longitude, latitude, color = "red"),
-    alpha = 0.7, size = 0.5
+    data = database.lat.lon,
+    aes(longitude, latitude, color = `SAF System Trait type`),
+    alpha = 1, size = 0.5
   ) +
   scale_x_continuous(label = abs) +
     scale_y_continuous(label = abs) +
     theme_bw() +
    theme(axis.text.x = element_text(angle = 0, hjust = 1), legend.position = "none") +
+ # scale_colour_discrete_qualitative(palette = "Dynamic") +
   labs(title = "Locations of study sites in North America")
 
 map.northamerica
@@ -768,59 +1133,513 @@ p
 ```
 
 
-**Trees - Precipitation**
-
-```{r warning=FALSE, message=FALSE}
-trees.coords.data %>%
-  filter(TREE.FAMILY.GROUP != "NA") %>%
-  filter(Prec > 0) %>%
-  group_by(TREE.FAMILY.GROUP) %>% 
-  filter(n() >= 10) %>%
-
-  ggplot(aes(y = Prec, x = reorder(TREE.FAMILY.GROUP, Prec))) +
-  geom_violin(aes(fill = TREE.FAMILY.GROUP, alpha = 0.8)) +
-  stat_summary(
-    fun.data = "mean_sdl",  fun.args = list(mult = 1), 
-    geom = "pointrange", color = "black"
-    ) +
-  geom_jitter(height = 5, width = 0.1,
-              size = 0.2, aes(col = TREE.FAMILY.GROUP, alpha = 0.9)) +
-  theme_bw() +
-  theme(axis.text.x = element_text(angle = 0, hjust = 1), legend.position = "none")
-```
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+**Geographical distribution of SAF systems trait types**
 
 
 
 
 ## RQ2.b	How does the system properties soil type and soil quality drive inter-site differences?
 
-**Tree species - soil sand content**
+- sand
+- clay
+- soil organic carbon
+
+- bulk density
+- pH
+
+*Merging tree data with biophys data (selected soil variables)* 
+Merging the trees genera with selected soil variables from the biophys database
+
+```{r Merging with trees family groups with the biophys database}
+# merging trees genera data with soil variables
+trees.soil.data <- 
+  full_join(database.biopphys, trees,
+            by = c("ID.P" = "ID.P",
+                   "ID.S" = "ID.S")) %>%
+  dplyr::select(TREE.FAMILY.GROUP, lat, lon, 
+                claymean, sandmean, bdodmean, socmean, phh2omean) %>% # including both temperature and precipitation
+  dplyr::filter(TREE.FAMILY.GROUP != "Unspecified trees") %>%
+  dplyr::distinct()
+```
+
+
+**Tree genera - soil sand content**
+```{r PLOTTING - tree genera in relation to soil sand content, warning=FALSE, message=FALSE}
+# number of observations per tree group
+trees.soil.data.data.N <- 
+  trees.soil.data %>%
+  filter(TREE.FAMILY.GROUP != "NA") %>%
+  filter(sandmean > 0) %>%
+  group_by(TREE.FAMILY.GROUP) %>% 
+  mutate(N = n()) %>%
+  mutate(N = ifelse(TREE.FAMILY.GROUP == max(TREE.FAMILY.GROUP, na.rm = T), paste0('n=', N), NA)) %>%
+  filter(n() >= 10) %>%
+  distinct(N)
+
+# generating plot
+trees.sand.violin.plot <- 
+trees.soil.data %>%
+  filter(TREE.FAMILY.GROUP != "NA") %>%
+  filter(sandmean > 0) %>%
+  group_by(TREE.FAMILY.GROUP) %>% 
+  filter(n() >= 10) %>%
+
+  ggplot(aes(y = sandmean, x = reorder(TREE.FAMILY.GROUP, sandmean))) +
+  geom_violin(aes(fill = TREE.FAMILY.GROUP, alpha = 0.7)) +
+  geom_jitter(height = 5, width = 0.1,
+              size = 1.1, aes(col = TREE.FAMILY.GROUP, alpha = 0.8)) +
+  stat_summary(
+    fun.data = "mean_sdl",  fun.args = list(mult = 1), 
+    geom = "pointrange", color = "black"
+    ) +
+  theme_bw() +
+  ylim(0, 50) +
+  theme(axis.text.x = element_text(angle = 0, hjust = 1), legend.position = "none") +
+  scale_colour_discrete_qualitative(palette = "Dynamic") +
+  labs(title = "Distribution of tree genera across soil sand content gradients",
+       subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
+       caption = paste0("Total number of independent studies = ", n_independent_studies),
+       x = "Tree genera",
+       y = "Soil sand content [%]") +
+  coord_flip()
+  
+
+trees.sand.violin.plot
+```
+
+**Tree genera - soil clay content**
+```{r PLOTTING - tree genera in relation to soil clay content, warning=FALSE, message=FALSE}
+# number of observations per tree group
+trees.soil.data.data.N <- 
+  trees.soil.data %>%
+  filter(TREE.FAMILY.GROUP != "NA") %>%
+  filter(claymean > 0) %>%
+  group_by(TREE.FAMILY.GROUP) %>% 
+  mutate(N = n()) %>%
+  mutate(N = ifelse(TREE.FAMILY.GROUP == max(TREE.FAMILY.GROUP, na.rm = T), paste0('n=', N), NA)) %>%
+  filter(n() >= 10) %>%
+  distinct(N)
+
+# generating plot
+trees.clay.violin.plot <- 
+trees.soil.data %>%
+  filter(TREE.FAMILY.GROUP != "NA") %>%
+  filter(claymean > 0) %>%
+  group_by(TREE.FAMILY.GROUP) %>% 
+  filter(n() >= 10) %>%
+
+  ggplot(aes(y = claymean, x = reorder(TREE.FAMILY.GROUP, claymean))) +
+  geom_violin(aes(fill = TREE.FAMILY.GROUP, alpha = 0.7)) +
+  geom_jitter(height = 5, width = 0.1,
+              size = 1.1, aes(col = TREE.FAMILY.GROUP, alpha = 0.8)) +
+  stat_summary(
+    fun.data = "mean_sdl",  fun.args = list(mult = 1), 
+    geom = "pointrange", color = "black"
+    ) +
+  theme_bw() +
+  ylim(0, 50) +
+  theme(axis.text.x = element_text(angle = 0, hjust = 1), legend.position = "none") +
+  scale_colour_discrete_qualitative(palette = "Dynamic") +
+  labs(title = "Distribution of tree genera across soil clay content gradients",
+       subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
+       caption = paste0("Total number of independent studies = ", n_independent_studies),
+       x = "Tree genera",
+       y = "Soil clay content [%]") +
+  coord_flip()
+  
+
+trees.clay.violin.plot
+```
+
+**Tree genera - SOC content**
+```{r PLOTTING - tree genera in relation to soil soc content, warning=FALSE, message=FALSE}
+# number of observations per tree group
+trees.soil.data.data.N <- 
+  trees.soil.data %>%
+  filter(TREE.FAMILY.GROUP != "NA") %>%
+  filter(socmean > 0) %>%
+  group_by(TREE.FAMILY.GROUP) %>% 
+  mutate(N = n()) %>%
+  mutate(N = ifelse(TREE.FAMILY.GROUP == max(TREE.FAMILY.GROUP, na.rm = T), paste0('n=', N), NA)) %>%
+  filter(n() >= 10) %>%
+  distinct(N)
+
+# generating plot
+trees.soc.violin.plot <- 
+trees.soil.data %>%
+  filter(TREE.FAMILY.GROUP != "NA") %>%
+  filter(socmean > 0) %>%
+  group_by(TREE.FAMILY.GROUP) %>% 
+  filter(n() >= 10) %>%
+
+  ggplot(aes(y = socmean, x = reorder(TREE.FAMILY.GROUP, socmean))) +
+  geom_violin(aes(fill = TREE.FAMILY.GROUP, alpha = 0.7)) +
+  geom_jitter(height = 5, width = 0.1,
+              size = 1.1, aes(col = TREE.FAMILY.GROUP, alpha = 0.8)) +
+  stat_summary(
+    fun.data = "mean_sdl",  fun.args = list(mult = 1), 
+    geom = "pointrange", color = "black"
+    ) +
+  theme_bw() +
+  ylim(0, 50) +
+  theme(axis.text.x = element_text(angle = 0, hjust = 1), legend.position = "none") +
+  scale_colour_discrete_qualitative(palette = "Dynamic") +
+  labs(title = "Distribution of tree genera across soc content gradients",
+       subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
+       caption = paste0("Total number of independent studies = ", n_independent_studies),
+       x = "Tree genera",
+       y = "SOC content [%]") +
+  coord_flip()
+  
+
+trees.soc.violin.plot
+```
+
+
+**Crop groups - soil sand content**
+
+*Merging crop data with biophys data (selected soil variables)* 
+Merging the crops genera with selected soil variables from the biophys database
+
+```{r Merging with crops family groups with the biophys database}
+# merging crops genera data with soil variables
+crops.soil.data <- 
+  full_join(database.biopphys, crops,
+            by = c("ID.P" = "ID.P",
+                   "ID.S" = "ID.S")) %>%
+  dplyr::select(CROP.GENUS.GROUP, lat, lon, 
+                claymean, sandmean, bdodmean, socmean, phh2omean) %>% 
+  dplyr::distinct()
+```
+
+
+```{r PLOTTING - crop genera in relation to soil sand content, warning=FALSE, message=FALSE}
+# number of observations per crop group
+crops.soil.data.data.N <- 
+  crops.soil.data %>%
+  filter(CROP.GENUS.GROUP != "NA") %>%
+  filter(sandmean > 0) %>%
+  group_by(CROP.GENUS.GROUP) %>% 
+  mutate(N = n()) %>%
+  mutate(N = ifelse(CROP.GENUS.GROUP == max(CROP.GENUS.GROUP, na.rm = T), paste0('n=', N), NA)) %>%
+  filter(n() >= 10) %>%
+  distinct(N)
+
+# generating plot
+crops.sand.violin.plot <- 
+crops.soil.data %>%
+  filter(CROP.GENUS.GROUP != "NA") %>%
+  filter(sandmean > 0) %>%
+  group_by(CROP.GENUS.GROUP) %>% 
+  filter(n() >= 20) %>%
+
+  ggplot(aes(y = sandmean, x = reorder(CROP.GENUS.GROUP, sandmean))) +
+  geom_violin(aes(fill = CROP.GENUS.GROUP, alpha = 0.7)) +
+  geom_jitter(height = 5, width = 0.1,
+              size = 1.1, aes(col = CROP.GENUS.GROUP, alpha = 0.8)) +
+  stat_summary(
+    fun.data = "mean_sdl",  fun.args = list(mult = 1), 
+    geom = "pointrange", color = "black"
+    ) +
+  theme_bw() +
+  ylim(0, 50) +
+  theme(axis.text.x = element_text(angle = 0, hjust = 1), legend.position = "none") +
+  scale_colour_discrete_qualitative(palette = "Dynamic") +
+  labs(title = "Distribution of crop genera across soil sand content gradients",
+       subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
+       caption = paste0("Total number of independent studies = ", n_independent_studies),
+       x = "crop genera",
+       y = "Soil sand content [%]") +
+  coord_flip()
+  
+
+crops.sand.violin.plot
+```
+
+**Crop groups - soil clay content**
+```{r PLOTTING - crop genera in relation to soil clay content, warning=FALSE, message=FALSE}
+# number of observations per crop group
+crops.soil.data.data.N <- 
+  crops.soil.data %>%
+  filter(CROP.GENUS.GROUP != "NA") %>%
+  filter(claymean > 0) %>%
+  group_by(CROP.GENUS.GROUP) %>% 
+  mutate(N = n()) %>%
+  mutate(N = ifelse(CROP.GENUS.GROUP == max(CROP.GENUS.GROUP, na.rm = T), paste0('n=', N), NA)) %>%
+  filter(n() >= 10) %>%
+  distinct(N)
+
+# generating plot
+crops.clay.violin.plot <- 
+crops.soil.data %>%
+  filter(CROP.GENUS.GROUP != "NA") %>%
+  filter(claymean > 0) %>%
+  group_by(CROP.GENUS.GROUP) %>% 
+  filter(n() >= 20) %>%
+
+  ggplot(aes(y = claymean, x = reorder(CROP.GENUS.GROUP, claymean))) +
+  geom_violin(aes(fill = CROP.GENUS.GROUP, alpha = 0.7)) +
+  geom_jitter(height = 5, width = 0.1,
+              size = 1.1, aes(col = CROP.GENUS.GROUP, alpha = 0.8)) +
+  stat_summary(
+    fun.data = "mean_sdl",  fun.args = list(mult = 1), 
+    geom = "pointrange", color = "black"
+    ) +
+  theme_bw() +
+  ylim(0, 50) +
+  theme(axis.text.x = element_text(angle = 0, hjust = 1), legend.position = "none") +
+  scale_colour_discrete_qualitative(palette = "Dynamic") +
+  labs(title = "Distribution of crop genera across soil clay content gradients",
+       subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
+       caption = paste0("Total number of independent studies = ", n_independent_studies),
+       x = "crop genera",
+       y = "Soil clay content [%]") +
+  coord_flip()
+  
+
+crops.clay.violin.plot
+```
+
+**Crop groups - SOC content**
+```{r PLOTTING - crop genera in relation to soil soc content, warning=FALSE, message=FALSE}
+# number of observations per crop group
+crops.soil.data.data.N <- 
+  crops.soil.data %>%
+  filter(CROP.GENUS.GROUP != "NA") %>%
+  filter(socmean > 0) %>%
+  group_by(CROP.GENUS.GROUP) %>% 
+  mutate(N = n()) %>%
+  mutate(N = ifelse(CROP.GENUS.GROUP == max(CROP.GENUS.GROUP, na.rm = T), paste0('n=', N), NA)) %>%
+  filter(n() >= 10) %>%
+  distinct(N)
+
+# generating plot
+crops.soc.violin.plot <- 
+crops.soil.data %>%
+  filter(CROP.GENUS.GROUP != "NA") %>%
+  filter(socmean > 0) %>%
+  group_by(CROP.GENUS.GROUP) %>% 
+  filter(n() >= 20) %>%
+
+  ggplot(aes(y = socmean, x = reorder(CROP.GENUS.GROUP, socmean))) +
+  geom_violin(aes(fill = CROP.GENUS.GROUP, alpha = 0.7)) +
+  geom_jitter(height = 5, width = 0.1,
+              size = 1.1, aes(col = CROP.GENUS.GROUP, alpha = 0.8)) +
+  stat_summary(
+    fun.data = "mean_sdl",  fun.args = list(mult = 1), 
+    geom = "pointrange", color = "black"
+    ) +
+  theme_bw() +
+  ylim(0, 50) +
+  theme(axis.text.x = element_text(angle = 0, hjust = 1), legend.position = "none") +
+  scale_colour_discrete_qualitative(palette = "Dynamic") +
+  labs(title = "Distribution of crop genera across soil soc content gradients",
+       subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
+       caption = paste0("Total number of independent studies = ", n_independent_studies),
+       x = "crop genera",
+       y = "Soil soc content [%]") +
+  coord_flip()
+  
+
+crops.soc.violin.plot
+```
+
+
+**SAF system Trait types - sand content**
+
+*Merging system trait types data with the biophys data*
+Merging dataset on system trait types with the biophys database
+```{r Merging system trait types with biophys database}
+
+systrait.soil.data <- 
+  full_join(database.biophys, system.traits.data,
+            by = c("ID.P" = "ID.P",
+                   "ID.S" = "ID.S")) %>%
+  dplyr::select(`SAF System Trait type`, lat, lon, 
+                claymean, sandmean, bdodmean, socmean, phh2omean) %>% 
+  dplyr::distinct()
+```
+
+
+```{r PLOTTING - system trait types in relation to sand, warning=FALSE, message=FALSE}
+# number of observations per tree group
+systrait.sand.data.N <- 
+  systrait.soil.data %>%
+  filter(`SAF System Trait type` != "NA") %>%
+  filter(sandmean > 0) %>%
+  group_by(`SAF System Trait type`) %>% 
+  mutate(N = n()) %>%
+  mutate(N = ifelse(`SAF System Trait type` == max(`SAF System Trait type`, na.rm = T), paste0('n=', N), NA)) %>%
+  filter(n() >= 5) %>%
+  distinct(N)
+
+# generating plot
+systrait.sand.violin.plot <- 
+systrait.soil.data %>%
+  filter(`SAF System Trait type` != "NA") %>%
+  filter(sandmean > 0) %>%
+  group_by(`SAF System Trait type`) %>% 
+  filter(n() >= 5) %>%
+
+  ggplot(aes(y = sandmean, x = reorder(`SAF System Trait type`, sandmean))) +
+  geom_violin(aes(fill = `SAF System Trait type`, alpha = 0.8)) +
+  geom_jitter(height = 5, width = 0.1,
+              size = 1.1, aes(col = `SAF System Trait type`, alpha = 1)) +
+  stat_summary(
+    fun.data = "mean_sdl",  fun.args = list(mult = 1), 
+    geom = "pointrange", color = "black"
+    ) +
+  theme_bw() +
+  ylim(0, 100) +
+  theme(axis.text.x = element_text(angle = 0, hjust = 1), legend.position = "none") +
+  scale_colour_discrete_qualitative(palette = "Dynamic") +
+  labs(title = "Distribution of SAF system trait types across soil sand content gradients",
+       subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
+       caption = paste0("Total number of independent studies = ", n_independent_studies),
+       x = "SAF system trait types",
+       y = "Soil sand content [%]") +
+  coord_flip()
+  
+
+systrait.sand.violin.plot
+```
+**SAF system Trait types - clay content**
+```{r PLOTTING - system trait types in relation to clay, warning=FALSE, message=FALSE}
+# number of observations per tree group
+systrait.clay.data.N <- 
+  systrait.soil.data %>%
+  filter(`SAF System Trait type` != "NA") %>%
+  filter(claymean > 0) %>%
+  group_by(`SAF System Trait type`) %>% 
+  mutate(N = n()) %>%
+  mutate(N = ifelse(`SAF System Trait type` == max(`SAF System Trait type`, na.rm = T), paste0('n=', N), NA)) %>%
+  filter(n() >= 5) %>%
+  distinct(N)
+
+# generating plot
+systrait.clay.violin.plot <- 
+systrait.soil.data %>%
+  filter(`SAF System Trait type` != "NA") %>%
+  filter(claymean > 0) %>%
+  group_by(`SAF System Trait type`) %>% 
+  filter(n() >= 5) %>%
+
+  ggplot(aes(y = claymean, x = reorder(`SAF System Trait type`, claymean))) +
+  geom_violin(aes(fill = `SAF System Trait type`, alpha = 0.8)) +
+  geom_jitter(height = 5, width = 0.1,
+              size = 1.1, aes(col = `SAF System Trait type`, alpha = 1)) +
+  stat_summary(
+    fun.data = "mean_sdl",  fun.args = list(mult = 1), 
+    geom = "pointrange", color = "black"
+    ) +
+  theme_bw() +
+  ylim(0, 50) +
+  theme(axis.text.x = element_text(angle = 0, hjust = 1), legend.position = "none") +
+  scale_colour_discrete_qualitative(palette = "Dynamic") +
+  labs(title = "Distribution of SAF system trait types across soil clay content gradients",
+       subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
+       caption = paste0("Total number of independent studies = ", n_independent_studies),
+       x = "SAF system trait types",
+       y = "Soil clay content [%]") +
+  coord_flip()
+  
+
+systrait.clay.violin.plot
+```
+
+**SAF system Trait types - SOC content**
+```{r PLOTTING - system trait types in relation to soc, warning=FALSE, message=FALSE}
+# number of observations per tree group
+systrait.soc.data.N <- 
+  systrait.soil.data %>%
+  filter(`SAF System Trait type` != "NA") %>%
+  filter(socmean > 0) %>%
+  group_by(`SAF System Trait type`) %>% 
+  mutate(N = n()) %>%
+  mutate(N = ifelse(`SAF System Trait type` == max(`SAF System Trait type`, na.rm = T), paste0('n=', N), NA)) %>%
+  filter(n() >= 5) %>%
+  distinct(N)
+
+# generating plot
+systrait.soc.violin.plot <- 
+systrait.soil.data %>%
+  filter(`SAF System Trait type` != "NA") %>%
+  filter(socmean > 0) %>%
+  group_by(`SAF System Trait type`) %>% 
+  filter(n() >= 5) %>%
+
+  ggplot(aes(y = socmean, x = reorder(`SAF System Trait type`, socmean))) +
+  geom_violin(aes(fill = `SAF System Trait type`, alpha = 0.8)) +
+  geom_jitter(height = 5, width = 0.1,
+              size = 1.1, aes(col = `SAF System Trait type`, alpha = 1)) +
+  stat_summary(
+    fun.data = "mean_sdl",  fun.args = list(mult = 1), 
+    geom = "pointrange", color = "black"
+    ) +
+  theme_bw() +
+  ylim(0, 50) +
+  theme(axis.text.x = element_text(angle = 0, hjust = 1), legend.position = "none") +
+  scale_colour_discrete_qualitative(palette = "Dynamic") +
+  labs(title = "Distribution of SAF system trait types across soil soc content gradients",
+       subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
+       caption = paste0("Total number of independent studies = ", n_independent_studies),
+       x = "SAF system trait types",
+       y = "Soil soc content [%]") +
+  coord_flip()
+  
+
+systrait.soc.violin.plot
+```
+
+**Merging SAF system trait type plots in relation to soil variables**
+
+*Making systrait.soil.data in long format*
+```{r}
+systrait.soil.data.long <- 
+  systrait.soil.data %>% 
+  dplyr::select(-c(lat, lon)) %>%
+  drop_na() %>%
+  group_by(`SAF System Trait type`) %>%
+  summarise(mean_sand = mean(sandmean),
+            mean_clay = mean(claymean),
+            mean_bd = mean(bdodmean),
+            mean_soc = mean(socmean),
+            mean_ph = mean(phh2omean)) %>%
+  pivot_longer(cols = -c(`SAF System Trait type`),
+                                      names_to = "soil_variable",
+                                      values_to = "value") 
+```
+
 
 ```{r}
+systrait.soil.data.long %>%
+ggplot(aes(x = `SAF System Trait type`, 
+           y = value, 
+           fill = `SAF System Trait type`,
+           alpha = 0.9)) +
+  # geom_col() is replacement for geom_bar(stat = "identity")
+  geom_col() +
+  # independent x-axis scale in each facet, 
+  # drop absent factor levels (not the case here)
+  facet_wrap(~ soil_variable, scales = "free_y", drop = TRUE) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 75, hjust = 1), legend.position = "none") +
+  scale_colour_discrete_qualitative(palette = "Dynamic") +
+  labs(title = "Distribution of SAF system trait types across mean soil variables",
+       subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
+       caption = paste0("Total number of independent studies = ", n_independent_studies),
+       x = "SAF system trait types",
+       y = "") 
 
 ```
 
-**Crop species - soil sand content**
 
+
+
+### Biodiversity and Ecosystem Services difference as related to location-specific biophysical variables
+
+**Ecosystem services - soil**
 ```{r}
-
+database.biophys
 ```
-
-
-
 
