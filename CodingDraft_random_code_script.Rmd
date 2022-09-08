@@ -2039,3 +2039,16 @@ ggplot() + geom_sf(data = worldmap) +
 
 map.europe
 ```
+
+```{r}
+*Merging categorised biophys data with the general database*
+Merging categorised biophys with the the general database where we find BD and ES information
+```{r Merging categorised biophys data with the database}
+
+biophys.categorised.database <- 
+  left_join(biophys.categorised, database.lat.lon,
+            by = c("ID.P" = "ID.P",
+                   "ID.S" = "ID.S"))
+```
+```
+

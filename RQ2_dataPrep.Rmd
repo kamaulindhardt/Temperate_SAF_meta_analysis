@@ -360,6 +360,8 @@ The soil properties from ISRIC SoilGrids returned by the fetchSoilGrids() functi
 - ocd,	Organic carbon density;  mapped unit: [hg/m^3], conversion:	10, conventional factor unit: [kg/m^3]
 - ocs,	Organic carbon stocks; mapped unit: [t/ha], conversion:	10, conventional factor unit:	[kg/m^2]
 
+Read more about units and conversion factors of SoilGrids here: https://www.isric.org/explore/soilgrids/faq-soilgrids
+
 *Extracting/downloading the soil variables from SoilGrids using the soilDB package*
 
 Dataframe with coordinates and id
@@ -442,7 +444,9 @@ database.coords.soilgrids <-
 merged.database.coords.biophys <- 
   left_join(x = database.coords.soilgrids, y = database.coords.bioclim,
           by = c("ID.P" = "ID.P",
-                 "ID.S" = "ID.S")) %>%
+                 "ID.S" = "ID.S"),
+          suffix = c("", ".y")) %>% # avoiding the ".x" and ".y" suffix notation
+  dplyr::select(-(ends_with(".y"))) %>%
   dplyr::select(-id) %>%
   relocate(ID.P, ID.S, 
            lat, lon,
@@ -456,7 +460,29 @@ readr::write_csv(merged.database.coords.biophys, "./DATASET.FROM.SCRIPT/merged.d
 Loading the combined database with location-specific biophysical data from local disc
 ```{r Loading location-specific biopphysical dataset, warning=FALSE, message=FALSE}
 
-database.biophys <- vroom::vroom("./DATASET.FROM.SCRIPT/merged.database.coords.biophys.csv")
+database.biophys <- vroom::vroom("./DATASET.FROM.SCRIPT/merged.database.coords.biophys.csv") %>%
+  filter(INCLUDED == TRUE) %>%
+  
+  mutate(`SAF System Trait type` = recode(ST.TYPE,                      # rename dataframe rows
+                                          RBS = "Riparian buffer strips",
+                                          SHB = "Line belts *",
+                                          MIXED = "Mixed systems",
+                                          TIMBER.ARABLE = "Timber - Arable",
+                                          BIOMASS.ARABLE = "Biomass - Arable",
+                                          NUT.ARABLE = "Nut - Arable",
+                                          FRUIT.ARABLE = "Fruit - Arable",
+                                          .keep = "all")) %>%
+  
+  dplyr::mutate(ST.TYPE.PROD.TYPE = "x") %>%
+  mutate(ST.TYPE.PROD.TYPE = recode(ST.TYPE,                      # rename dataframe rows
+                                    TIMBER.ARABLE = "Biomass",
+                                    BIOMASS.ARABLE = "Biomass",
+                                    NUT.ARABLE = "Food",
+                                    FRUIT.ARABLE = "Food",
+                                    RBS = "Multiple",
+                                    SHB = "Multiple",
+                                    MIXED = "Multiple",
+                                    .keep = "all")) 
 ```
 
 
@@ -1638,8 +1664,513 @@ ggplot(aes(x = `SAF System Trait type`,
 
 ### Biodiversity and Ecosystem Services difference as related to location-specific biophysical variables
 
-**Ecosystem services - soil**
-```{r}
-database.biophys
+*Preparing the biophys dataset*
+Discretising numeric biophys data into categorical. Adding grouped intervals based on continuous soil variables. This is in order to visualise them in relation to ES for instance.
+```{r eval=FALSE}
+biophys.categorised <- database.biophys %>%
+  # dividing bioclim variables by conversion factor to obtain the correct value
+  # not dividing SoilGrids variables becaise; SoilGrids API and maps return values as whole 
+  # (integer) numbers to minimize the storage space used. These values are converted by to 
+  #produce conventional units by 'fetchSoilGrids()“
+  dplyr::mutate(Temp = Temp/10,
+                #Prec = Prec/10
+                ) %>%
+  # discretising using ggplot2::cut_interval(), cut_number() or cut_width()
+  mutate(Temp_interval = cut_width(Temp, width = 5, boundary = 0),               # 6 levels
+         Prec_interval = cut_width(Prec, width = 300, boundary = 0),              # 6 levels
+         
+         clay_interval = cut_width(claymean, width = 10, boundary = 0),           # 5 levels
+         sand_interval = cut_width(sandmean, width = 20, boundary = 0),           # 5 levels
+         silt_interval = cut_width(siltmean, width = 15, boundary = 0),           # 5 levels
+         bd_interval = cut_width(bdodmean, width = 0.25, boundary = 0),           # 5 levels
+         nitrogen_interval = cut_width(nitrogenmean, width = 3, boundary = 0),    # 5 levels
+         soc_interval = cut_width(socmean, width = 50, boundary = 0),             # 5 levels 
+         ph_interval = cut_width(phh2omean, width = 1, boundary = 0),             # 5 levels
+         cec_interval = cut_width(cecmean, width = 10, boundary = 0)) %>%         # 5 levels
+  
+  relocate(ID.P, ID.S, 
+           `SAF System Trait type`,
+           lat, lon,
+           Temp, Temp_interval, 
+           Prec, Prec_interval,
+           claymean, clay_interval,
+           sandmean, sand_interval,
+           siltmean, silt_interval,
+           bdodmean, bd_interval,
+           nitrogenmean, nitrogen_interval,
+           socmean, soc_interval,
+           phh2omean, ph_interval,
+           cecmean, cec_interval) 
+
+#glimpse(biophys.categorised)
 ```
 
+*Renaming ES variables and saving dataset*
+```{r eval=FALSE}
+biophys.categorised.renamed <- biophys.categorised %>%
+  rename("Food (yield)"                      = ES.SUB.PROV.FOOD,
+         "Feed"                              = ES.SUB.PROV.FEED,
+         "Fibre"                             = ES.SUB.PROV.FIBRE,
+         "Fuel (firewood etc.)"              = ES.SUB.PROV.FUEL,
+         "Genetic resources"                 = ES.SUB.PROV.GENRES,
+         "Biochemicals"                      = ES.SUB.PROV.BIOCHEM,
+         "Ornamentals"                       = ES.SUB.PROV.ORNA,
+         "Fresh water"                       = ES.SUB.PROV.WATFRESH,
+         
+         "Air regulation"                    = ES.SUB.REGU.AIR,
+         "Climate regulation"                = ES.SUB.REGU.CLIMREG,
+         "Carbon sequestration"              = ES.SUB.REGU.CSEQREG,
+         "Water regulation"                  = ES.SUB.REGU.WATREG,
+         "Nutrient leaching regulation"      = ES.SUB.REGU.NUTRILE,
+         "Erosion regulation"                = ES.SUB.REGU.EROREG,
+         "Water purification"                = ES.SUB.REGU.WATPUR,
+         "Disease regulation"                = ES.SUB.REGU.DISREG,
+         "Pest regulation"                   = ES.SUB.REGU.PESTREG,
+         "Polination regulation"             = ES.SUB.REGU.POLREG,
+         "Natural hazards regulation"        = ES.SUB.REGU.NATHAZREG,
+         
+         "Soil formation"                    = ES.SUB.SUPP.SOILFORM,
+         "Photosynthesis"                    = ES.SUB.SUPP.PHOTSYNT,
+         "Primary production"                = ES.SUB.SUPP.PRIMPROD,
+         "Nutrient cycling"                  = ES.SUB.SUPP.NUTRICYC,
+         "Water cycling"                     = ES.SUB.SUPP.WATCYC,
+         
+         "Cultural diversity"                = ES.SUB.CULT.CULTDIV,
+         "Spiritual value"                   = ES.SUB.CULT.SPIRITVAL,
+         "Knowledge systems"                 = ES.SUB.CULT.KNOWLSYS,
+         "Educational value"                 = ES.SUB.CULT.EDUVAL,
+         "Inspirational value"               = ES.SUB.CULT.INSPIR,
+         "Aesthetic value"                   = ES.SUB.CULT.AESTVAL,
+         "Social relations"                  = ES.SUB.CULT.SOCREL,
+         "Sense of place"                    = ES.SUB.CULT.SENPLACE,
+         "Cultural heritage value"           = ES.SUB.CULT.CULTHERIVAL,
+         "Recreational and ecotourism"       = ES.SUB.CULT.RECRECOTOUR,
+         
+         "Provisioning ES"                   = ES.PROV,
+         "Regulating ES"                     = ES.REGU,
+         "Supporting ES"                     = ES.SUPP,
+         "Cultural ES"                       = ES.CULT,
+         "Ecosystem Services"                = ES,
+ # -----------------------------------------------------------------------------------------------------------------------------------
+         "BD.Biodiversity"                   = BD,
+         "FLORA.1"                           = BD.SUB.FLORAMACRO,
+         "FLORA.2"                           = BD.SUB.FLORAMICRO,
+         
+         "FAUNA.1"                           = BD.SUB.FAUNAMACRO,
+         "FAUNA.2"                           = BD.SUB.FAUNAMICRO,
+         
+         "Bacteria"                          = BD.SUB.BACTERIA,
+         "Fungi"                             = BD.SUB.FUNGI,
+ # -----------------------------------------------------------------------------------------------------------------------------------
+         "Food"                                       = CAT.SUB.AGRO.YIELD,
+         "Biomass"                                    = CAT.SUB.AGRO.BIOMASS,
+         "Land equivalent ratio"                      = CAT.SUB.AGRO.LER,
+         "Pests"                                      = CAT.SUB.AGRO.PESTS,
+         "Diseases"                                   = CAT.SUB.AGRO.DISEASE,
+         "Weeds"                                      = CAT.SUB.AGRO.WEEDS,
+         "Product quality"                            = CAT.SUB.AGRO.PRODQUAL,
+         "Product stability"                          = CAT.SUB.AGRO.PRODSTAB,
+         "Mechanisation"                              = CAT.SUB.AGRO.MECHAN,
+         "Belowground (crop-tree) competition"        = CAT.SUB.AGRO.CRTRBLOW,
+         "Aboveground (crop-tree) light competition"  = CAT.SUB.AGRO.LIGHTCMP,
+         "Nutrient use"                               = CAT.SUB.AGRO.NUTRIUSE,
+         "Nutrient use effeciency"                    = CAT.SUB.AGRO.NUTRIEF,
+         "Breeding and selection"                     = CAT.SUB.AGRO.BRDSELECT,
+         
+         "Soil quality"                               = CAT.SUB.ENVI.SOILQUAL,
+         "Biodiversity"                               = CAT.SUB.ENVI.BIODIV,
+         "Carbon stock"                               = CAT.SUB.ENVI.CSTOCK,
+         "Greenhouse gas emissions"                   = CAT.SUB.ENVI.GHGEMS,
+         "Pollination"                                = CAT.SUB.ENVI.POLLCON,
+         "Soil structure"                             = CAT.SUB.ENVI.SOILSTRUCT,
+         "Chemical soil components"                   = CAT.SUB.ENVI.SOILCHEM,
+         "Biological soil components"                 = CAT.SUB.ENVI.SOILBIO,
+         "Soil water"                                 = CAT.SUB.ENVI.SOILWAT,
+         "Soil erosion"                               = CAT.SUB.ENVI.SOILEROCO,
+         "Soil formations"                            = CAT.SUB.ENVI.SOILFORM,
+         "Water quality"                              = CAT.SUB.ENVI.WATQUAL,
+         "Water perculation"                          = CAT.SUB.ENVI.WATPERC,
+         "Water cyclings"                             = CAT.SUB.ENVI.WATCYC,
+         "Water availability"                         = CAT.SUB.ENVI.WATAVAIL,
+         "Hydraulic lift"                             = CAT.SUB.ENVI.HYDRAULIFT,
+         
+         "Economic profit related"                    = CAT.SUB.ECON.PROFIT,
+         "Economic management related"                = CAT.SUB.ECON.MANAGE,
+         "Economic market related"                    = CAT.SUB.ECON.MARKET,
+         
+         "Landscape aesthetics"                       = CAT.SUB.SOCUL.LANAES,
+         "Recreational and ecotourisms"               = CAT.SUB.SOCUL.RECRECOTOUR,
+         "Spiritual values"                           = CAT.SUB.SOCUL.SPIRITVAL,
+         "Perception of adoptation"                   = CAT.SUB.SOCUL.PERCEPADOPT,
+         "Policy information"                         = CAT.SUB.SOCUL.POLICYINFR,
+         
+         "Agronomic category"                         = CAT.AGRO,
+         "Environmental category"                     = CAT.ENVIRON,
+         "Economic category"                          = CAT.ECONOM,
+         "Socio-cultural category"                    = CAT.SOCIOCUL) %>%
+  # ---------------------------------------------------------------------------------------------------------------------------------
+  mutate(Flora = FLORA.1 + FLORA.2, # simplifying flora, fauna groups
+         Fauna = FAUNA.1 + FAUNA.2) 
+
+# Saving the biophys.categorised.renamed dataset unto local disc
+readr::write_csv(biophys.categorised.renamed, "./DATASET.FROM.SCRIPT/biophys.categorised.renamed.csv")
+```
+
+Loading biophys.categorised.renamed dataset from local disc and preparing and merging with crops
+```{r Loading dataset with lat long coordinates}
+biophys.categorised.renamed <- vroom::vroom("./DATASET.FROM.SCRIPT/biophys.categorised.renamed.csv") %>%
+  dplyr::select(
+    "SAF System Trait type",
+    "ID.P",
+    "ID.S",
+    "lat", 
+    "lon",
+    
+    "Food (yield)",
+    "Feed",
+    "Fuel (firewood etc.)",
+    "Biodiversity",
+    "Disease regulation",
+    "Pest regulation",
+    "Water cycling",
+    "Economic management related",
+    "Economic profit related",
+    "Aboveground (crop-tree) light competition",
+    "Soil structure", 
+    "Chemical soil components",
+    "Biological soil components",
+    "Land equivalent ratio",
+    "Climate regulation",
+    "Greenhouse gas emissions",
+    "Carbon sequestration",
+    
+    "Temp", "Temp_interval", 
+    "Prec", "Prec_interval",
+    "claymean", "clay_interval",
+    "sandmean", "sand_interval",
+    "siltmean", "silt_interval",
+    "bdodmean", "bd_interval",
+    "nitrogenmean", "nitrogen_interval",
+    "socmean", "soc_interval",
+    "phh2omean", "ph_interval",
+    "cecmean", "cec_interval") 
+```
+
+*Preparing ES dataset for merging*
+Converting biophys dataset into long format and merging with SAF system traits types and soil sand concentration
+```{r}
+A_ES <- biophys.categorised.renamed %>%
+    dplyr::select(
+    "ID.P",
+    "ID.S",
+    
+    "Food (yield)",
+    "Feed",
+    "Fuel (firewood etc.)",
+    "Biodiversity",
+    "Disease regulation",
+    "Pest regulation",
+    "Water cycling",
+    "Economic management related",
+    "Economic profit related",
+    "Aboveground (crop-tree) light competition",
+    "Soil structure", 
+    "Chemical soil components",
+    "Biological soil components",
+    "Land equivalent ratio",
+    "Climate regulation",
+    "Greenhouse gas emissions",
+    "Carbon sequestration") %>%
+  mutate_if(is.character, as.factor) %>%
+  relocate(ID.P, ID.S) %>%
+  pivot_longer(cols = c(-ID.P, -ID.S), 
+                   names_to = "ES.GROUPS",
+                   values_to = "count") %>%
+  filter(count == 1)
+
+# --------------------------------------------------------------------------------------------------------------------------
+B_SAFTT <- biophys.categorised.renamed %>%
+    dplyr::select(
+    "ID.P",
+    "ID.S",
+    
+    "SAF System Trait type") 
+
+# --------------------------------------------------------------------------------------------------------------------------
+D_JOINED_A_B_ES_SAFTT <- 
+  left_join(x = A_ES, y = B_SAFTT,
+            by = c("ID.P" = "ID.P",
+                   "ID.S" = "ID.S")) %>%
+  relocate(ID.P, ID.S,
+           ES.GROUPS, `SAF System Trait type`)
+```
+
+
+**Ecosystem services - soil sand concentration**
+
+*Merging with sand data*
+```{r}
+# --------------------------------------------------------------------------------------------------------------------------
+
+C_SAND <- biophys.categorised.renamed %>%
+    dplyr::select(
+    "ID.P",
+    "ID.S",
+    
+    "sand_interval") %>%
+  # to avoid exhaustion of R memory
+  distinct() %>%
+  mutate(sand_interval = recode(sand_interval,                      # rename dataframe rows
+                                "[0,20]" = "0 - 20 %",
+                                "(20,40]" = "20 - 40 %",
+                                "(40,60]" = "40 - 60 %",
+                                "(60,80]" = "60 - 80 %",
+                                "(80,100]" = "80 - 100 %",
+                                .keep = "all"))
+
+# --------------------------------------------------------------------------------------------------------------------------
+# Final dataset of selected ecosystem services (including biodiversity and categories data) with soil sand concentration
+# --------------------------------------------------------------------------------------------------------------------------
+E_JOINED_D_C_SAND <- 
+  left_join(x = D_JOINED_A_B_ES_SAFTT, y = C_SAND,
+            by = c("ID.P" = "ID.P",
+                   "ID.S" = "ID.S")) %>%
+  relocate(ID.P, ID.S,
+           ES.GROUPS, `SAF System Trait type`, sand_interval) %>%
+  mutate_if(is.character, as.factor) 
+```
+
+*Plotting selected ES (including biodiversity and categories data) with sand intervals*
+```{r PLOTTING - selected ES (including biodiversity and categories data) with sand intervals, warning=FALSE, message=FALSE}
+ES.sand.plot <- E_JOINED_D_C_SAND %>%
+  group_by(ES.GROUPS, sand_interval, `SAF System Trait type`) %>%
+  summarise(count = n()) %>%
+  ungroup() %>%
+  mutate_if(is.integer, as.double) %>%
+  mutate_if(is.character, as.factor) %>%
+
+  ggplot(aes(x = reorder(`SAF System Trait type`, -count), 
+             y = reorder(ES.GROUPS, -count),
+             fill = sand_interval)) +
+  geom_jitter(aes(size = count), shape = 21, colour = "black",
+             alpha = 0.8,
+             height = 0.1,
+             width = 0.1) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "none") +
+  scale_size_continuous(range = c(1, 10)) +
+  scale_fill_discrete_qualitative(palette = "Dynamic") +
+  labs(title = "Matrix showing the frequency of associations of studied ecosystem services for different SAF systems across soil sand concentration intervals 
+reported by peer-reviewed papers",
+       subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
+       caption = paste0(caption = paste0("* Line belts; shelterbelts, hedgerows and windbreaks. Total number of independent studies reporting on ES = ", total_n_ES$value)),
+       x = "Silvoarable System Trait Types",                       
+       y = "Selected ecosystem services") +
+  facet_grid(.~ sand_interval) 
+  
+ES.sand.plot
+```
+**Ecosystem services - SOC content**
+
+*Merging with SOC data*
+```{r warning=FALSE, message=FALSE}
+# --------------------------------------------------------------------------------------------------------------------------
+
+C_SOC <- biophys.categorised.renamed %>%
+    dplyr::select(
+    "ID.P",
+    "ID.S",
+    
+    "soc_interval") %>%
+  # to avoid exhaustion of R memory
+  distinct() %>%
+  mutate(soc_interval = recode(soc_interval,                      # rename dataframe rows
+                                "[0,50]" = "0 - 50 g/kg",
+                                "(50,100]" = "50 - 100 g/kg",
+                                "(100,150]" = "100 - 150 g/kg",
+                                "(150,200]" = "150 - 200 g/kg",
+                                "(200,250]" = "200 - 250 g/kg",
+                                "(250,300]"  = "250 - 300 g/kg",
+                                .keep = "all"))
+
+# --------------------------------------------------------------------------------------------------------------------------
+# Final dataset of selected ecosystem services (including biodiversity and categories data) with soil sand concentration
+# --------------------------------------------------------------------------------------------------------------------------
+E_JOINED_D_C_SOC <- 
+  left_join(x = D_JOINED_A_B_ES_SAFTT, y = C_SOC,
+            by = c("ID.P" = "ID.P",
+                   "ID.S" = "ID.S")) %>%
+  relocate(ID.P, ID.S,
+           ES.GROUPS, `SAF System Trait type`, soc_interval) %>%
+  mutate_if(is.character, as.factor) %>%
+  mutate_at(vars(soc_interval), funs(factor(., levels=unique(.)))) # convert to factor, sort the facet plots in order of SOC levels
+```
+
+*Plotting selected ES (including biodiversity and categories data) with SOC intervals*
+```{r PLOTTING - selected ES (including biodiversity and categories data) with SOC intervals, warning=FALSE, message=FALSE}
+ES.soc.plot <- E_JOINED_D_C_SOC %>%
+  group_by(ES.GROUPS, soc_interval, `SAF System Trait type`) %>%
+  summarise(count = n()) %>%
+  ungroup() %>%
+  mutate_if(is.integer, as.double) %>%
+  mutate_if(is.character, as.factor) %>%
+
+  ggplot(aes(x = reorder(`SAF System Trait type`, -count), 
+             y = reorder(ES.GROUPS, -count),
+             fill = soc_interval)) +
+  geom_jitter(aes(size = count), shape = 21, colour = "black",
+             alpha = 0.8,
+             height = 0.1,
+             width = 0.1) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "none") +
+  scale_size_continuous(range = c(1, 10)) +
+  scale_fill_discrete_qualitative(palette = "Dynamic") +
+  labs(title = "Matrix showing the frequency of associations of studied ecosystem services for different SAF systems across SOC content intervals 
+reported by peer-reviewed papers",
+       subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
+       caption = paste0(caption = paste0("* Line belts; shelterbelts, hedgerows and windbreaks. Total number of independent studies reporting on ES = ", total_n_ES$value)),
+       x = "Silvoarable System Trait Types",                       
+       y = "Selected ecosystem services") +
+  facet_grid(.~ soc_interval) 
+  
+ES.soc.plot
+```
+
+**Ecosystem services - temperature**
+
+*Merging with temperature data*
+```{r warning=FALSE, message=FALSE}
+# --------------------------------------------------------------------------------------------------------------------------
+
+C_TEMP <- biophys.categorised.renamed %>%
+    dplyr::select(
+    "ID.P",
+    "ID.S",
+    
+    "Temp_interval") %>%
+  # to avoid exhaustion of R memory
+  distinct() %>%
+  mutate(Temp_interval = recode(Temp_interval,                      # rename dataframe rows
+                                "[-10,-5]" = "-10 - -5 [°C]",
+                                "(-5,0]" = "-5 - 0 [°C]",
+                                "(0,5]"  = "0 - 5 [°C]",
+                                "(5,10]" = "5 - 10 [°C]",
+                                "(10,15]" = "10 - 15 [°C]",
+                                "(15,20]" = "15 - 20 [°C]",
+                                .keep = "all"))
+
+# --------------------------------------------------------------------------------------------------------------------------
+# Final dataset of selected ecosystem services (including biodiversity and categories data) with soil sand concentration
+# --------------------------------------------------------------------------------------------------------------------------
+E_JOINED_D_C_TEMP <- 
+  left_join(x = D_JOINED_A_B_ES_SAFTT, y = C_TEMP,
+            by = c("ID.P" = "ID.P",
+                   "ID.S" = "ID.S")) %>%
+  relocate(ID.P, ID.S,
+           ES.GROUPS, `SAF System Trait type`, Temp_interval) %>%
+  mutate_if(is.character, as.factor) %>%
+  mutate_at(vars(Temp_interval), funs(factor(., levels=unique(.)))) # convert to factor, sort the facet plots in order of SOC levels
+```
+
+*Plotting selected ES (including biodiversity and categories data) with temperature intervals*
+```{r PLOTTING - selected ES (including biodiversity and categories data) with temperature intervals, warning=FALSE, message=FALSE}
+ES.temp.plot <- E_JOINED_D_C_TEMP %>%
+  group_by(ES.GROUPS, Temp_interval, `SAF System Trait type`) %>%
+  summarise(count = n()) %>%
+  ungroup() %>%
+  mutate_if(is.integer, as.double) %>%
+  mutate_if(is.character, as.factor) %>%
+
+  ggplot(aes(x = reorder(`SAF System Trait type`, -count), 
+             y = reorder(ES.GROUPS, -count),
+             fill = Temp_interval)) +
+  geom_jitter(aes(size = count), shape = 21, colour = "black",
+             alpha = 0.8,
+             height = 0.1,
+             width = 0.1) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "none") +
+  scale_size_continuous(range = c(1, 10)) +
+  scale_fill_discrete_qualitative(palette = "Dynamic") +
+  labs(title = "Matrix showing the frequency of associations of studied ecosystem services for different SAF systems across mean annual temperature intervals 
+reported by peer-reviewed papers",
+       subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
+       caption = paste0(caption = paste0("* Line belts; shelterbelts, hedgerows and windbreaks. Total number of independent studies reporting on ES = ", total_n_ES$value)),
+       x = "Silvoarable System Trait Types",                       
+       y = "Selected ecosystem services") +
+  facet_grid(. ~factor(Temp_interval, 
+                       levels = c("-10 - -5 [°C]", "-5 - 0 [°C]", "0 - 5 [°C]", "5 - 10 [°C]", "10 - 15 [°C]", "15 - 20 [°C]"))) 
+  
+ES.temp.plot
+```
+
+
+
+**Ecosystem services - precipitation**
+
+*Merging with precipitation data*
+```{r warning=FALSE, message=FALSE}
+# --------------------------------------------------------------------------------------------------------------------------
+
+C_PREC <- biophys.categorised.renamed %>%
+    dplyr::select(
+    "ID.P",
+    "ID.S",
+    
+    "Prec_interval") %>%
+  # to avoid exhaustion of R memory
+  distinct() %>%
+  mutate(Prec_interval = recode(Prec_interval,                      # rename dataframe rows
+                                "[0,300]" = "0 - 300 [mm]",
+                                "(300,600]" = "300 - 600 [mm]",
+                                "(600,900]"  = "600 - 900 [mm]",
+                                "(900,1.2e+03]" = "900 - 1200 [mm]",
+                                "(1.2e+03,1.5e+03]" = "1200 - 1500 [mm]",
+                                "(1.5e+03,1.8e+03]" = "1500 - 1800 [mm]",
+                                .keep = "all"))
+
+# --------------------------------------------------------------------------------------------------------------------------
+# Final dataset of selected ecosystem services (including biodiversity and categories data) with precipitation
+# --------------------------------------------------------------------------------------------------------------------------
+E_JOINED_D_C_PREC <- 
+  left_join(x = D_JOINED_A_B_ES_SAFTT, y = C_PREC,
+            by = c("ID.P" = "ID.P",
+                   "ID.S" = "ID.S")) %>%
+  relocate(ID.P, ID.S,
+           ES.GROUPS, `SAF System Trait type`, Prec_interval) %>%
+  mutate_if(is.character, as.factor) %>%
+  mutate_at(vars(Prec_interval), funs(factor(., levels=unique(.)))) # convert to factor, sort the facet plots in order of SOC levels
+```
+
+*Plotting selected ES (including biodiversity and categories data) with precipitation intervals*
+```{r PLOTTING - selected ES (including biodiversity and categories data) with precipitation intervals, warning=FALSE, message=FALSE}
+ES.prec.plot <- E_JOINED_D_C_PREC %>%
+  group_by(ES.GROUPS, Prec_interval, `SAF System Trait type`) %>%
+  summarise(count = n()) %>%
+  ungroup() %>%
+  mutate_if(is.integer, as.double) %>%
+  mutate_if(is.character, as.factor) %>%
+
+  ggplot(aes(x = reorder(`SAF System Trait type`, -count), 
+             y = reorder(ES.GROUPS, -count),
+             fill = Prec_interval)) +
+  geom_jitter(aes(size = count), shape = 21, colour = "black",
+             alpha = 0.8,
+             height = 0.1,
+             width = 0.1) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "none") +
+  scale_size_continuous(range = c(1, 10)) +
+  scale_fill_discrete_qualitative(palette = "Dynamic") +
+  labs(title = "Matrix showing the frequency of associations of studied ecosystem services for different SAF systems across annual precipitation intervals 
+reported by peer-reviewed papers",
+       subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
+       caption = paste0(caption = paste0("* Line belts; shelterbelts, hedgerows and windbreaks. Total number of independent studies reporting on ES = ", total_n_ES$value)),
+       x = "Silvoarable System Trait Types",                       
+       y = "Selected ecosystem services") +
+  facet_grid(. ~factor(Prec_interval, 
+                       levels = c("0 - 300 [mm]", "300 - 600 [mm]", "600 - 900 [mm]", "900 - 1200 [mm]", "1200 - 1500 [mm]", "1500 - 1800 [mm]"))) 
+  
+ES.prec.plot
+```
