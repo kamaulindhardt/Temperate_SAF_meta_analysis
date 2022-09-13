@@ -1,0 +1,3114 @@
+---
+title: "1_loading_and_preparing_data_from_excel"
+author: "Kamau Lindhardt, lbk125"
+date: "2022-09-11"
+output: html_document
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Aim & Research questions
+
+The **aim** of this systematic mapping review is to thoroughly catalogue
+and assess the current research themes of knowledge abundance and
+scarcity and provide the first global systematic synthesis of ES
+research in relation to temperate SAF. We specifically addressed the
+following four **research questions**:
+
+1.  What temperate SAF systems and ecosystem services have been studied?
+
+2.  What tree and crop species composition and associations are used in
+    temperate
+    SAF systems?
+
+3.  How are temperate SAF systems and ecosystem services distributed
+    across geographic and biophysical gradients?
+
+4.  To what extend does biophysical properties, such as soil quality,
+    temperature and precipitation drive inter-site differences? 
+
+Descriptive statistics, e.g. frequency of occurrences is used to
+visualise data
+
+# Preparing R script
+
+Packages to be installed first
+
+```{r Installing the pacman package, warning=FALSE}
+# install.packages("pacman")
+# install.packages("pacman")
+# install.packages("tidygeocoder")
+# install.packages("ggdensity")
+# install.packages("rnaturalearth")
+# install.packages("rnaturalearthdata")
+# install.packages("gridExtra")
+# install.packages("soilDB")
+# install.packages("aqp")
+# install.packages("geodata")
+```
+
+Loading packages and libraries
+
+```{r Loading other needed packages, warning=FALSE}
+suppressWarnings({
+
+  # Applying the p_load function to load multiple add-on packages in one line of code.
+
+  pacman::p_load(
+    tidyverse, # general package for everything
+    readxl,
+    vroom, # for crazy fast method of loading/reading datasets from local disc
+    janitor, # for cleaning data column names
+    #styler, # for neatly organising code
+    tidygeocoder, # for making geospatial analysis (e.g. derive coordinates from location names)
+    rnaturalearth, # facilitates world mapping by making Natural Earth map data more easily available
+    rnaturalearthdata, # holds data used by rnaturalearth package from Natural Earth.
+
+    raster, # for general spatial analysis and in particular for downloading BioClim variables from WorldClim
+    # geodata     # use geodata::worldclim_global() instead of raster::getData() if encounting issues
+    sp,
+    sf,
+    soilDB, # for downloading predicted soil properties from ISRIC SoilGrids
+    aqp
+  )
+})
+```
+
+Update GitHub credentials for efficient 'push' and 'pull' operations
+
+```{r Update GitHub credentials for efficient 'push' and 'pull' operations}
+# Run this function in order to update GitHub credentials for efficient 'push' and 'pull' operations
+
+# gitcreds_set()
+```
+
+Loading main database
+
+```{r Loading database 2.0, warning=FALSE, message=FALSE}
+suppressWarnings({
+  database <- read_excel("DATA/DATABASE_2.0.xlsx",
+    sheet = "MAIN_DATABASE_2.0"
+  ) %>%
+    filter(INCLUDED == TRUE) # include only data entries that have been assesed and deemed included
+})
+```
+
+Glimpse (taking a look at the data)
+
+```{r Glimpse the dataset, eval=FALSE}
+database %>% dplyr::glimpse() 
+```
+
+Defining number of independent studies and number of observations based
+on individual study sites
+
+```{r Number of studies and study sites}
+n_independent_studies <- database %>%
+  distinct(ID.P) %>%
+  nrow()
+
+# n_independent_studies = 73 (16 aug. 2022)
+
+n_individual_study_sites <- database %>%
+  distinct(ID.P, ID.S) %>%
+  nrow()
+
+# n_individual_study_sites = 213 (16 aug. 2022)
+```
+
+# Structure of this script is as follows:
+
+1.  Single variate data dimensions are visualised (everything that is
+    not matrices)
+
+2.  Multivariate data dimensions are visualised (mostly matrices)
+
+3.  Geospatially-related data dimensions (biophysical data) are
+    visualised
+
+# Single datasets (not matrices)
+
+## Temporal scale of studies
+
+Creating the dataset for assessing the **temporal scale of studies**
+using Pie-Donut plot
+
+```{r}
+temp.scale <- database %>%
+  filter(INCLUDED == TRUE) %>%
+  dplyr::select(
+    ID.P, ID.S,
+    DUR.SAMPLING
+  ) %>%
+  # na.omit() %>%
+  # filter(!DUR.SAMPLING == "NA")
+  mutate_if(is.character, as.factor) %>%
+  group_by(DUR.SAMPLING) %>%
+  summarise(count = n()) %>%
+  mutate(pct = count / sum(count)) %>%
+  mutate(across(where(is.numeric), round, 3)) %>%
+  # rounding no of decimals
+  # filter(DUR.SAMPLING != "NA") %>%                           # removing one entry that has NA
+  mutate(Tier_2_scale = DUR.SAMPLING) %>%
+  mutate(Tier_2_scale = recode(Tier_2_scale, # rename dataframe rows
+    `< 2 years` = "< 2 years",
+    `2 - 4 years` = "2 - 4 years",
+    `4 - 10 years` = "4 - 10 years",
+    `> 10 years` = "> 10 years",
+    .keep = "all"
+  )) %>%
+  mutate(Tier_1_scale = recode(Tier_2_scale, # rename dataframe rows
+    `< 2 years` = "Short",
+    `2 - 4 years` = "Medium",
+    `4 - 10 years` = "Long",
+    `> 10 years` = "Very long",
+    .keep = "all"
+  )) %>%
+  relocate(Tier_1_scale, Tier_2_scale)
+
+# ---------------------------------------------------------------------------------------------------------------------------------
+# Saving the saving dataset
+readr::write_csv(temp.scale, "./DATASET.FROM.SCRIPT/temp.scale.csv")
+# -----------------------------------------------------------------------------------------------
+glimpse(temp.scale)
+```
+
+## Spatial scale of studies
+
+Creating the dataset for assessing the **spatial scale of studies**
+using Pie-Donut plot
+
+```{r}
+spatial.scale <- database %>%
+  filter(INCLUDED == TRUE) %>%
+  dplyr::select(
+    ID.P, ID.S,
+    SCALE
+  ) %>%
+  # na.omit() %>%
+  # filter(!SCALE == "NA")
+  mutate_if(is.character, as.factor) %>%
+  group_by(SCALE) %>%
+  summarise(count = n()) %>%
+  mutate(pct = count / sum(count)) %>%
+  mutate(across(where(is.numeric), round, 3)) %>%
+  mutate(Tier_2_scale = SCALE) %>%
+  dplyr::select(!SCALE) %>%
+  mutate(Tier_2_scale = recode(Tier_2_scale, # rename dataframe rows
+    PLOT = "Plot",
+    PLOT.FARM = "Plot and farm",
+    FARM = "Farm",
+    LAND = "Landscape",
+    PLOT.REGI = "Plot and regional",
+    REGI = "Regional",
+    NATI = "National",
+    INTE = "International",
+    .keep = "all"
+  )) %>%
+  mutate(Tier_1_scale = recode(Tier_2_scale, # rename dataframe rows
+    Plot = "Small scale",
+    `Plot and farm` = "Small scale",
+    Farm = "Small scale",
+    Landscape = "Medium scale",
+    `Plot and regional` = "Medium scale",
+    Regional = "Medium scale",
+    National = "Large scale",
+    International = "Large scale",
+    .keep = "all"
+  )) %>%
+  relocate(Tier_1_scale, Tier_2_scale)
+
+# ---------------------------------------------------------------------------------------------------------------------------------
+# Saving the saving dataset
+readr::write_csv(spatial.scale, "./DATASET.FROM.SCRIPT/spatial.scale.csv")
+# -----------------------------------------------------------------------------------------------
+glimpse(spatial.scale)
+```
+
+## Ecosystem services
+
+Creating **ecosystem services** data by renaming the variables
+(indicators)
+
+```{r Ecosystem service}
+
+ecosystem <-
+  database %>%
+  filter(INCLUDED == TRUE) %>%
+  # selecting Ecosystem services columns
+  dplyr::select(
+    ID.P, ID.S, # ST.TYPE, MANAGEMENT
+    starts_with("ES")
+  ) %>%
+  mutate(across(matches("ES"), as.logical)) %>%
+  mutate_at(vars(-c(ID.P, ID.S)), tidyr::replace_na, 0) %>%
+  # <- Including NA's as 0 (FALSE)
+  mutate_if(is.logical, as.numeric) %>%
+  mutate_if(is.character, as.numeric) %>%
+  dplyr::select(-c(ID.S)) %>%
+  distinct(ID.P, across(contains("ES"))) # including only independent studies and not separate study sites
+
+# ---------------------------------------------------------------------------------------------------
+# total number of peer-reviewed papers reporting on ecosystem service-related indicators
+
+
+# sum the data using apply
+ecosystem.sum <-
+  data.frame(value = apply(ecosystem, MARGIN = 2, FUN = sum))
+
+ecosystem.sum$key <- rownames(ecosystem.sum)
+
+
+total_n_ES <- ecosystem.sum %>%
+  filter(key == "ES")
+# ---------------------------------------------------------------------------------------------------
+
+ecosystem.data <- ecosystem %>%
+  rename(
+    "Food (yield)" = ES.SUB.PROV.FOOD,
+    "Feed" = ES.SUB.PROV.FEED,
+    "Fibre" = ES.SUB.PROV.FIBRE,
+    "Fuel (firewood etc.)" = ES.SUB.PROV.FUEL,
+    "Genetic resources" = ES.SUB.PROV.GENRES,
+    "Biochemicals" = ES.SUB.PROV.BIOCHEM,
+    "Ornamentals" = ES.SUB.PROV.ORNA,
+    "Fresh water" = ES.SUB.PROV.WATFRESH,
+    "Air regulation" = ES.SUB.REGU.AIR,
+    "Climate regulation" = ES.SUB.REGU.CLIMREG,
+    "Carbon sequestration" = ES.SUB.REGU.CSEQREG,
+    "Water regulation" = ES.SUB.REGU.WATREG,
+    "Nutrient leaching regulation" = ES.SUB.REGU.NUTRILE,
+    "Erosion regulation" = ES.SUB.REGU.EROREG,
+    "Water purification" = ES.SUB.REGU.WATPUR,
+    "Disease regulation" = ES.SUB.REGU.DISREG,
+    "Pest regulation" = ES.SUB.REGU.PESTREG,
+    "Polination regulation" = ES.SUB.REGU.POLREG,
+    "Natural hazards regulation" = ES.SUB.REGU.NATHAZREG,
+    "Soil formation" = ES.SUB.SUPP.SOILFORM,
+    "Photosynthesis" = ES.SUB.SUPP.PHOTSYNT,
+    "Primary production" = ES.SUB.SUPP.PRIMPROD,
+    "Nutrient cycling" = ES.SUB.SUPP.NUTRICYC,
+    "Water cycling" = ES.SUB.SUPP.WATCYC,
+    "Cultural diversity" = ES.SUB.CULT.CULTDIV,
+    "Spiritual value" = ES.SUB.CULT.SPIRITVAL,
+    "Knowledge systems" = ES.SUB.CULT.KNOWLSYS,
+    "Educational value" = ES.SUB.CULT.EDUVAL,
+    "Inspirational value" = ES.SUB.CULT.INSPIR,
+    "Aesthetic value" = ES.SUB.CULT.AESTVAL,
+    "Social relations" = ES.SUB.CULT.SOCREL,
+    "Sense of place" = ES.SUB.CULT.SENPLACE,
+    "Cultural heritage value" = ES.SUB.CULT.CULTHERIVAL,
+    "Recreational and ecotourism" = ES.SUB.CULT.RECRECOTOUR,
+    "Provisioning ES" = ES.PROV,
+    "Regulating ES" = ES.REGU,
+    "Supporting ES" = ES.SUPP,
+    "Cultural ES" = ES.CULT,
+    "Ecosystem Services" = ES
+  )
+# ---------------------------------------------------------------------------------------------------------------------------------
+# Saving the saving dataset
+readr::write_csv(ecosystem.data, "./DATASET.FROM.SCRIPT/ecosystem.data.csv")
+# -----------------------------------------------------------------------------------------------
+glimpse(ecosystem.data)
+```
+
+## Approach used by studies to assess ecosystem services
+
+Creating the dataset; **approach used by studies for ES assessment**
+using Pie-Donut plot
+
+```{r}
+study.approach <- database %>%
+  filter(INCLUDED == TRUE) %>%
+  dplyr::select(
+    ID.P,
+    STUDY.FRAME
+  ) %>%
+  mutate_at(vars(-c(STUDY.FRAME)), as.numeric)
+
+ecosystem.data.DP <-
+  ecosystem.data %>%
+  dplyr::select(
+    ID.P,
+    `Provisioning ES`,
+    `Regulating ES`,
+    `Supporting ES`,
+    `Cultural ES`
+  ) %>%
+  pivot_longer(
+    cols = ends_with("ES"),
+    names_to = "ES",
+    values_to = "count"
+  )
+
+# --------------------------------------------------------------------------------------------------- Merging the two datasets
+
+study.approach.ecosystem <- left_join(
+  x = study.approach, y = ecosystem.data.DP,
+  by = c("ID.P" = "ID.P")
+) %>%
+  relocate(ID.P) %>%
+  mutate_if(is.character, as.factor) %>%
+  dplyr::select(!ID.P)
+
+# ---------------------------------------------------------------------------------------------------
+
+# Building a table with the data for the plot
+ES.study.approach.PD.data <- study.approach.ecosystem %>%
+  group_by(STUDY.FRAME, ES) %>%
+  rename("Approach" = STUDY.FRAME) %>%
+  rename("Ecosystem_Service" = ES) %>%
+  summarise(n = sum(count)) %>%
+  ungroup() %>%
+  mutate(Type = "Approach") %>%
+  mutate(Approach = recode(Approach, # rename dataframe rows
+    BIO.PHYS = "Biophysical",
+    MIXED = "Mixed approach",
+    MONETARY = "Monetary",
+    SOCIO.CUL = "Socio-cultural"
+  ))
+
+# ---------------------------------------------------------------------------------------------------------------------------------
+# Saving the saving dataset
+readr::write_csv(ES.study.approach.PD.data, "./DATASET.FROM.SCRIPT/ES.study.approach.PD.data.csv")
+# -----------------------------------------------------------------------------------------------
+glimpse(ES.study.approach.PD.data)
+```
+
+## SAF System Trait Types
+
+Creating the dataset for **SAF system trait types**
+
+```{r SAF system trait types, tidy=TRUE}
+system.trait.data <- database %>%
+  filter(INCLUDED == TRUE) %>%
+  dplyr::mutate(ST.TYPE = case_when(
+    str_detect(ST.TYPE, "RBS") ~ "Riparian buffer strips",
+    str_detect(ST.TYPE, "SHB") ~ "Line belts *",
+    str_detect(ST.TYPE, "MIXED") ~ "Mixed systems",
+    str_detect(ST.TYPE, "TIMBER.ARABLE") ~ "Timber - Arable",
+    str_detect(ST.TYPE, "BIOMASS.ARABLE") ~ "Biomass - Arable",
+    str_detect(ST.TYPE, "NUT.ARABLE") ~ "Nut - Arable",
+    str_detect(ST.TYPE, "FRUIT.ARABLE") ~ "Fruit - Arable",
+    TRUE ~ as.character(as.character(ST.TYPE))
+  )) %>%
+  dplyr::mutate(ST.TYPE.PROD.TYPE = "x") %>%
+  dplyr::mutate(ST.TYPE.PROD.TYPE == case_when(
+    str_detect(ST.TYPE, "Timber - Arable") ~ "Biomass",
+    str_detect(ST.TYPE, "Biomass - Arable") ~ "Biomass",
+    str_detect(ST.TYPE, "Nut - Arable") ~ "Food",
+    str_detect(ST.TYPE, "Fruit - Arable") ~ "Food",
+    str_detect(ST.TYPE, "Riparian buffer strips") ~ "Multiple",
+    str_detect(ST.TYPE, "Line belts *") ~ "Multiple",
+    str_detect(ST.TYPE, "Mixed systems") ~ "Multiple",
+    TRUE ~ as.character(as.character(ST.TYPE.PROD.TYPE))
+  )) %>%
+  group_by(ST.TYPE) %>%
+  summarise(count = n()) %>%
+  mutate(pct = (count / sum(count))) %>%
+  arrange(desc(-count)) %>%
+  # summarise(count = sum(count)) %>%
+  # filter(ST.TYPE != "NA")
+  # Order factor levels by number, putting "Other" to end
+  # Order factor levels by number, putting "NA" to next to end
+  dplyr::mutate(
+    ST.TYPE = forcats::fct_rev(forcats::fct_inorder(ST.TYPE)),
+    ST.TYPE = forcats::fct_relevel(ST.TYPE, "NA", after = 8)
+  )
+#  dplyr::mutate(ST.TYPE = forcats::fct_rev(forcats::fct_inorder(ST.TYPE)),
+#              ST.TYPE = forcats::fct_relevel(ST.TYPE, "Mixed and other systems", after = 4))
+
+# Checking that the reordering worked
+# levels(system.trait.data$ST.TYPE)
+
+# ---------------------------------------------------------------------------------------------------------------------------------
+# Saving the saving dataset
+readr::write_csv(system.trait.data, "./DATASET.FROM.SCRIPT/system.trait.data.csv")
+# ---------------------------------------------------------------------------------------------------------------------------------
+glimpse(system.trait.data)
+```
+
+## Functional role (product type) of trees
+
+Creating the dataset for the **functional role (product type)** of the
+tree component in SAF system trait types
+
+```{r Functional role (product type) of SAF system trait types}
+
+system.trait.products <- database %>%
+  filter(INCLUDED == TRUE) %>%
+  dplyr::mutate(ST.TYPE = case_when(
+    str_detect(ST.TYPE, "RBS") ~ "Riparian buffer strips",
+    str_detect(ST.TYPE, "SHB") ~ "Line belts *",
+    str_detect(ST.TYPE, "MIXED") ~ "Mixed systems",
+    str_detect(ST.TYPE, "TIMBER.ARABLE") ~ "Timber - Arable",
+    str_detect(ST.TYPE, "BIOMASS.ARABLE") ~ "Biomass - Arable",
+    str_detect(ST.TYPE, "NUT.ARABLE") ~ "Nut - Arable",
+    str_detect(ST.TYPE, "FRUIT.ARABLE") ~ "Fruit - Arable",
+    TRUE ~ as.character(as.character(ST.TYPE))
+  )) %>%
+  mutate(ST.TYPE.PROD.TYPE = case_when(
+    ST.TYPE == "Timber - Arable" ~ "Biomass",
+    ST.TYPE == "Biomass - Arable" ~ "Biomass",
+    ST.TYPE == "Riparian buffer strips" ~ "Biomass",
+    ST.TYPE == "Nut - Arable" ~ "Food",
+    ST.TYPE == "Fruit - Arable" ~ "Food",
+    ST.TYPE == "Line belts *" ~ "Nature + wind shelter",
+    ST.TYPE == "Mixed systems" ~ "Mixed"
+  )) %>%
+  dplyr::group_by(ST.TYPE.PROD.TYPE) %>%
+  summarise(count = n()) %>%
+  add_tally(wt = count) %>%
+  mutate(pct = (count / n)) %>%
+  arrange(desc(-count)) %>%
+  filter(ST.TYPE.PROD.TYPE != "NA")
+
+# ---------------------------------------------------------------------------------------------------------------------------------
+# Saving the saving dataset
+readr::write_csv(system.trait.products, "./DATASET.FROM.SCRIPT/system.trait.products.csv")
+# -----------------------------------------------------------------------------------------------
+
+glimpse(system.trait.products)
+```
+
+## Spatial arrangements (interrow distance)
+
+Creating the dataset for **interrow distance**
+
+```{r Interrow spatial arrangements, tidy=TRUE}
+
+spatial.arrange.data <- database %>%
+  filter(INCLUDED == TRUE) %>%
+  dplyr::select(
+    ID.P, ID.S,
+    CA.DIST.INTERROW, CA.DIST.INTERROW.MIN, CA.DIST.INTERROW.MAX,
+    CA.DIST.INTRAROW, ST.TYPE
+  ) %>%
+  mutate_at(vars(-c(ST.TYPE)), as.numeric) %>%
+  # <- converting characters to numeric
+  # where there is no information in the single value interrow distance, then use the mean value of interrow min and interrow max
+  rowwise() %>%
+  mutate(avr_interrow = mean(c(CA.DIST.INTERROW.MIN, CA.DIST.INTERROW.MAX), na.rm = FALSE))
+
+# mutate(CA.DIST.INTERROW = ifelse(CA.DIST.INTERROW == "NA", avr_interrow, CA.DIST.INTERROW), .keep = "all")
+
+# Using base R commands
+# Duplicate data
+spatial.arrange.data_new <- spatial.arrange.data
+# Replace NA values
+spatial.arrange.data_new$CA.DIST.INTERROW[is.na(spatial.arrange.data_new$CA.DIST.INTERROW)] <-
+  spatial.arrange.data_new$avr_interrow[is.na(spatial.arrange.data_new$CA.DIST.INTERROW)]
+
+# Renaming to original
+spatial.arrange.data <- spatial.arrange.data_new
+
+# ---------------------------------------------------------------------------------------------------------------------------------
+# Saving the saving dataset
+readr::write_csv(spatial.arrange.data, "./DATASET.FROM.SCRIPT/spatial.arrange.data.csv")
+# -----------------------------------------------------------------------------------------------
+glimpse(spatial.arrange.data)
+```
+
+## Crop species groups
+
+Creating the dataset for **crop species groups**
+
+```{r Crop groups, message=FALSE, tidy=TRUE}
+# using n_individual_study_sites because crop species vary between sites, as some studies include multiple sites with different species compositions and arrangements.
+
+crops.data <-
+  read_excel("DATA/DATABASE_2.0.xlsx",
+    sheet = "CROP_SPECIES"
+  ) %>%
+  # Generating broad categories of crop species - based on broad output product
+  # based on FAO, 2019. FAOSTAT database. http://www.fao.org/faostat/en/#data.
+  mutate(CROP.OUTPUT.GROUP = case_when(
+    str_detect(CROP.SPECIES, "Triticum") ~ "Cereals",
+    str_detect(CROP.SPECIES, "Zea") ~ "Cereals",
+    str_detect(CROP.SPECIES, "Hordeum") ~ "Cereals",
+    str_detect(CROP.SPECIES, "Secale") ~ "Cereals",
+    str_detect(CROP.SPECIES, "Avena") ~ "Cereals",
+    str_detect(CROP.SPECIES, "Sorghum") ~ "Cereals",
+    str_detect(CROP.SPECIES, "Fagopyrum") ~ "Cereals",
+    str_detect(CROP.SPECIES, "Glycine") ~ "Pulses",
+    str_detect(CROP.SPECIES, "Pisum") ~ "Pulses",
+    str_detect(CROP.SPECIES, "Cicer") ~ "Pulses",
+    str_detect(CROP.SPECIES, "Lupinus") ~ "Pulses",
+    str_detect(CROP.SPECIES, "Beta") ~ "Sugar crops",
+    str_detect(CROP.SPECIES, "Cucurbita") ~ "Vegetable crops",
+    str_detect(CROP.SPECIES, "UNSPECIFIED.VEGETABLES") ~ "Vegetable crops",
+    str_detect(CROP.SPECIES, "Asparagus") ~ "Vegetable crops",
+    str_detect(CROP.SPECIES, "Brassica oleracea") ~ "Vegetable crops",
+    str_detect(CROP.SPECIES, "Capsicum") ~ "Vegetable crops",
+    str_detect(CROP.SPECIES, "Citrullus") ~ "Vegetable crops",
+    str_detect(CROP.SPECIES, "Cucumis") ~ "Vegetable crops",
+    str_detect(CROP.SPECIES, "Lactuca") ~ "Vegetable crops",
+    str_detect(CROP.SPECIES, "Solanum lycopersicum") ~ "Vegetable crops",
+    str_detect(CROP.SPECIES, "Brassica napus subsp. napus") ~ "Oil crops",
+    str_detect(CROP.SPECIES, "Helianthus") ~ "Oil crops",
+    str_detect(CROP.SPECIES, "Sinapsis") ~ "Oil crops",
+    str_detect(CROP.SPECIES, "Brassica alba") ~ "Oil crops",
+    str_detect(CROP.SPECIES, "Ribes") ~ "Fruit crops",
+    str_detect(CROP.SPECIES, "Rubus") ~ "Fruit crops",
+    str_detect(CROP.SPECIES, "Aronia") ~ "Fruit crops",
+    str_detect(CROP.SPECIES, "Fragaria") ~ "Fruit crops",
+    str_detect(CROP.SPECIES, "Solanum tuberosum") ~ "Roots and tuber crops",
+    str_detect(CROP.SPECIES, "HERBS") ~ "OTHER CROPS FOR HUMAN CONS.",
+    str_detect(CROP.SPECIES, "	SP.BEEF.CATTLE") ~ "OTHER CROPS FOR HUMAN CONS.",
+    str_detect(CROP.SPECIES, "	SP.DAIRY.CATTLE") ~ "OTHER CROPS FOR HUMAN CONS.",
+    str_detect(CROP.SPECIES, "	SP.PIG") ~ "OTHER CROPS FOR HUMAN CONS.",
+    str_detect(CROP.SPECIES, "Lolium") ~ "Forage crops",
+    str_detect(CROP.SPECIES, "Vicia") ~ "Forage crops",
+    str_detect(CROP.SPECIES, "Poa") ~ "Forage crops",
+    str_detect(CROP.SPECIES, "Festuca") ~ "Forage crops",
+    str_detect(CROP.SPECIES, "Medicago") ~ "Forage crops",
+    str_detect(CROP.SPECIES, "Panicum") ~ "Forage crops",
+    str_detect(CROP.SPECIES, "Trifolium") ~ "Forage crops",
+    str_detect(CROP.SPECIES, "HAY.FODDER") ~ "Forage crops",
+    str_detect(CROP.SPECIES, "UNSPECIFIED.CLOVERLAY") ~ "Forage crops",
+    str_detect(CROP.SPECIES, "UNSPECIFIED.Fallow") ~ "Fallow"
+  )) %>%
+  # removing 'unreal' species
+  filter(!grepl("HAY|UNSPECIFIED|HERBS|SP|NA|NS", CROP.SPECIES)) %>%
+  # Generating broad categories of crop species - based on genus
+  separate(CROP.SPECIES, c("CROP.GENUS.GROUP", "CROP.SPECIES.GROUP"), "^\\S*\\K\\s+", remove = FALSE)
+
+crops.data.aggr <- crops.data %>%
+  filter(CROP.OUTPUT.GROUP != "NA") %>%
+  # excluding 41 records of 'NA'
+  group_by(CROP.OUTPUT.GROUP) %>%
+  summarise(count = n()) %>%
+  add_tally(wt = count) %>%
+  mutate(pct = (count / n) * 100) %>%
+  mutate(across(where(is.numeric), round, 1)) %>%
+  # rounding no of decimals
+  arrange(desc(-count))
+
+# ---------------------------------------------------------------------------------------------------------------------------------
+# Saving the saving dataset
+readr::write_csv(crops.data, "./DATASET.FROM.SCRIPT/crops.data.csv")
+# -----------------------------------------------------------------------------------------------
+glimpse(crops.data)
+```
+
+## Tree species genera
+
+Creating the dataset for **tree species and tree genera groups**
+
+```{r Tree genera groups, message=FALSE, warning=FALSE, tidy=TRUE}
+# using n_individual_study_sites because tree species vary between sites, as some studies include multiple sites with different species compositions and arrangements.
+
+trees.data <-
+  read_excel("DATA/DATABASE_2.0.xlsx",
+    sheet = "TREE_SPECIES"
+  ) %>%
+  # Generating broad categories of tree species - based on families, genus and hybrids
+  separate(TREE.SPECIES, c("TREE.GENUS.GROUP", "TREE.SPECIES.GROUP"), "^\\S*\\K\\s+", remove = FALSE) %>%
+  separate(TREE.GENUS.GROUP, c("TREE.HYBRID.SPEC.1", "TREE.HYBRID.SPEC.2"), "^\\S*\\K\\s+", remove = FALSE) %>%
+  dplyr::mutate(TREE.GENUS.GROUP = case_when(
+    str_detect(TREE.GENUS.GROUP, "(?<![:alpha:])UNSPECIFIED(?![:alpha:])") ~ "Unspecified trees",
+    TRUE ~ as.character(as.character(TREE.GENUS.GROUP))
+  ))
+
+trees.data.aggr <- trees.data %>%
+  # Grouping and preparing the trees species group data for plotting
+  group_by(TREE.GENUS.GROUP) %>%
+  summarise(count = n()) %>%
+  group_by(TREE.GENUS.GROUP = replace(TREE.GENUS.GROUP, count < 5, "Other species")) %>%
+  summarise(count = sum(count)) %>%
+  mutate(pct = (count / sum(count))) %>%
+  filter(TREE.GENUS.GROUP != "NA") %>%
+  arrange(desc(-count)) %>%
+  ## order factor levels by number, put "Other" to end
+  dplyr::mutate(
+    TREE.GENUS.GROUP = forcats::fct_rev(forcats::fct_inorder(TREE.GENUS.GROUP)),
+    TREE.GENUS.GROUP = forcats::fct_relevel(TREE.GENUS.GROUP, "Other species", after = 16)
+  )
+
+# Checking that the reordering worked
+# levels(trees.data.aggr$TREE.GENUS.GROUP)
+
+# ---------------------------------------------------------------------------------------------------------------------------------
+# Saving the saving dataset
+readr::write_csv(trees.data, "./DATASET.FROM.SCRIPT/trees.data.csv")
+# -----------------------------------------------------------------------------------------------
+glimpse(trees.data)
+```
+
+## Biodiversity indicators
+
+Creating the dataset for **biodiversity indicators**
+
+```{r Biodiversity indicators}
+# using n_independent_studies because biodiversity and ecosystem service related indicators do not (normally) vary between sites, because independent studies look at the same variables (biodiversity and ecosystem service) even if several individual study sites are used for the study.
+
+biodiversity <-
+  database %>%
+  filter(INCLUDED == TRUE) %>%
+  # selecting Biodiversity columns
+  dplyr::select(
+    ID.P, ID.S, # ST.TYPE, MANAGEMENT
+    starts_with("BD")
+  ) %>%
+  mutate(across(matches("BD"), as.logical)) %>%
+  mutate_at(vars(-c(ID.P, ID.S)), tidyr::replace_na, 0) %>%
+  # <- Including NA's as 0 (FALSE)
+  mutate_if(is.logical, as.numeric) %>%
+  mutate_if(is.character, as.numeric) %>%
+  dplyr::select(-c(ID.S)) %>%
+  distinct(ID.P, across(contains("BD"))) # including only independent studies and not separate study sites
+
+# sum the data using apply
+biodiversity.sum <-
+  data.frame(value = apply(biodiversity, MARGIN = 2, FUN = sum))
+
+
+biodiversity.sum$key <- rownames(biodiversity.sum)
+
+biodiversity.data <-
+  biodiversity.sum %>%
+  rename(
+    count = value,
+    BD.SUB.INDICATORS = key
+  ) %>%
+  filter(BD.SUB.INDICATORS == "BD.SUB.FLORAMACRO" |
+    BD.SUB.INDICATORS == "BD.SUB.FLORAMICRO" |
+    BD.SUB.INDICATORS == "BD.SUB.FAUNAMACRO" |
+    BD.SUB.INDICATORS == "BD.SUB.FAUNAMICRO" |
+    BD.SUB.INDICATORS == "BD.SUB.FUNGI" |
+    BD.SUB.INDICATORS == "BD.SUB.BACTERIA") %>%
+  # grouping of flora and fauna categories according to the defined data structures and data analysis framework
+  mutate(BD.GROUPS = case_when(
+    str_detect(BD.SUB.INDICATORS, "BD.SUB.FLORAMACRO") ~ "FLORA",
+    str_detect(BD.SUB.INDICATORS, "BD.SUB.FLORAMICRO") ~ "FLORA",
+    str_detect(BD.SUB.INDICATORS, "BD.SUB.FAUNAMACRO") ~ "FAUNA",
+    str_detect(BD.SUB.INDICATORS, "BD.SUB.FAUNAMICRO") ~ "FAUNA",
+    str_detect(BD.SUB.INDICATORS, "BD.SUB.FUNGI") ~ "FUNGI",
+    str_detect(BD.SUB.INDICATORS, "BD.SUB.BACTERIA") ~ "BACTERIA"
+  )) %>%
+  # grouping, counting and preparing the biodiversity groups for plotting
+  group_by(BD.GROUPS) %>%
+  summarise(count = sum(count)) %>%
+  # the proportion of individual biodiversity-related indicators relative to the total number of papers: How many papers report in        biodiversity-related indicators
+  mutate(pct_of_total = (count / n_independent_studies)) %>%
+  arrange(desc(-count))
+
+# ---------------------------------------------------------------------------------------------------------------------------------
+# Saving the saving dataset
+readr::write_csv(biodiversity.data, "./DATASET.FROM.SCRIPT/biodiversity.data.csv")
+# -----------------------------------------------------------------------------------------------
+glimpse(biodiversity.data)
+```
+
+## Ecosystem services (frequency of occurrence of ecosystem services)
+
+Creating the dataset for assessing the **frequency of occurrence of
+ecosystem services** using Pie-Donut plot
+
+```{r}
+# ---------------------------------------------------------------------------------------------------
+# summarising ES Tier 2 data using the base R apply function
+
+ecosystem.sum.data.PD <-
+  data.frame(value = apply(ecosystem.data, # the dataset ecosystem.data has been generated earlier in the script
+    MARGIN = 2, FUN = sum
+  ))
+
+
+ecosystem.sum.data.PD$ES.TIER2.GROUP <- rownames(ecosystem.sum.data.PD) # providing the row names from the original dataset
+
+# ---------------------------------------------------------------------------------------------------
+# Adding a column for Tier 1 ES ()
+
+ecosystem.sum.data.PD.tier1.tier2 <-
+  ecosystem.sum.data.PD %>%
+  # dplyr::select(!key) %>%
+  dplyr::filter(!ES.TIER2.GROUP %in% c(
+    "ID.P", # excluding ID.P and Tier 1 ES rows as that would not make sense in the Pie-Donut chart
+    "Provisioning ES",
+    "Regulating ES",
+    "Supporting ES",
+    "Cultural ES",
+    "Ecosystem Services"
+  )) %>%
+  as.tibble() %>%
+  # ---------------------------------------------------------------------------------------------------
+  # Specifying ES + CAT groups into ONLY ES = prov, regu, supp and cult. (CAT = agronomy, environment, economic and socio-cultural)
+  # ---------------------------------------------------------------------------------------------------
+  mutate(ES.TIER1.GROUP = "x") %>%
+  mutate(ES.TIER1.GROUP = case_when(
+    str_detect(ES.TIER2.GROUP, "Food") ~ "Povisioning ES",
+    str_detect(ES.TIER2.GROUP, "Feed") ~ "Povisioning ES",
+    str_detect(ES.TIER2.GROUP, "Fibre") ~ "Povisioning ES",
+    str_detect(ES.TIER2.GROUP, "Fuel") ~ "Povisioning ES", # "Fuel (firewood etc.)"
+    str_detect(ES.TIER2.GROUP, "Genetic resources") ~ "Povisioning ES",
+    str_detect(ES.TIER2.GROUP, "Biochemicals") ~ "Povisioning ES",
+    str_detect(ES.TIER2.GROUP, "Ornamentals") ~ "Povisioning ES",
+    str_detect(ES.TIER2.GROUP, "Fresh water") ~ "Povisioning ES",
+
+    # ---------------------------------------------------------------------------------------------------
+    str_detect(ES.TIER2.GROUP, "Air regulation") ~ "Regulating ES",
+    str_detect(ES.TIER2.GROUP, "Climate regulation") ~ "Regulating ES",
+    str_detect(ES.TIER2.GROUP, "Carbon sequestration") ~ "Regulating ES",
+    str_detect(ES.TIER2.GROUP, "Water regulation") ~ "Regulating ES",
+    str_detect(ES.TIER2.GROUP, "Water purification") ~ "Regulating ES",
+    str_detect(ES.TIER2.GROUP, "Nutrient leaching regulation") ~ "Regulating ES",
+    str_detect(ES.TIER2.GROUP, "Erosion regulation") ~ "Regulating ES",
+    str_detect(ES.TIER2.GROUP, "Water availability") ~ "Regulating ES",
+    str_detect(ES.TIER2.GROUP, "Disease regulation") ~ "Regulating ES",
+    str_detect(ES.TIER2.GROUP, "Pest regulation") ~ "Regulating ES",
+    str_detect(ES.TIER2.GROUP, "Polination regulation") ~ "Regulating ES",
+    str_detect(ES.TIER2.GROUP, "Polination regulation") ~ "Regulating ES",
+    str_detect(ES.TIER2.GROUP, "Natural hazards regulation") ~ "Regulating ES",
+    # ---------------------------------------------------------------------------------------------------
+
+    str_detect(ES.TIER2.GROUP, "Soil formation") ~ "Supporting ES",
+    str_detect(ES.TIER2.GROUP, "Photosynthesis") ~ "Supporting ES",
+    str_detect(ES.TIER2.GROUP, "Primary production") ~ "Supporting ES",
+    str_detect(ES.TIER2.GROUP, "Nutrient cycling") ~ "Supporting ES",
+    str_detect(ES.TIER2.GROUP, "Water cycling") ~ "Supporting ES",
+    # ---------------------------------------------------------------------------------------------------
+
+    str_detect(ES.TIER2.GROUP, "Cultural diversity") ~ "Cultural ES",
+    str_detect(ES.TIER2.GROUP, "Spiritual value") ~ "Cultural ES",
+    str_detect(ES.TIER2.GROUP, "Knowledge systems") ~ "Cultural ES",
+    str_detect(ES.TIER2.GROUP, "Educational value") ~ "Cultural ES",
+    str_detect(ES.TIER2.GROUP, "Inspirational value") ~ "Cultural ES",
+    str_detect(ES.TIER2.GROUP, "Aesthetic value") ~ "Cultural ES",
+    str_detect(ES.TIER2.GROUP, "Social relations") ~ "Cultural ES",
+    str_detect(ES.TIER2.GROUP, "Sense of place") ~ "Cultural ES",
+    str_detect(ES.TIER2.GROUP, "Cultural heritage value") ~ "Cultural ES",
+    str_detect(ES.TIER2.GROUP, "Recreational and ecotourism") ~ "Cultural ES",
+    # ---------------------------------------------------------------------------------------------------
+
+    str_detect(ES.TIER2.GROUP, "Food (yield)") ~ "Povisioning ES",
+    str_detect(ES.TIER2.GROUP, "Biomass") ~ "Povisioning ES",
+    str_detect(ES.TIER2.GROUP, "Land equivalent ratio") ~ "Povisioning ES",
+    str_detect(ES.TIER2.GROUP, "Pests") ~ "Regulating ES",
+    str_detect(ES.TIER2.GROUP, "Diseases") ~ "Regulating ES",
+    str_detect(ES.TIER2.GROUP, "Weeds") ~ "Regulating ES",
+    str_detect(ES.TIER2.GROUP, "Product quality") ~ "Povisioning ES",
+    str_detect(ES.TIER2.GROUP, "Product stability") ~ "Povisioning ES",
+    str_detect(ES.TIER2.GROUP, "Mechanisa") ~ "Povisioning ES", # "Mechanisation"
+    str_detect(ES.TIER2.GROUP, "Belowground") ~ "Povisioning ES", # "Belowground (crop-tree) competition"
+    str_detect(ES.TIER2.GROUP, "Aboveground") ~ "Povisioning ES", # "Aboveground (crop-tree) light competition"
+    str_detect(ES.TIER2.GROUP, "Nutrient use") ~ "Povisioning ES",
+    str_detect(ES.TIER2.GROUP, "Nutrient use effeciency") ~ "Povisioning ES",
+    str_detect(ES.TIER2.GROUP, "Breeding and selection") ~ "Povisioning ES",
+    # ---------------------------------------------------------------------------------------------------
+
+    str_detect(ES.TIER2.GROUP, "Soil quality") ~ "Supporting ES",
+    str_detect(ES.TIER2.GROUP, "Biodiversity") ~ "Regulating ES",
+    str_detect(ES.TIER2.GROUP, "Carbon stock") ~ "Regulating ES",
+    str_detect(ES.TIER2.GROUP, "Greenhouse gas emissions") ~ "Regulating ES",
+    str_detect(ES.TIER2.GROUP, "Pollination") ~ "Regulating ES",
+    str_detect(ES.TIER2.GROUP, "Soil structure") ~ "Supporting ES",
+    str_detect(ES.TIER2.GROUP, "Chemical soil components") ~ "Supporting ES",
+    str_detect(ES.TIER2.GROUP, "Biological soil components") ~ "Supporting ES",
+    str_detect(ES.TIER2.GROUP, "Soil water") ~ "Supporting ES",
+    str_detect(ES.TIER2.GROUP, "Soil erosion") ~ "Regulating ES",
+    str_detect(ES.TIER2.GROUP, "Soil formations") ~ "Supporting ES",
+    str_detect(ES.TIER2.GROUP, "Water quality") ~ "Regulating ES",
+    str_detect(ES.TIER2.GROUP, "Water perculation") ~ "Regulating ES",
+    str_detect(ES.TIER2.GROUP, "Water cyclings") ~ "Supporting ES",
+    str_detect(ES.TIER2.GROUP, "Water availability") ~ "Regulating ES",
+    str_detect(ES.TIER2.GROUP, "Hydraulic lift") ~ "Regulating ES",
+    # ---------------------------------------------------------------------------------------------------
+
+    str_detect(ES.TIER2.GROUP, "Economic profit related") ~ "Povisioning ES",
+    str_detect(ES.TIER2.GROUP, "Economic management related") ~ "Povisioning ES",
+    str_detect(ES.TIER2.GROUP, "Economic market related") ~ "Povisioning ES",
+    # ---------------------------------------------------------------------------------------------------
+
+    str_detect(ES.TIER2.GROUP, "Landscape aesthetics") ~ "Cultural ES",
+    str_detect(ES.TIER2.GROUP, "Recreational and ecotourism") ~ "Cultural ES",
+    str_detect(ES.TIER2.GROUP, "Spiritual values") ~ "Cultural ES",
+    str_detect(ES.TIER2.GROUP, "Perception of adoptation") ~ "Cultural ES",
+    str_detect(ES.TIER2.GROUP, "Policy information") ~ "Cultural ES"
+  )) %>%
+  relocate(ES.TIER1.GROUP, ES.TIER2.GROUP, value)
+
+# ---------------------------------------------------------------------------------------------------------------------------------
+# Saving the saving dataset
+readr::write_csv(ecosystem.sum.data.PD.tier1.tier2, "./DATASET.FROM.SCRIPT/ecosystem.sum.data.PD.tier1.tier2.csv")
+# -----------------------------------------------------------------------------------------------
+glimpse(ecosystem.sum.data.PD.tier1.tier2)
+```
+
+## Categories of Approach
+
+Creating dataset for **categories of approach**
+
+```{r Categories of Approach}
+# using n_independent_studies because categories of approach do not (normally) vary between sites, because independent studies look at the same variables (categories of approach) even if several individual study sites are used for the study.
+
+categories <-
+  database %>%
+  filter(INCLUDED == TRUE) %>%
+  # selecting Ecosystem services columns
+  dplyr::select(
+    ID.P, ID.S, # ST.TYPE, MANAGEMENT
+    starts_with("CAT")
+  ) %>%
+  mutate(across(matches("CAT"), as.logical)) %>%
+  mutate_at(vars(-c(ID.P, ID.S)), tidyr::replace_na, 0) %>%
+  # <- Including NA's as 0 (FALSE)
+  mutate_if(is.logical, as.numeric) %>%
+  mutate_if(is.character, as.numeric) %>%
+  dplyr::select(-c(ID.S)) %>%
+  distinct(ID.P, across(contains("CAT"))) # including only independent studies and not separate study sites
+
+
+# ---------------------------------------------------------------------------------------------------
+# Renaming data columns
+
+categories.data <- categories %>%
+  # rename_with(~ gsub("CAT.SUB.AGRO.", "", .x, fixed = TRUE))
+  rename(
+    "Food" = CAT.SUB.AGRO.YIELD,
+    "Biomass" = CAT.SUB.AGRO.BIOMASS,
+    "Land equivalent ratio" = CAT.SUB.AGRO.LER,
+    "Pests" = CAT.SUB.AGRO.PESTS,
+    "Diseases" = CAT.SUB.AGRO.DISEASE,
+    "Weeds" = CAT.SUB.AGRO.WEEDS,
+    "Product quality" = CAT.SUB.AGRO.PRODQUAL,
+    "Product stability" = CAT.SUB.AGRO.PRODSTAB,
+    "Mechanisation" = CAT.SUB.AGRO.MECHAN,
+    "Belowground (crop-tree) competition" = CAT.SUB.AGRO.CRTRBLOW,
+    "Aboveground (crop-tree) light competition" = CAT.SUB.AGRO.LIGHTCMP,
+    "Nutrient use" = CAT.SUB.AGRO.NUTRIUSE,
+    "Nutrient use effeciency" = CAT.SUB.AGRO.NUTRIEF,
+    "Breeding and selection" = CAT.SUB.AGRO.BRDSELECT,
+    "Soil quality" = CAT.SUB.ENVI.SOILQUAL,
+    "Biodiversity" = CAT.SUB.ENVI.BIODIV,
+    "Carbon stock" = CAT.SUB.ENVI.CSTOCK,
+    "Greenhouse gas emissions" = CAT.SUB.ENVI.GHGEMS,
+    "Pollination" = CAT.SUB.ENVI.POLLCON,
+    "Soil structure" = CAT.SUB.ENVI.SOILSTRUCT,
+    "Chemical soil components" = CAT.SUB.ENVI.SOILCHEM,
+    "Biological soil components" = CAT.SUB.ENVI.SOILBIO,
+    "Soil water" = CAT.SUB.ENVI.SOILWAT,
+    "Soil erosion" = CAT.SUB.ENVI.SOILEROCO,
+    "Soil formations" = CAT.SUB.ENVI.SOILFORM,
+    "Water quality" = CAT.SUB.ENVI.WATQUAL,
+    "Water perculation" = CAT.SUB.ENVI.WATPERC,
+    "Water cyclings" = CAT.SUB.ENVI.WATCYC,
+    "Water availability" = CAT.SUB.ENVI.WATAVAIL,
+    "Hydraulic lift" = CAT.SUB.ENVI.HYDRAULIFT,
+    "Economic profit related" = CAT.SUB.ECON.PROFIT,
+    "Economic management related" = CAT.SUB.ECON.MANAGE,
+    "Economic market related" = CAT.SUB.ECON.MARKET,
+    "Landscape aesthetics" = CAT.SUB.SOCUL.LANAES,
+    "Recreational and ecotourisms" = CAT.SUB.SOCUL.RECRECOTOUR,
+    "Spiritual values" = CAT.SUB.SOCUL.SPIRITVAL,
+    "Perception of adoptation" = CAT.SUB.SOCUL.PERCEPADOPT,
+    "Policy information" = CAT.SUB.SOCUL.POLICYINFR,
+    "Agronomic category" = CAT.AGRO,
+    "Environmental category" = CAT.ENVIRON,
+    "Economic category" = CAT.ECONOM,
+    "Socio-cultural category" = CAT.SOCIOCUL
+  )
+
+
+# ---------------------------------------------------------------------------------------------------------------------------------
+# Saving the saving dataset
+readr::write_csv(categories.data, "./DATASET.FROM.SCRIPT/categories.data.csv")
+# -----------------------------------------------------------------------------------------------
+glimpse(categories.data)
+```
+
+## Combined ES + CAT dataset
+
+To create (1) broad focus groups of ecosystem services as well as (2)
+selected ecosystem services we use information from the *data
+dimensions*; **ecosystem services**, **biodiversity** and **categories
+of approach**. Following the style of *Ditzler et al. (2021)*, *Duru et
+al. (2015)* and *Tamburini et al. (2020)*
+
+Also, to create a combined dataset for assessing **input / output ES**
+we base the grouping of ecosystem services on the *data dimensions*;
+**ecosystem services** and **categories of approach** combined.
+Following the methodology of *Ditzler et al. (2021)* and *Duru et al.
+(2015)*
+
+```{r Combined ES + CAT dataset input / output ES and broad groups of ES, eval=TRUE}
+# based on the datasets
+# category.data.renamed AND ecosystem.data
+
+joined.category.ecosystem <- left_join(
+  x = categories.data, y = ecosystem.data,
+  by = c("ID.P" = "ID.P")
+) %>%
+  relocate(ID.P)
+
+category.ecosystem.long <- joined.category.ecosystem %>%
+  pivot_longer(!ID.P,
+    names_to = "name",
+    values_to = "value"
+  ) %>%
+  # renaming dataframe rows and assigning them to input/output services, following the methodology of *Ditzler et al. (2021)* and
+  # *Duru et al. (2015)*
+  mutate(INPUT.OUTPUT.ES = recode(name,
+
+    # --------------------------------------------------------------------------------------------------- Regular INPUT services
+    `Erosion regulation` = "INPUT.ES",
+    `Disease regulation` = "INPUT.ES",
+    `Pest regulation` = "INPUT.ES",
+    `Polination regulation` = "INPUT.ES",
+    `Soil formation` = "INPUT.ES",
+    `Nutrient use effeciency` = "INPUT.ES",
+    `Land equivalent ratio` = "INPUT.ES",
+    `Economic profit related` = "INPUT.ES",
+    `Biodiversity` = "INPUT.ES",
+    # ---------------------------------------------------------------------------------------------------
+
+    `Soil structure` = "INPUT.ES",
+    `Water availability` = "INPUT.ES",
+    `Hydraulic lift` = "INPUT.ES",
+    `Water cycling` = "INPUT.ES",
+    `Nutrient cycling` = "INPUT.ES",
+    # --------------------------------------------------------------------------------------------------- Regular OUTPUT services
+
+    `Economic profit related` = "OUTPUT.ES",
+    `Food` = "OUTPUT.ES",
+    `Fibre` = "OUTPUT.ES",
+    `Fuel (firewood etc.)` = "OUTPUT.ES",
+    `Climate regulation` = "OUTPUT.ES",
+    `Carbon sequestration` = "OUTPUT.ES",
+    `Water regulation` = "OUTPUT.ES",
+    `Nutrient leaching regulation` = "OUTPUT.ES",
+    `Landscape aesthetics` = "OUTPUT.ES",
+    `Recreational and ecotourism` = "OUTPUT.ES",
+    `Product quality` = "OUTPUT.ES",
+    `Pollination` = "OUTPUT.ES",
+    `Product stability` = "OUTPUT.ES",
+    `Recreational and ecotourisms` = "OUTPUT.ES",
+    `Spiritual values` = "OUTPUT.ES",
+    `Spiritual value` = "OUTPUT.ES",
+    `Educational value` = "OUTPUT.ES",
+    # ---------------------------------------------------------------------------------------------------
+
+    `Economic management related` = "INPUT.ES",
+    `Food (yield)` = "OUTPUT.ES",
+    `Feed` = "OUTPUT.ES",
+    `Biomass` = "OUTPUT.ES",
+    `Biochemicals` = "OUTPUT.ES",
+    `Ornamentals` = "OUTPUT.ES",
+    .default = "NA"
+  )) %>%
+  # ---------------------------------------------------------------------------------------------------
+  # Specifying ES + CAT groups into ONLY ES = prov, regu, supp and cult. (CAT = agronomy, environment, economic and socio-cultural)
+  # ---------------------------------------------------------------------------------------------------
+  mutate(ES.CAT.GROUPS = recode(name,
+    `Food` = "Povisioning ES",
+    `Feed` = "Povisioning ES",
+    `Fibre` = "Povisioning ES",
+    `Fuel` = "Povisioning ES", # "Fuel (firewood etc.)"
+    `Genetic resources` = "Povisioning ES",
+    `Biochemicals` = "Povisioning ES",
+    `Ornamentals` = "Povisioning ES",
+    `Fresh water` = "Povisioning ES",
+    # `Fuel (firewood etc.)` = "Povisioning ES",
+    # ---------------------------------------------------------------------------------------------------
+
+    `Air regulation` = "Regulating ES",
+    `Climate regulation` = "Regulating ES",
+    `Carbon sequestration` = "Regulating ES",
+    `Water regulation` = "Regulating ES",
+    `Water purification` = "Regulating ES",
+    `Nutrient leaching regulation` = "Regulating ES",
+    `Erosion regulation` = "Regulating ES",
+    `Water availability` = "Regulating ES",
+    `Disease regulation` = "Regulating ES",
+    `Pest regulation` = "Regulating ES",
+    `Polination regulation` = "Regulating ES",
+    `Natural hazards regulation` = "Regulating ES",
+    # ---------------------------------------------------------------------------------------------------
+
+    `Soil formation` = "Supporting ES",
+    `Photosynthesis` = "Supporting ES",
+    `Primary production` = "Supporting ES",
+    `Nutrient cycling` = "Supporting ES",
+    `Water cycling` = "Supporting ES",
+    # ---------------------------------------------------------------------------------------------------
+
+    `Cultural diversity` = "Cultural ES",
+    `Spiritual value` = "Cultural ES",
+    `Knowledge systems` = "Cultural ES",
+    `Educational value` = "Cultural ES",
+    `Inspirational value` = "Cultural ES",
+    `Aesthetic value` = "Cultural ES",
+    `Social relations` = "Cultural ES",
+    `Sense of place` = "Cultural ES",
+    `Cultural heritage value` = "Cultural ES",
+    `Recreational and ecotourism` = "Cultural ES",
+    # ---------------------------------------------------------------------------------------------------
+
+    `Food (yield)` = "Povisioning ES",
+    `Biomass` = "Povisioning ES",
+    `Land equivalent ratio` = "Povisioning ES",
+    `Pests` = "Regulating ES",
+    `Diseases` = "Regulating ES",
+    `Weeds` = "Regulating ES",
+    `Product quality` = "Povisioning ES",
+    `Product stability` = "Povisioning ES",
+    `Mechanisation` = "Povisioning ES",
+    `Belowground (crop-tree) competition` = "Povisioning ES",
+    `Aboveground (crop-tree) light competition` = "Povisioning ES",
+    `Nutrient use` = "Povisioning ES",
+    `Nutrient use effeciency` = "Povisioning ES",
+    `Breeding and selection` = "Povisioning ES",
+    # ---------------------------------------------------------------------------------------------------
+
+    `Soil quality` = "Supporting ES",
+    `Biodiversity` = "Regulating ES",
+    `Carbon stock` = "Regulating ES",
+    `Greenhouse gas emissions` = "Regulating ES",
+    `Pollination` = "Regulating ES",
+    `Soil structure` = "Supporting ES",
+    `Chemical soil components` = "Supporting ES",
+    `Biological soil components` = "Supporting ES",
+    `Soil water` = "Supporting ES",
+    `Soil erosion` = "Regulating ES",
+    `Soil formations` = "Supporting ES",
+    `Water quality` = "Regulating ES",
+    `Water perculation` = "Regulating ES",
+    `Water cyclings` = "Supporting ES",
+    `Water availability` = "Regulating ES",
+    `Hydraulic lift` = "Regulating ES",
+    # ---------------------------------------------------------------------------------------------------
+
+    `Economic profit related` = "Povisioning ES",
+    `Economic management related` = "Povisioning ES",
+    `Economic market related` = "Povisioning ES",
+    # ---------------------------------------------------------------------------------------------------
+
+    `Landscape aesthetics` = "Cultural ES",
+    `Recreational and ecotourism` = "Cultural ES",
+    `Spiritual values` = "Cultural ES",
+    `Perception of adoptation` = "Cultural ES",
+    `Policy information` = "Cultural ES",
+    # `Recreational and ecotourisms` = "Cultural ES",
+    .default = "NA"
+  )) %>%
+  # ---------------------------------------------------------------------------------------------------
+  # Specifying groups of ES + CAT
+  # ---------------------------------------------------------------------------------------------------
+  # # renaming dataframe rows and assigning them to broad focus groups of ES, following the methodology of Ditzler et al. (2021) and         # Tamburini et al. (2020)
+  mutate(FOCUS.GROUPS.BD.ES.CAT = recode(name,
+
+    # --------------------------------------------------------------------------------------------------- Production-related
+    `Food` = "Production",
+    `Feed` = "Production",
+    `Fibre` = "Production",
+    `Fuel` = "Production",
+    `Genetic resources` = "Production",
+    `Biochemicals` = "Production",
+    `Ornamentals` = "Production",
+    `Fuel (firewood etc.)` = "Production",
+    `Primary production` = "Production",
+    `Food (yield)` = "Production",
+    `Biomass` = "Production",
+    `Land equivalent ratio` = "Production",
+    `Product quality` = "Production",
+    `Product stability` = "Production",
+    `Mechanisation` = "Production",
+    `Belowground (crop-tree) competition` = "Production",
+    `Aboveground (crop-tree) light competition` = "Production",
+    `Nutrient use` = "Production",
+    `Nutrient use effeciency` = "Production",
+    `Breeding and selection` = "Production",
+    # --------------------------------------------------------------------------------------------------- Nat. process regulation related
+
+    `Air regulation` = "Nat. process regulation",
+    `Climate regulation` = "Nat. process regulation",
+    `Erosion regulation` = "Nat. process regulation",
+    `Polination regulation` = "Nat. process regulation",
+    `Pollination` = "Nat. process regulation",
+    `Natural hazards regulation` = "Nat. process regulation",
+    `Photosynthesis` = "Nat. process regulation",
+    `Nutrient cycling` = "Nat. process regulation",
+    # --------------------------------------------------------------------------------------------------- Water related
+
+    `Water regulation` = "Water",
+    `Water purification` = "Water",
+    `Water availability` = "Water",
+    `Fresh water` = "Water",
+    `Water cycling` = "Water",
+    `Water quality` = "Water",
+    `Water perculation` = "Water",
+    `Water cyclings` = "Water",
+    `Water availability` = "Water",
+    `Hydraulic lift` = "Water",
+    # ------------------------------------------------------------------------------------  Soil quality, carbon and nutrients related
+
+    `Carbon sequestration` = "Soil quality, carbon and nutrients",
+    `Nutrient leaching regulation` = "Soil quality, carbon and nutrients",
+    `Soil formation` = "Soil quality, carbon and nutrients",
+    `Soil quality` = "Soil quality, carbon and nutrients",
+    `Carbon stock` = "Soil quality, carbon and nutrients",
+    `Greenhouse gas emissions` = "Soil quality, carbon and nutrients",
+    `Soil structure` = "Soil quality, carbon and nutrients",
+    `Chemical soil components` = "Soil quality, carbon and nutrients",
+    `Biological soil components` = "Soil quality, carbon and nutrients",
+    `Soil water` = "Soil quality, carbon and nutrients",
+    `Soil erosion` = "Soil quality, carbon and nutrients",
+    `Soil formations` = "Soil quality, carbon and nutrients",
+    # --------------------------------------------------------------------------------------------------- Disease and pest related
+
+    `Disease regulation` = "Disease and pest",
+    `Pest regulation` = "Disease and pest",
+    `Pests` = "Disease and pest",
+    `Diseases` = "Disease and pest",
+    `Weeds` = "Disease and pest",
+    # --------------------------------------------------------------------------------------------------- Biodiversity related
+    `Biodiversity` = "Biodiversity",
+    # ------------------------------------------------------------------------------------------------- Socio-cultural-economic related
+
+    `Cultural diversity` = "Socio-cultural and economic",
+    `Spiritual value` = "Socio-cultural and economic",
+    `Knowledge systems` = "Socio-cultural and economic",
+    `Educational value` = "Socio-cultural and economic",
+    `Inspirational value` = "Socio-cultural and economic",
+    `Aesthetic value` = "Socio-cultural and economic",
+    `Social relations` = "Socio-cultural and economic",
+    `Sense of place` = "Socio-cultural and economic",
+    `Cultural heritage value` = "Socio-cultural and economic",
+    `Recreational and ecotourism` = "Socio-cultural and economic",
+    `Economic profit related` = "Socio-cultural and economic",
+    `Economic management related` = "Socio-cultural and economic",
+    `Economic market related` = "Socio-cultural and economic",
+    `Landscape aesthetics` = "Socio-cultural and economic",
+    `Recreational and ecotourism` = "Socio-cultural and economic",
+    `Spiritual values` = "Socio-cultural and economic",
+    `Perception of adoptation` = "Socio-cultural and economic",
+    `Policy information` = "Socio-cultural and economic",
+    .default = "NA"
+  ))
+
+# ---------------------------------------------------------------------------------------------------------------------------------
+# ---------------------------------------------------------------------------------------------------------------------------------
+# Saving the saving dataset
+readr::write_csv(joined.category.ecosystem, "./DATASET.FROM.SCRIPT/joined.category.ecosystem.csv")
+# -----------------------------------------------------------------------------------------------
+# Saving the saving dataset
+readr::write_csv(category.ecosystem.long, "./DATASET.FROM.SCRIPT/category.ecosystem.long.csv")
+# -----------------------------------------------------------------------------------------------
+glimpse(category.ecosystem.long)
+```
+
+## Average number of ecosystem services (ES + CAT) reported by papers
+
+```{r}
+ecosystem.data %>%
+  dplyr::select(!c(`Provisioning ES`, `Regulating ES`, `Supporting ES`, `Cultural ES`, `Ecosystem Services`)) %>%
+  mutate(ES_sum_per_paper = rowSums(.[2:35])) %>%
+  mutate(avr_ES_per_paper = sum(ES_sum_per_paper) / n_independent_studies) %>%
+  relocate(ES_sum_per_paper, avr_ES_per_paper) %>%
+  arrange(desc(ES_sum_per_paper)) %>%
+  ggplot(aes(x = ES_sum_per_paper)) +
+  geom_histogram(aes(y = ..density..),
+    colour = "black", fill = "white",
+    binwidth = 1
+  ) +
+  geom_density(alpha = 0.2, fill = "#FF6666") +
+  theme_bw()
+```
+
+# Multivariate datasets; matrices
+
+## Tree - crop
+
+Creating dataset for assessing **tree - crop associations**
+
+```{r tree - crop associations datasets}
+# -----------------------------------------------------------------Merging (joining) the crop and tree datasets based on ID.P and ID.S
+joined.tree.crop <-
+  left_join(
+    x = trees.data, y = crops.data,
+    by = c(
+      "ID.P" = "ID.P",
+      "ID.S" = "ID.S"
+    )
+  ) %>%
+  dplyr::select(-(ends_with(".x") | ends_with(".y")))
+
+# ---------------------------------------------------------------------------------------------------------------------------------
+# Preparing dataset on crop groups - tree dataset
+matrix.crop.groups.tree <-
+  joined.tree.crop %>%
+  dplyr::select(CROP.OUTPUT.GROUP, TREE.GENUS.GROUP) %>%
+  filter(TREE.GENUS.GROUP != "NA") %>%
+  # excluding rows with 'NA' in either crop or tree data
+  filter(CROP.OUTPUT.GROUP != "NA") %>%
+  filter(!str_detect(TREE.GENUS.GROUP, "Unspecified"))
+
+matrix.crop.groups.tree.all <-
+  matrix.crop.groups.tree %>%
+  group_by(CROP.OUTPUT.GROUP, TREE.GENUS.GROUP) %>%
+  dplyr::summarise(count = n()) %>%
+  ungroup()
+
+# ----------------------------------------------------------------------------------------------------------------------------------
+# Preparing dataset on crop species - tree dataset
+
+matrix.crop.species.tree <-
+  joined.tree.crop %>%
+  dplyr::select(CROP.GENUS.GROUP, TREE.GENUS.GROUP) %>%
+  filter(TREE.GENUS.GROUP != "NA") %>%
+  # excluding rows with 'NA' in either crop or tree data
+  filter(CROP.GENUS.GROUP != "NA") %>%
+  filter(!str_detect(TREE.GENUS.GROUP, "Unspecified")) %>%
+  filter(!str_detect(CROP.GENUS.GROUP, "UNSPECIFIED"))
+
+# ----------------------------------------------------------------------------------------------------------------------------------
+matrix.crop.species.tree.all <-
+  matrix.crop.species.tree %>%
+  group_by(CROP.GENUS.GROUP, TREE.GENUS.GROUP) %>%
+  dplyr::summarise(count = n()) %>%
+  ungroup() %>%
+  arrange(desc(count))
+
+# ---------------------------------------------------------------------------------------------------------------------------------
+# Saving the saving dataset
+readr::write_csv(matrix.crop.species.tree.all, "./DATASET.FROM.SCRIPT/matrix.crop.species.tree.all.csv")
+# Saving the saving dataset
+readr::write_csv(matrix.crop.groups.tree.all, "./DATASET.FROM.SCRIPT/matrix.crop.groups.tree.all.csv")
+# -----------------------------------------------------------------------------------------------
+# -----------------------------------------------------------------------------------------------
+glimpse(matrix.crop.species.tree.all)
+```
+
+## Biodiversity indicators - crop groups
+
+Creating the dataset for assessing **biodiversity indicators and crops**
+
+```{r }
+# -----------------------------------------------------------------------Preparing biodiversity data with individual study sites
+# using n_individual_study_sites because crop species vary between sites, as some studies include multiple sites with different species compositions and arrangements.
+
+biodiversity.data.raw <-
+  database %>%
+  filter(INCLUDED == TRUE) %>%
+  # selecting Biodiversity columns
+  dplyr::select(
+    ID.P, ID.S, # ST.TYPE, MANAGEMENT
+    starts_with("BD")
+  ) %>%
+  mutate(across(matches("BD"), as.logical)) %>%
+  mutate_at(vars(-c(ID.P, ID.S)), tidyr::replace_na, 0) %>%
+  # <- Including NA's as 0 (FALSE)
+  mutate_if(is.logical, as.numeric) %>%
+  mutate_if(is.character, as.numeric) %>%
+  # select(-c(ID.S)) %>%
+  # distinct(ID.P, across(contains("BD"))) # including individual study sites and not only independent papers
+
+
+  #  filter(INCLUDED == TRUE) %>%
+  # grouping of flora and fauna categories according to the defined data structures and data analysis framework
+  rename(
+    "FLORA.1" = BD.SUB.FLORAMACRO,
+    "FLORA.2" = BD.SUB.FLORAMICRO,
+    "FAUNA.1" = BD.SUB.FAUNAMACRO,
+    "FAUNA.2" = BD.SUB.FAUNAMICRO,
+    "BACTERIA" = BD.SUB.BACTERIA,
+    "FUNGI" = BD.SUB.FUNGI
+  ) %>%
+  mutate(
+    FLORA = FLORA.1 + FLORA.2,
+    FAUNA = FAUNA.1 + FAUNA.2
+  ) %>%
+  relocate(
+    ID.P, ID.S,
+    FLORA, FAUNA, BACTERIA, FUNGI
+  ) %>%
+  dplyr::select(-c(
+    BD.SUB.SPEC, BD,
+    FLORA.1, FAUNA.1, FLORA.2, FAUNA.2
+  ))
+
+# -------------------------------------------------------------------------------Preparing crops data with individual study sites
+crop.data.raw <-
+  crops.data %>%
+  group_by(CROP.OUTPUT.GROUP) %>%
+  relocate(ID.S, ID.P, CROP.SPECIES, CROP.OUTPUT.GROUP)
+
+# ----------------------------------------------------- Merging (joining) the biodiversity and crops datasets based on ID.S and ID.P
+
+joined.crop.biodiversity <-
+  left_join(crop.data.raw, biodiversity.data.raw,
+    by = c(
+      "ID.S" = "ID.S",
+      "ID.P" = "ID.P"
+    )
+  ) %>%
+  relocate(
+    ID.P, ID.S,
+    CROP.SPECIES, CROP.OUTPUT.GROUP,
+    FLORA, FAUNA, BACTERIA, FUNGI
+  )
+
+# ----------------------------------------------------------------------------------------------------------------------------------
+# ------------------------------------------------------------------------- Preparing biodiversity-crops data for matrix plot
+
+matrix.crop.biodiversity <-
+  joined.crop.biodiversity %>%
+  filter(
+    CROP.OUTPUT.GROUP != "NA",
+    FLORA != "NA",
+    FAUNA != "NA",
+    BACTERIA != "NA",
+    FUNGI != "NA"
+  )
+
+matrix.crop.biodiversity[c("FLORA", "FAUNA", "BACTERIA", "FUNGI")] <-
+  lapply(matrix.crop.biodiversity[c("FLORA", "FAUNA", "BACTERIA", "FUNGI")], as.logical)
+
+matrix.crop.biodiversity.all <-
+  matrix.crop.biodiversity %>%
+  dplyr::select(c(CROP.OUTPUT.GROUP, FLORA, FAUNA, BACTERIA, FUNGI)) %>%
+  mutate_if(is.logical, as.character) %>%
+  pivot_longer(cols = c(-CROP.OUTPUT.GROUP)) %>%
+  mutate(value = case_when(
+    value == "TRUE" ~ 1,
+    value == "FALSE" ~ 0
+  )) %>%
+  group_by(CROP.OUTPUT.GROUP, name) %>%
+  summarize(count = sum(value)) %>%
+  arrange(desc(count), CROP.OUTPUT.GROUP, name)
+
+# ---------------------------------------------------------------------------------------------------------------------------------
+# Saving the saving dataset
+readr::write_csv(matrix.crop.biodiversity.all, "./DATASET.FROM.SCRIPT/matrix.crop.biodiversity.all.csv")
+# -----------------------------------------------------------------------------------------------
+glimpse(matrix.crop.biodiversity.all)
+```
+
+## Biodiversity indicators - SAF system trait types
+
+Creating dataset for assessing the associations between **biodiversity
+and SAF system trait types**
+
+```{r Preparing system traits type data}
+# using n_individual_study_sites because system trait types vary between sites, as some studies include multiple sites with different species compositions and arrangements.
+
+system.traits.data.raw <-
+  database %>%
+  filter(INCLUDED == TRUE) %>%
+  dplyr::mutate(ST.TYPE = case_when(
+    str_detect(ST.TYPE, "RBS") ~ "Riparian buffer strips",
+    str_detect(ST.TYPE, "SHB") ~ "Line belts *",
+    str_detect(ST.TYPE, "MIXED") ~ "Mixed systems",
+    str_detect(ST.TYPE, "TIMBER.ARABLE") ~ "Timber - Arable",
+    str_detect(ST.TYPE, "BIOMASS.ARABLE") ~ "Biomass - Arable",
+    str_detect(ST.TYPE, "NUT.ARABLE") ~ "Nut - Arable",
+    str_detect(ST.TYPE, "FRUIT.ARABLE") ~ "Fruit - Arable",
+    TRUE ~ as.character(as.character(ST.TYPE))
+  )) %>%
+  dplyr::mutate(ST.TYPE.PROD.TYPE = "x") %>%
+  dplyr::mutate(ST.TYPE.PROD.TYPE == case_when(
+    str_detect(ST.TYPE, "Timber - Arable") ~ "Biomass",
+    str_detect(ST.TYPE, "Biomass - Arable") ~ "Biomass",
+    str_detect(ST.TYPE, "Nut - Arable") ~ "Food",
+    str_detect(ST.TYPE, "Fruit - Arable") ~ "Food",
+    str_detect(ST.TYPE, "Riparian buffer strips") ~ "Multiple",
+    str_detect(ST.TYPE, "Line belts *") ~ "Multiple",
+    str_detect(ST.TYPE, "Mixed systems") ~ "Multiple",
+    TRUE ~ as.character(as.character(ST.TYPE.PROD.TYPE))
+  )) %>%
+  # selecting system trait columns
+  group_by(ST.TYPE) %>%
+  dplyr::select(ID.P, ID.S, ST.TYPE, MANAGEMENT) %>%
+  mutate_at(c("ID.P", "ID.S"), as.numeric) # <- converting ID columns from characters to numeric
+
+# ---------------------------------------------------------- Merging (joining) the biodiversity and system trait datasets based on ID
+
+joined.biodiversity.systemtrait <-
+  left_join(biodiversity.data.raw, system.traits.data.raw,
+    by = c(
+      "ID.S" = "ID.S",
+      "ID.P" = "ID.P"
+    )
+  ) %>%
+  relocate(
+    ID.P, ID.S,
+    ST.TYPE, MANAGEMENT, FLORA, FAUNA, BACTERIA, FUNGI
+  )
+
+# ---------------------------------------------------------- Preparing the biodiversity and system trait for matrix plot
+
+matrix.biodiversity.systrait <-
+  joined.biodiversity.systemtrait %>%
+  dplyr::select(ST.TYPE, FLORA, FAUNA, BACTERIA, FUNGI) %>%
+  pivot_longer(cols = c(-ST.TYPE)) %>%
+  group_by(ST.TYPE, name) %>%
+  summarize(count = sum(value)) %>%
+  arrange(desc(count), ST.TYPE, name) %>%
+  filter(!ST.TYPE == "NA")
+
+# ---------------------------------------------------------------------------------------------------------------------------------
+# Saving the dataset
+readr::write_csv(matrix.biodiversity.systrait, "./DATASET.FROM.SCRIPT/matrix.biodiversity.systrait.csv")
+# -----------------------------------------------------------------------------------------------
+glimpse(matrix.biodiversity.systrait)
+```
+
+## Ecosystem services (broad ecosystem services) - crop groups
+
+Creating the dataset for assessing the associations between **broad
+ecosystem services and crop groups**
+
+```{r Preparing ecosystems services data}
+# using n_individual_study_sites because crop species vary between sites, as some studies include multiple sites with different species compositions and arrangements.
+
+ecosystem.data.raw <-
+  database %>%
+  filter(INCLUDED == TRUE) %>%
+  # selecting Ecosystem services columns
+  dplyr::select(
+    ID.P, ID.S, # ST.TYPE, MANAGEMENT
+    starts_with("ES")
+  ) %>%
+  mutate(across(matches("ES"), as.logical)) %>%
+  mutate_at(vars(-c(ID.P, ID.S)), tidyr::replace_na, 0) %>%
+  # <- Including NA's as 0 (FALSE)
+  mutate_if(is.logical, as.numeric) %>%
+  mutate_if(is.character, as.numeric) %>%
+  # including individual study sites and not only independent papers
+  # select(-c(ID.S)) %>%
+  # distinct(ID.P, across(contains("ES"))) # including only independent studies and not separate study sites
+
+  rename(
+    "Food (yield)" = ES.SUB.PROV.FOOD,
+    "Feed" = ES.SUB.PROV.FEED,
+    "Fibre" = ES.SUB.PROV.FIBRE,
+    "Fuel (firewood etc.)" = ES.SUB.PROV.FUEL,
+    "Genetic resources" = ES.SUB.PROV.GENRES,
+    "Biochemicals" = ES.SUB.PROV.BIOCHEM,
+    "Ornamentals" = ES.SUB.PROV.ORNA,
+    "Fresh water" = ES.SUB.PROV.WATFRESH,
+    "Air regulation" = ES.SUB.REGU.AIR,
+    "Climate regulation" = ES.SUB.REGU.CLIMREG,
+    "Carbon sequestration" = ES.SUB.REGU.CSEQREG,
+    "Water regulation" = ES.SUB.REGU.WATREG,
+    "Erosion regulation" = ES.SUB.REGU.EROREG,
+    "Water purification" = ES.SUB.REGU.WATPUR,
+    "Disease regulation" = ES.SUB.REGU.DISREG,
+    "Pest regulation" = ES.SUB.REGU.PESTREG,
+    "Polination regulation" = ES.SUB.REGU.POLREG,
+    "Natural hazards regulation" = ES.SUB.REGU.NATHAZREG,
+    "Soil formation" = ES.SUB.SUPP.SOILFORM,
+    "Photosynthesis" = ES.SUB.SUPP.PHOTSYNT,
+    "Primary production" = ES.SUB.SUPP.PRIMPROD,
+    "Nutrient cycling" = ES.SUB.SUPP.NUTRICYC,
+    "Water cycling" = ES.SUB.SUPP.WATCYC,
+    "Cultural diversity" = ES.SUB.CULT.CULTDIV,
+    "Spiritual value" = ES.SUB.CULT.SPIRITVAL,
+    "Knowledge systems" = ES.SUB.CULT.KNOWLSYS,
+    "Educational value" = ES.SUB.CULT.EDUVAL,
+    "Inspirational value" = ES.SUB.CULT.INSPIR,
+    "Aesthetic value" = ES.SUB.CULT.AESTVAL,
+    "Social relations" = ES.SUB.CULT.SOCREL,
+    "Sense of place" = ES.SUB.CULT.SENPLACE,
+    "Cultural heritage value" = ES.SUB.CULT.CULTHERIVAL,
+    "Recreational and ecotourism" = ES.SUB.CULT.RECRECOTOUR,
+    "Provisioning ES" = ES.PROV,
+    "Regulating ES" = ES.REGU,
+    "Supporting ES" = ES.SUPP,
+    "Cultural ES" = ES.CULT,
+    "Ecosystem Services" = ES
+  )
+
+# ------------------------------------------------------------ Merging (joining) the ecosystem services and crops datasets based on ID
+
+joined.crop.ecosystem <-
+  left_join(crop.data.raw, ecosystem.data.raw,
+    by = c(
+      "ID.S" = "ID.S",
+      "ID.P" = "ID.P"
+    )
+  ) %>%
+  relocate(
+    ID.P, ID.S,
+    CROP.SPECIES, CROP.OUTPUT.GROUP,
+    `Provisioning ES`, `Regulating ES`, `Supporting ES`, `Cultural ES`
+  )
+
+# ------------------------------------------------------------ Preparing ecosystems services - crops data for matrix plot*
+
+matrix.crop.ecosystem <-
+  joined.crop.ecosystem %>%
+  ungroup() %>%
+  dplyr::select(c(CROP.OUTPUT.GROUP, contains("ES"))) %>%
+  dplyr::select(c(
+    CROP.OUTPUT.GROUP,
+    `Provisioning ES`, `Regulating ES`, `Supporting ES`, `Cultural ES`
+  )) %>%
+  filter(
+    CROP.OUTPUT.GROUP != "NA",
+    `Provisioning ES` != "NA",
+    `Regulating ES` != "NA",
+    `Supporting ES` != "NA",
+    `Cultural ES` != "NA"
+  ) %>%
+  mutate_if(is.numeric, as.logical) %>%
+  mutate_if(is.logical, as.character) %>%
+  pivot_longer(cols = c(-CROP.OUTPUT.GROUP)) %>%
+  mutate(value = case_when(
+    value == "TRUE" ~ 1,
+    value == "FALSE" ~ 0
+  )) %>%
+  group_by(CROP.OUTPUT.GROUP, name) %>%
+  summarize(count = sum(value)) %>%
+  arrange(desc(count), CROP.OUTPUT.GROUP, name)
+
+# ---------------------------------------------------------------------------------------------------------------------------------
+# Saving the dataset
+readr::write_csv(matrix.crop.ecosystem, "./DATASET.FROM.SCRIPT/matrix.crop.ecosystem.csv")
+# -----------------------------------------------------------------------------------------------
+glimpse(matrix.crop.ecosystem)
+```
+
+## Ecosystem services - SAF system trait types
+
+Creating the dataset for assessing the associations between **ecosystem
+services and SAF system trait types**
+
+```{r }
+# ------------------------------------------- Merging (joining) the ecosystem services and system trait types datasets based on ID
+joined.ecosystem.systemtrait <-
+  left_join(ecosystem.data.raw, system.traits.data.raw,
+    by = c(
+      "ID.S" = "ID.S",
+      "ID.P" = "ID.P"
+    )
+  ) %>%
+  relocate(
+    ID.P, ID.S,
+    ST.TYPE, MANAGEMENT,
+    `Provisioning ES`, `Regulating ES`, `Supporting ES`, `Cultural ES`
+  )
+
+# -------------------------------------------------------------- Preparing the ecosystem services and system trait for matrix plot
+matrix.ecosystem.systrait <-
+  joined.ecosystem.systemtrait %>%
+  dplyr::select(ST.TYPE, `Provisioning ES`, `Regulating ES`, `Supporting ES`, `Cultural ES`) %>%
+  pivot_longer(cols = c(-ST.TYPE)) %>%
+  group_by(ST.TYPE, name) %>%
+  summarize(count = sum(value)) %>%
+  arrange(desc(count), ST.TYPE, name) %>%
+  filter(!ST.TYPE == "NA")
+
+# ---------------------------------------------------------------------------------------------------------------------------------
+# Saving the dataset
+readr::write_csv(matrix.ecosystem.systrait, "./DATASET.FROM.SCRIPT/matrix.ecosystem.systrait.csv")
+# -----------------------------------------------------------------------------------------------
+glimpse(matrix.ecosystem.systrait)
+```
+
+## Input/output ES - publication year
+
+Creating dataset for assessing the **developments in the relationship
+between input/output ES and publication years**
+
+```{r, warning=FALSE, message=FALSE}
+# ------------------------------------------------------------------------- Preparing publication years data
+pub.year.data.ID <-
+  database %>%
+  filter(INCLUDED == TRUE) %>%
+  dplyr::select(ID.P, PUB.YR) %>%
+  mutate_if(is.character, as.numeric) %>%
+  distinct(ID.P, PUB.YR) %>%
+  group_by(PUB.YR) %>%
+  add_tally() %>%
+  mutate(no_studies_per_year = n) %>%
+  dplyr::select(-n)
+# add_tally() %>%
+
+# -------------------------- Merging (joining) the input/output ES and publication years datasets based on ID.P
+
+joined.inoutES.pub.yr <-
+  left_join(
+    x = category.ecosystem.long, y = pub.year.data.ID,
+    by = c("ID.P" = "ID.P")
+  ) %>%
+  dplyr::select(-value)
+
+# --------------------------------------- Preparing dataset on input/output ES in relation to publication years
+matrix.inoutES.pub.yr <-
+  joined.inoutES.pub.yr %>%
+  filter(INPUT.OUTPUT.ES != "NA")
+
+matrix.inoutES.pub.yr[c("ID.P")] <-
+  lapply(matrix.inoutES.pub.yr[c("ID.P")], as.numeric)
+
+matrix.inoutES.pub.yr[c("PUB.YR")] <-
+  lapply(matrix.inoutES.pub.yr[c("PUB.YR")], as.numeric)
+
+matrix.inoutES.pub.yr[c("ES.CAT.GROUPS")] <-
+  lapply(matrix.inoutES.pub.yr[c("ES.CAT.GROUPS")], as.factor)
+
+matrix.inoutES.pub.yr.all <-
+  matrix.inoutES.pub.yr %>%
+  group_by(INPUT.OUTPUT.ES, PUB.YR, ES.CAT.GROUPS) %>%
+  summarise(count = no_studies_per_year) %>%
+  distinct(INPUT.OUTPUT.ES, PUB.YR, ES.CAT.GROUPS, .keep_all = TRUE) %>%
+  ungroup()
+
+# ---------------------------------------------------------------------------------------------------------------------------------
+# Saving the dataset
+readr::write_csv(matrix.inoutES.pub.yr.all, "./DATASET.FROM.SCRIPT/matrix.inoutES.pub.yr.all.csv")
+# -----------------------------------------------------------------------------------------------
+glimpse(matrix.inoutES.pub.yr.all)
+```
+
+## Ecosystem services (ES focus groups) - crop groups - trees genera
+
+Creating dataset with **ES focus groups in a association with crop
+groups and tree genera** based on ecosystem services and categories of
+approach combined, following the methodology of *Ditzler et al. (2021)*
+and *Tamburini et al. (2020)*
+
+```{r ES focus groups in a association with crop groups and tree genera}
+# ---------------------------------------------------------------- Input output ES merged with crop groups and tree genera dataset
+joined.focus.ES.crops.trees <-
+  left_join(
+    x = category.ecosystem.long, y = joined.tree.crop,
+    by = c("ID.P" = "ID.P")
+  ) %>%
+  dplyr::select(c(
+    ID.P,
+    FOCUS.GROUPS.BD.ES.CAT, INPUT.OUTPUT.ES, ES.CAT.GROUPS,
+    TREE.GENUS.GROUP,
+    CROP.OUTPUT.GROUP, CROP.GENUS.GROUP
+  ))
+# ---------------------------------------------------------------------------------------------------------------------------------
+# Saving the dataset
+readr::write_csv(joined.focus.ES.crops.trees, "./DATASET.FROM.SCRIPT/joined.focus.ES.crops.trees.csv")
+# -----------------------------------------------------------------------------------------------
+glimpse(joined.focus.ES.crops.trees)
+```
+
+## Ecosystem services (selected ecosystem services) - crop groups - SAF system trait types
+
+Creating dataset for assessing the associations between **ecosystem
+services (selected ES), crop groups and SAF system trait types**
+
+```{r }
+# ------------------------------------------------------------------------------------------ Preparing combined data on  ES, BD, CAT
+es.bd.cat.systrait.data <-
+  database %>%
+  filter(INCLUDED == TRUE) %>%
+  dplyr::select(
+    ID.P, ID.S,
+    ST.TYPE, # selecting Silvoarable System Trait type
+    starts_with("ES"), # selecting ecosystem services, biodiversity and categories data
+    starts_with("BD"),
+    starts_with("CAT")
+  ) %>%
+  mutate(across(matches("ES"), as.logical)) %>%
+  mutate(across(matches("BD"), as.logical)) %>%
+  mutate(across(matches("CAT"), as.logical)) %>%
+  mutate(across(matches("ST.TYPE"), as.character)) %>%
+  mutate_at(vars(-c(ID.P, ID.S, ST.TYPE)), tidyr::replace_na, 0) %>%
+  # <- Including NA's as 0 (FALSE)
+  mutate_if(is.logical, as.numeric) %>%
+  mutate(across(matches("ID"), as.numeric))
+# mutate_if(is.character, as.numeric)
+
+# ------------------------------------------------------------------------------------------renaming SAF system trait type variables
+es.bd.cat.systrait.data.renamed <-
+  es.bd.cat.systrait.data %>%
+  dplyr::mutate(ST.TYPE = case_when(
+    str_detect(ST.TYPE, "RBS") ~ "Riparian buffer strips",
+    str_detect(ST.TYPE, "SHB") ~ "Line belts *",
+    str_detect(ST.TYPE, "MIXED") ~ "Mixed systems",
+    str_detect(ST.TYPE, "TIMBER.ARABLE") ~ "Timber - Arable",
+    str_detect(ST.TYPE, "BIOMASS.ARABLE") ~ "Biomass - Arable",
+    str_detect(ST.TYPE, "NUT.ARABLE") ~ "Nut - Arable",
+    str_detect(ST.TYPE, "FRUIT.ARABLE") ~ "Fruit - Arable",
+    TRUE ~ as.character(as.character(ST.TYPE))
+  )) %>%
+  dplyr::mutate(ST.TYPE.PROD.TYPE = "x") %>%
+  dplyr::mutate(ST.TYPE.PROD.TYPE == case_when(
+    str_detect(ST.TYPE, "Timber - Arable") ~ "Biomass",
+    str_detect(ST.TYPE, "Biomass - Arable") ~ "Biomass",
+    str_detect(ST.TYPE, "Nut - Arable") ~ "Food",
+    str_detect(ST.TYPE, "Fruit - Arable") ~ "Food",
+    str_detect(ST.TYPE, "Riparian buffer strips") ~ "Multiple",
+    str_detect(ST.TYPE, "Line belts *") ~ "Multiple",
+    str_detect(ST.TYPE, "Mixed systems") ~ "Multiple",
+    TRUE ~ as.character(as.character(ST.TYPE.PROD.TYPE))
+  )) %>%
+  # ------------------------------------------------------------------------------------------renaming ecosystem services variables
+  rename(
+    "SAF System Trait type" = ST.TYPE,
+    "Food (yield)" = ES.SUB.PROV.FOOD,
+    "Feed" = ES.SUB.PROV.FEED,
+    "Fibre" = ES.SUB.PROV.FIBRE,
+    "Fuel (firewood etc.)" = ES.SUB.PROV.FUEL,
+    "Genetic resources" = ES.SUB.PROV.GENRES,
+    "Biochemicals" = ES.SUB.PROV.BIOCHEM,
+    "Ornamentals" = ES.SUB.PROV.ORNA,
+    "Fresh water" = ES.SUB.PROV.WATFRESH,
+    "Air regulation" = ES.SUB.REGU.AIR,
+    "Climate regulation" = ES.SUB.REGU.CLIMREG,
+    "Carbon sequestration" = ES.SUB.REGU.CSEQREG,
+    "Water regulation" = ES.SUB.REGU.WATREG,
+    "Nutrient leaching regulation" = ES.SUB.REGU.NUTRILE,
+    "Erosion regulation" = ES.SUB.REGU.EROREG,
+    "Water purification" = ES.SUB.REGU.WATPUR,
+    "Disease regulation" = ES.SUB.REGU.DISREG,
+    "Pest regulation" = ES.SUB.REGU.PESTREG,
+    "Polination regulation" = ES.SUB.REGU.POLREG,
+    "Natural hazards regulation" = ES.SUB.REGU.NATHAZREG,
+    "Soil formation" = ES.SUB.SUPP.SOILFORM,
+    "Photosynthesis" = ES.SUB.SUPP.PHOTSYNT,
+    "Primary production" = ES.SUB.SUPP.PRIMPROD,
+    "Nutrient cycling" = ES.SUB.SUPP.NUTRICYC,
+    "Water cycling" = ES.SUB.SUPP.WATCYC,
+    "Cultural diversity" = ES.SUB.CULT.CULTDIV,
+    "Spiritual value" = ES.SUB.CULT.SPIRITVAL,
+    "Knowledge systems" = ES.SUB.CULT.KNOWLSYS,
+    "Educational value" = ES.SUB.CULT.EDUVAL,
+    "Inspirational value" = ES.SUB.CULT.INSPIR,
+    "Aesthetic value" = ES.SUB.CULT.AESTVAL,
+    "Social relations" = ES.SUB.CULT.SOCREL,
+    "Sense of place" = ES.SUB.CULT.SENPLACE,
+    "Cultural heritage value" = ES.SUB.CULT.CULTHERIVAL,
+    "Recreational and ecotourism" = ES.SUB.CULT.RECRECOTOUR,
+    "Provisioning ES" = ES.PROV,
+    "Regulating ES" = ES.REGU,
+    "Supporting ES" = ES.SUPP,
+    "Cultural ES" = ES.CULT,
+    "Ecosystem Services" = ES,
+    # --------------------------------------------------------------------------------------------renaming biodiversity variables
+    "BD.Biodiversity" = BD,
+    "FLORA.1" = BD.SUB.FLORAMACRO,
+    "FLORA.2" = BD.SUB.FLORAMICRO,
+    "FAUNA.1" = BD.SUB.FAUNAMACRO,
+    "FAUNA.2" = BD.SUB.FAUNAMICRO,
+    "Bacteria" = BD.SUB.BACTERIA,
+    "Fungi" = BD.SUB.FUNGI,
+    # -----------------------------------------------------------------------------------renaming categories of approach variables
+    "Food" = CAT.SUB.AGRO.YIELD,
+    "Biomass" = CAT.SUB.AGRO.BIOMASS,
+    "Land equivalent ratio" = CAT.SUB.AGRO.LER,
+    "Pests" = CAT.SUB.AGRO.PESTS,
+    "Diseases" = CAT.SUB.AGRO.DISEASE,
+    "Weeds" = CAT.SUB.AGRO.WEEDS,
+    "Product quality" = CAT.SUB.AGRO.PRODQUAL,
+    "Product stability" = CAT.SUB.AGRO.PRODSTAB,
+    "Mechanisation" = CAT.SUB.AGRO.MECHAN,
+    "Belowground (crop-tree) competition" = CAT.SUB.AGRO.CRTRBLOW,
+    "Aboveground (crop-tree) light competition" = CAT.SUB.AGRO.LIGHTCMP,
+    "Nutrient use" = CAT.SUB.AGRO.NUTRIUSE,
+    "Nutrient use effeciency" = CAT.SUB.AGRO.NUTRIEF,
+    "Breeding and selection" = CAT.SUB.AGRO.BRDSELECT,
+    "Soil quality" = CAT.SUB.ENVI.SOILQUAL,
+    "Biodiversity" = CAT.SUB.ENVI.BIODIV,
+    "Carbon stock" = CAT.SUB.ENVI.CSTOCK,
+    "Greenhouse gas emissions" = CAT.SUB.ENVI.GHGEMS,
+    "Pollination" = CAT.SUB.ENVI.POLLCON,
+    "Soil structure" = CAT.SUB.ENVI.SOILSTRUCT,
+    "Chemical soil components" = CAT.SUB.ENVI.SOILCHEM,
+    "Biological soil components" = CAT.SUB.ENVI.SOILBIO,
+    "Soil water" = CAT.SUB.ENVI.SOILWAT,
+    "Soil erosion" = CAT.SUB.ENVI.SOILEROCO,
+    "Soil formations" = CAT.SUB.ENVI.SOILFORM,
+    "Water quality" = CAT.SUB.ENVI.WATQUAL,
+    "Water perculation" = CAT.SUB.ENVI.WATPERC,
+    "Water cyclings" = CAT.SUB.ENVI.WATCYC,
+    "Water availability" = CAT.SUB.ENVI.WATAVAIL,
+    "Hydraulic lift" = CAT.SUB.ENVI.HYDRAULIFT,
+    "Economic profit related" = CAT.SUB.ECON.PROFIT,
+    "Economic management related" = CAT.SUB.ECON.MANAGE,
+    "Economic market related" = CAT.SUB.ECON.MARKET,
+    "Landscape aesthetics" = CAT.SUB.SOCUL.LANAES,
+    "Recreational and ecotourisms" = CAT.SUB.SOCUL.RECRECOTOUR,
+    "Spiritual values" = CAT.SUB.SOCUL.SPIRITVAL,
+    "Perception of adoptation" = CAT.SUB.SOCUL.PERCEPADOPT,
+    "Policy information" = CAT.SUB.SOCUL.POLICYINFR,
+    "Agronomic category" = CAT.AGRO,
+    "Environmental category" = CAT.ENVIRON,
+    "Economic category" = CAT.ECONOM,
+    "Socio-cultural category" = CAT.SOCIOCUL
+  ) %>%
+  # -------------------------------------------------------------------------------------------- simplifying flora, fauna groups
+  mutate(
+    Flora = FLORA.1 + FLORA.2,
+    Fauna = FAUNA.1 + FAUNA.2
+  )
+
+
+# ------------------------------------------------------------------------------------------------------------------------------
+# -----------------------------------------------Merging (joining) ES, BD, CAT dataset with crop datasets based on ID.P and ID.S
+
+joined.es.bd.cat.systrait.crop <-
+  left_join(
+    x = es.bd.cat.systrait.data.renamed, y = crops.data,
+    by = c(
+      "ID.P" = "ID.P",
+      "ID.S" = "ID.S"
+    )
+  ) %>%
+  dplyr::select(-(ends_with(".x") | ends_with(".y"))) %>%
+  mutate_at(c("ID.P", "ID.S"), as.numeric) # <- converting ID columns from characters to numeric
+
+# ------------------------------------------------------------------------------------------------------------------------------
+matrix.es.bd.cat.systrait.crop <-
+  joined.es.bd.cat.systrait.crop %>%
+  filter(CROP.OUTPUT.GROUP != "NA") %>%
+  filter(!is.na(CROP.GENUS.GROUP))
+
+matrix.es.bd.cat.systrait.crop.all <-
+  matrix.es.bd.cat.systrait.crop %>%
+  dplyr::select(
+    "SAF System Trait type",
+    "Food (yield)",
+    "Feed",
+    "Fuel (firewood etc.)",
+    "Biodiversity",
+    "Disease regulation",
+    "Pest regulation",
+    "Water cycling",
+    "Economic management related",
+    "Economic profit related",
+    "Aboveground (crop-tree) light competition",
+    "Soil structure",
+    "Chemical soil components",
+    "Biological soil components",
+    "Land equivalent ratio",
+    "Climate regulation",
+    "Greenhouse gas emissions",
+    "Carbon sequestration",
+    "CROP.GENUS.GROUP",
+    "CROP.OUTPUT.GROUP"
+  ) %>%
+  mutate_if(is.character, as.factor) %>%
+  relocate(`SAF System Trait type`, CROP.GENUS.GROUP, CROP.OUTPUT.GROUP)
+
+# ------------------------------------------------------------------------------------------------------------------------------
+# -------------------------------------------------------------------------Merging (joinging) with crop based on ID.P and ID.S*
+
+A_ES_ID <-
+  matrix.es.bd.cat.systrait.crop %>%
+  dplyr::select(
+    "ID.P",
+    "ID.S",
+    "Food (yield)",
+    "Feed",
+    "Fuel (firewood etc.)",
+    "Biodiversity",
+    "Disease regulation",
+    "Pest regulation",
+    "Water cycling",
+    "Economic management related",
+    "Economic profit related",
+    "Aboveground (crop-tree) light competition",
+    "Soil structure",
+    "Chemical soil components",
+    "Biological soil components",
+    "Land equivalent ratio",
+    "Climate regulation",
+    "Greenhouse gas emissions",
+    "Carbon sequestration"
+  ) %>%
+  mutate_if(is.character, as.factor) %>%
+  relocate(ID.P, ID.S) %>%
+  pivot_longer(
+    cols = c(-ID.P, -ID.S),
+    names_to = "ES.GROUPS",
+    values_to = "count"
+  ) %>%
+  filter(count == 1)
+
+# ---------------------------------------------------------------------
+B_SAFTT_ID <- joined.es.bd.cat.systrait.crop %>%
+  dplyr::select(
+    "ID.P",
+    "ID.S",
+    "SAF System Trait type"
+  )
+
+# ---------------------------------------------------------------------
+C_CROPS_ID <- matrix.es.bd.cat.systrait.crop %>%
+  dplyr::select(
+    "ID.P",
+    "ID.S",
+    "CROP.OUTPUT.GROUP"
+  )
+
+# -----------------------------------------------------------------------
+D_JOINED_A_B <-
+  left_join(
+    x = A_ES_ID, y = B_SAFTT_ID,
+    by = c(
+      "ID.P" = "ID.P",
+      "ID.S" = "ID.S"
+    )
+  ) %>%
+  relocate(
+    ID.P, ID.S,
+    ES.GROUPS, `SAF System Trait type`
+  )
+
+# --------------------------------------------------------------------------------------------------------------------------
+# Final dataset of selected ecosystem services (including biodiversity and categories data) with crop groups
+# --------------------------------------------------------------------------------------------------------------------------
+E_JOINED_D_C <-
+  left_join(
+    x = D_JOINED_A_B, y = C_CROPS_ID,
+    by = c(
+      "ID.P" = "ID.P",
+      "ID.S" = "ID.S"
+    )
+  ) %>%
+  relocate(
+    ID.P, ID.S,
+    ES.GROUPS, `SAF System Trait type`, CROP.OUTPUT.GROUP
+  ) %>%
+  dplyr::select(-count)
+
+ES.selected.crop.groups.SATF <- E_JOINED_D_C
+
+# ---------------------------------------------------------------------------------------------------------------------------------
+# Saving the dataset
+readr::write_csv(ES.selected.crop.groups.SATF, "./DATASET.FROM.SCRIPT/ES.selected.crop.groups.SATF.csv")
+# -----------------------------------------------------------------------------------------------
+glimpse(ES.selected.crop.groups.SATF)
+```
+
+## Ecosystem services (focus group ecosystem services) - crop groups - SAF system trait types
+
+Creating dataset for assessing the associations between **ecosystem
+services (focus group ES), crop groups and SAF system trait types**
+
+```{r focus ecosystem services) - SAF system trait types - crop groups}
+# Merging (joining) the Focus BD ES groups and SAF systems trait types datasets based on ID.P
+
+joined.focus.ES.SAFT <-
+  left_join(
+    x = category.ecosystem.long, y = joined.es.bd.cat.systrait.crop,
+    by = c("ID.P" = "ID.P")
+  ) %>%
+  dplyr::select(c(
+    ID.P,
+    FOCUS.GROUPS.BD.ES.CAT, INPUT.OUTPUT.ES, ES.CAT.GROUPS,
+    CROP.OUTPUT.GROUP,
+    `SAF System Trait type`
+  )) %>%
+  relocate(`SAF System Trait type`, FOCUS.GROUPS.BD.ES.CAT, CROP.OUTPUT.GROUP)
+
+# ---------------------------------------------------------------------------------------------------------------------------------
+# Saving the dataset
+readr::write_csv(joined.focus.ES.SAFT, "./DATASET.FROM.SCRIPT/joined.focus.ES.SAFT.csv")
+# -----------------------------------------------------------------------------------------------
+glimpse(joined.focus.ES.SAFT)
+```
+
+## Ecosystem services (selected ecosystem services) - countries of publication
+
+Creating the dataset for assessing the associations between **selected
+ES and countries of publication**
+
+```{r}
+ES_ID <-
+  matrix.es.bd.cat.systrait.crop %>%
+  dplyr::select(
+    "ID.P",
+    "ID.S",
+    "Food (yield)",
+    "Feed",
+    "Fuel (firewood etc.)",
+    "Biodiversity",
+    "Disease regulation",
+    "Pest regulation",
+    "Water cycling",
+    "Economic management related",
+    "Economic profit related",
+    "Aboveground (crop-tree) light competition",
+    "Soil structure",
+    "Chemical soil components",
+    "Biological soil components",
+    "Land equivalent ratio",
+    "Climate regulation",
+    "Greenhouse gas emissions",
+    "Carbon sequestration"
+  ) %>%
+  mutate_if(is.character, as.factor) %>%
+  relocate(ID.P, ID.S) %>%
+  pivot_longer(
+    cols = c(-ID.P, -ID.S),
+    names_to = "ES.GROUPS",
+    values_to = "count"
+  ) %>%
+  filter(count == 1)
+# --------------------------------------------------------------------------------------------------------------------------
+A_COUNTRIES_ID <- database %>%
+  mutate_at(c("ID.P", "ID.S"), as.numeric) %>%
+  dplyr::select(
+    "ID.P",
+    "ID.S",
+    "STUDY.LOC.COUNTRY"
+  )
+# --------------------------------------------------------------------------------------------------------------------------
+D_JOINED_COUNTRIES_ES <-
+  left_join(
+    x = A_COUNTRIES_ID, y = ES_ID,
+    by = c(
+      "ID.P" = "ID.P",
+      "ID.S" = "ID.S"
+    )
+  ) %>%
+  relocate(
+    ID.P, ID.S,
+    ES.GROUPS
+  )
+# --------------------------------------------------------------------------------------------------------------------------
+
+B_CROPS_ID <- matrix.es.bd.cat.systrait.crop %>%
+  dplyr::select(
+    "ID.P",
+    "ID.S",
+    "CROP.OUTPUT.GROUP"
+  )
+# --------------------------------------------------------------------------------------------------------------------------
+D_JOINED_COUNTRIES_CROPS_ES <-
+  left_join(
+    x = D_JOINED_COUNTRIES_ES, y = B_CROPS_ID,
+    by = c(
+      "ID.P" = "ID.P",
+      "ID.S" = "ID.S"
+    )
+  )
+# --------------------------------------------------------------------------------------------------------------------------
+C_SAFTT_ID <- joined.es.bd.cat.systrait.crop %>%
+  dplyr::select(
+    "ID.P",
+    "ID.S",
+    "SAF System Trait type"
+  )
+# --------------------------------------------------------------------------------------------------------------------------
+# Merged country, crop and SAF system trait type dataset
+# --------------------------------------------------------------------------------------------------------------------------
+D_JOINED_COUNTRIES_CROPS_ES_SAFT <-
+  left_join(
+    x = D_JOINED_COUNTRIES_CROPS_ES, y = C_SAFTT_ID,
+    by = c(
+      "ID.P" = "ID.P",
+      "ID.S" = "ID.S"
+    )
+  ) %>%
+  dplyr::select(-count) %>%
+  relocate(STUDY.LOC.COUNTRY, ES.GROUPS, CROP.OUTPUT.GROUP, `SAF System Trait type`)
+
+ES.countries.crops.SAFT <- D_JOINED_COUNTRIES_CROPS_ES_SAFT
+# ---------------------------------------------------------------------------------------------------------------------------------
+# Saving the dataset
+readr::write_csv(ES.countries.crops.SAFT, "./DATASET.FROM.SCRIPT/ES.countries.crops.SAFT.csv")
+# -----------------------------------------------------------------------------------------------
+glimpse(ES.countries.crops.SAFT)
+```
+
+# Geospatial data; single variate data (not matrices)
+
+## Adding coordinates to database
+
+**Deriving latitude and longitude of study site locations** - *be aware:
+this piece of code takes a while to run*
+
+```{r Deriving latitude and longitude, warning=FALSE, message=FALSE, eval = TRUE}
+# Notice this piece of code takes a ffew minutes, as hundreds of lat long coordinates has to be derived based on names in the STUDY.LOC.SPEC.COORDS column
+
+database.lat.lon <- database %>%
+  tidygeocoder::geocode(STUDY.LOC.SPEC.COORDS, method = "osm", lat = latitude, long = longitude)
+
+# ----------------------------------------------------------------------------------------------------------------
+# Saving the dataset with derived coordinates unto local disc
+readr::write_csv(database.lat.lon, "./DATASET.FROM.SCRIPT/database.lat.lon.csv")
+# --------------------------------------------------------------------
+glimpse(database.lat.lon)
+```
+
+-   RQ2: How are the (major and minor) themes of temperate silvoarable
+    agroforestry systems distributed across geographical, bioclimatic
+    and socio-economic gradients?
+
+## Deriving WorldClim (BioClim) variables
+
+*A little info about using WorldClim variables in spatial analysis in r*
+
+BioClim variables available in WorldClim
+
+Bioclimatic variables are derived from the monthly temperature and
+rainfall values in order to generate more biologically meaningful
+variables. These are often used in species distribution modelling and
+related ecological modelling techniques. The bioclimatic variables
+represent annual trends (e.g., mean annual temperature, annual
+precipitation) seasonality (e.g., annual range in temperature and
+precipitation) and extreme or limiting environmental factors (e.g.,
+temperature of the coldest and warmest month, and precipitation of the
+wet and dry quarters). A quarter is a period of three months (1/4 of the
+year). (see more here: <https://www.worldclim.org/data/bioclim.html>)
+
+Don't forget that WorldClim data has a scale factor of 10, so Temp = -37
+is -3.7 ºC.
+
+BIO1 = Annual Mean Temperature BIO2 = Mean Diurnal Range (Mean of
+monthly (max temp - min temp)) BIO3 = Isothermality (BIO2/BIO7) (×100)
+BIO4 = Temperature Seasonality (standard deviation ×100) BIO5 = Max
+Temperature of Warmest Month BIO6 = Min Temperature of Coldest Month
+BIO7 = Temperature Annual Range (BIO5-BIO6) BIO8 = Mean Temperature of
+Wettest Quarter BIO9 = Mean Temperature of Driest Quarter BIO10 = Mean
+Temperature of Warmest Quarter BIO11 = Mean Temperature of Coldest
+Quarter BIO12 = Annual Precipitation BIO13 = Precipitation of Wettest
+Month BIO14 = Precipitation of Driest Month BIO15 = Precipitation
+Seasonality (Coefficient of Variation) BIO16 = Precipitation of Wettest
+Quarter BIO17 = Precipitation of Driest Quarter BIO18 = Precipitation of
+Warmest Quarter BIO19 = Precipitation of Coldest Quarter
+
+The WorldClim data are available at different spatial resolutions
+(expressed as minutes or seconds of a degree of longitude and latitude):
+10 minutes, 5 minutes, 2.5 minutes, 30 seconds. The variables included
+are monthly minimum and maximum temperature, precipitation, and
+'bioclimatic' variables. The original WorldClim data were at a 30 second
+resolution, the other data have been derived through aggregation, by
+calculating the mean of groups of cells. The 10-minute spatial
+resolution is about 18.6 x 18.6 = 344 km2 at the equator. Here we are
+going to use 2.5-minute spatial resolution (res=2.5), this is about 4.5
+km at the equator according to WorldClim
+<https://www.worldclim.org/data/v1.4/cmip5_2.5m.html>
+
+To get (projected) future climate data (CMIP5), you must provide
+arguments var and res as above. Only resolutions 2.5, 5, and 10 are
+currently available. In addition, you need to provide model, rcp and
+year. For example, getData('CMIP5', var='tmin', res=10, rcp=85,
+model='AC', year=70)
+
+Getting WorldClim data through r
+
+If name = 'worldclim' you must also provide arguments var, and a
+resolution res. Valid variables names are 'tmin', 'tmax', 'prec' and
+'bio'. Valid resolutions are 0.5, 2.5, 5, and 10 (minutes of a degree).
+In the case of res=0.5, you must also provide a lon and lat argument for
+a tile; for the lower resolutions global data will be downloaded. In all
+cases there are 12 (monthly) files for each variable except for 'bio'
+which contains 19 files.
+
+-   getData('worldclim', var='tmin', res=0.5, lon=5, lat=45)
+
+-   getData('worldclim', var='bio', res=10)
+
+see also more information:
+<https://worldclim.org/data/v1.4/formats.html> and on the blog post of
+Emily Piche <https://emilypiche.github.io/BIO381/raster.html> and Peter
+Galante <https://rsh249.github.io/spatial_bioinformatics/worldclim.html>
+
+**Extracting/downloading WorldClim (BioClim) variables; Temperature and
+precipitation and merging dataset with the database**
+
+*Dataframe with coordinates*
+
+```{r Creating the simple dataframe with coordinates}
+# Make a dataframe with coordinates
+study.site.coords <- database.lat.lon %>%
+  relocate(
+    ID.P, ID.S, TITLE,
+    latitude, longitude, STUDY.LOC.COUNTRY, STUDY.LOC.SPEC, STUDY.LOC.SPEC.COORDS
+  ) %>%
+  dplyr::select(longitude, latitude)
+
+# latitude and longitude coordinate points converted to dataframe
+latitude <- as.data.frame(study.site.coords[, 2])
+longitude <- as.data.frame(study.site.coords[, 1])
+
+# latitude and longitude coordinate points converted to vectors in order to work in the getData() function
+latitude <- as.list(latitude)
+longitude <- as.list(longitude)
+
+# coordinates used for the getData() function
+coords <- data.frame(
+  x = longitude,
+  y = latitude
+)
+```
+
+*Extracting/downloading WorldClim (BioClim) variables using the
+getData() function from the raster package*
+
+```{r Extracting/downloading BioClim variables, warning=FALSE, message=FALSE, eval=TRUE}
+# downloading bioclimatic variables from worldclim at a resolution of 2.5 minutes
+# this is saved as a RasterStack object that contains all the 19 bioclim variables
+
+# be aware of the warning ""getData will be removed in a future version of raster\n. Please use the geodata package instead"
+# in the future the getData() function from raster might be depreciated. Instead use geodata::worldclim_global()
+bioclim.rasterstack <- raster::getData("worldclim",
+  var = "bio",
+  res = 2.5
+)
+
+# specifying that we only need; temperature (BIO1 = Annual Mean Temperature) and precipitation (BIO12 = Annual Precipitation)
+bioclim.temp.precip <- bioclim.rasterstack[[c(1, 12)]]
+names(bioclim.temp.precip) <- c("Temp", "Prec")
+
+# converting the data into a SpatialPoints dataframe by adding the same coordinate reference system
+points <- SpatialPoints(coords, proj4string = bioclim.temp.precip@crs)
+
+# extracting point-specific information on temperature and precipitation from the bioclim RasterStack object using the point coordinates
+temp.precip.values <- raster::extract(
+  x = bioclim.temp.precip,
+  y = points
+) %>%
+  as.data.frame()
+
+
+# Saving the temp.precip.values dataset with derived coordinates unto local disc
+# readr::write_csv(temp.precip.values, "./DATASET.FROM.SCRIPT/temp.precip.values.csv")
+
+# --------------------------------------------------------------------------------------------------------
+# Merging (joining) the location-specific temperature and precipitation values to the coordinates (x,y)
+
+bioclim.point.data <- cbind.data.frame(
+  coordinates(points),
+  temp.precip.values
+)
+
+bioclim.point.data.tbl <- as_tibble(bioclim.point.data)
+
+# ------------------------------------------------------------------------------------------------
+database.coords.bioclim <-
+  left_join(
+    x = database.lat.lon, y = bioclim.point.data.tbl,
+    by = c(
+      "longitude" = "longitude",
+      "latitude" = "latitude"
+    )
+  ) %>%
+  mutate_at(c("ID.P", "ID.S"), as.numeric) %>%
+  relocate(
+    ID.P, ID.S, TITLE,
+    STUDY.LOC.COUNTRY, STUDY.LOC.SPEC, STUDY.LOC.SPEC.COORDS,
+    latitude, longitude, Temp, Prec
+  )
+# ------------------------------------------------------------------------------------------------
+# Saving the dataset with derived coordinates
+readr::write_csv(database.coords.bioclim, "./DATASET.FROM.SCRIPT/database.coords.bioclim.csv")
+```
+
+## SoilGrids soil variables from ISRIC
+
+*A little info about using SoilGrids variables in spatial analysis in r*
+
+SoilGrids is a system for global digital soil mapping that uses
+state-of-the-art machine learning methods to map the spatial
+distribution of soil properties across the globe. SoilGrids prediction
+models are fitted using over 230 000 soil profile observations from the
+WoSIS database and a series of environmental covariates. Covariates were
+selected from a pool of over 400 environmental layers from Earth
+observation derived products and other environmental information
+including climate, land cover and terrain morphology. The outputs of
+SoilGrids are global soil property maps at six standard depth intervals
+(according to the GlobalSoilMap IUSS working group and its
+specifications) at a spatial resolution of 250 meters. Prediction
+uncertainty is quantified by the lower and upper limits of a 90%
+prediction interval. The additional uncertainty layer displayed at
+soilgrids.org is the ratio between the inter-quantile range and the
+median. The SoilGrids maps are publicly available under the CC-BY 4.0
+License.
+
+Maps of the following soil properties are available: pH, soil organic
+carbon content, bulk density, coarse fragments content, sand content,
+silt content, clay content, cation exchange capacity (CEC), total
+nitrogen as well as soil organic carbon density and soil organic carbon
+stock. SoilGrids predictions are made for the six standard depth
+intervals specified in the GlobalSoilMap IUSS working group and its
+specifications. The depth intervals returned are: "0-5cm", "5-15cm",
+"15-30cm", "30-60cm", "60-100cm", "100-200cm".
+
+Find out more information about the SoilGrids and GlobalSoilMap products
+here: <https://www.isric.org/explore/soilgrids/faq-soilgrids> and check
+ISRIC's data policy, disclaimer and citation:
+<https://www.isric.org/about/data-policy>. and here:
+<https://www.isric.org/sites/default/files/GlobalSoilMap_specifications_december_2015_2.pdf>
+
+The soilsDB package contains a collection of functions for reading data
+from various digital soil libraries and soil maps, including SoilGrids.
+Find more information about the soilsDB package here:
+<https://ncss-tech.github.io/AQP/soilDB/soilDB-Intro.html>
+
+The fetchSoilGrids() function from soilDB obtains SoilGrids properties
+information (250 m raster resolution) given a data.frame containing site
+IDs, latitudes and longitudes. SoilGrids API and maps return values as
+whole (integer) numbers to minimize the storage space used. These values
+are converted by to produce conventional units by 'fetchSoilGrids()'
+
+The soil properties from ISRIC SoilGrids returned by the
+fetchSoilGrids() function are:
+
+-   bdod, Bulk density of the fine earth fraction; mapped unit:
+    [cg/cm\^3], conversion: 100, conventional factor unit: [kg/dm\^3]
+-   cec, Cation Exchange Capacity of the soil. [mmol(c)/kg 10
+    cmol(c)/kg]
+-   cfvo, Volumetric fraction of coarse fragments (\> 2 mm); mapped
+    unit: [cm^3/dm^3 (vol per mil)], conversion: 10, conventional factor
+    unit: [cm^3/100cm^3 (vol%)]
+-   clay, Proportion of clay particles (\< 0.002 mm) in the fine earth
+    fraction; mapped unit: [g/kg], conversion: 10, conventional factor
+    unit: [g/100g (%)]
+-   nitrogen, Total nitrogen (N); mapped unit: [cg/kg], conversion: 100,
+    conventional factor unit: [g/kg]
+-   phh2o, Soil pH; mapped unit: [pH\*10], conversion: 10, conventional
+    factor unit: pH
+-   sand, Proportion of sand particles (\> 0.05 mm) in the fine earth
+    fraction; mapped unit: [g/kg], conversion: 10, conventional factor
+    unit: [g/100g (%)]
+-   silt, Proportion of silt particles (= 0.002 mm and = 0.05 mm) in the
+    fine earth fraction; mapped unit: [g/kg], conversion: 10,
+    conventional factor unit: [g/100g (%)]
+-   soc, Soil organic carbon content in the fine earth fraction; mapped
+    unit: [dg/kg], conversion: 10, conventional factor unit: [g/kg]
+-   ocd, Organic carbon density; mapped unit: [hg/m\^3], conversion: 10,
+    conventional factor unit: [kg/m\^3]
+-   ocs, Organic carbon stocks; mapped unit: [t/ha], conversion: 10,
+    conventional factor unit: [kg/m\^2]
+
+Read more about units and conversion factors of SoilGrids here:
+<https://www.isric.org/explore/soilgrids/faq-soilgrids>
+
+**Extracting/downloading the soil variables from SoilGrids using the
+soilDB package**
+
+*Dataframe with coordinates and ID*
+
+```{r Creating the study site location dataframe}
+# creating simple dataframe that only contains id and location (lat., lon.)
+database.locations.df <-
+  database.lat.lon %>%
+  dplyr::select(
+    ID.P, ID.S,
+    latitude, longitude
+  ) %>%
+  dplyr::mutate_at(vars(ID.P, ID.S), as.numeric) %>%
+  # conversing the ID.S + ID.P columns into only one "id" column by collapsing the two ID.S + ID.P columns
+  rowwise() %>%
+  mutate(ID.PAIR = paste0(sort(c(ID.P, ID.S)), collapse = " ")) %>%
+  separate(ID.PAIR, " ", into = c("ID.P", "ID.S")) %>%
+  mutate(ID = row_number()) %>%
+  # renaming the lat. lon. columns and converting to dataframe
+  dplyr::rename(
+    "lat" = latitude,
+    "lon" = longitude,
+    "id" = ID
+  ) %>%
+  dplyr::mutate_at(vars(id), as.numeric) %>%
+  dplyr::select(id, lat, lon) %>%
+  as.data.frame()
+```
+
+*Extracting/downloading soil variables from ISRIC SoilGrids using the
+fetchSoilGrids() function from the soilsDB package.*
+
+```{r Extracting/downloading SoilGrids soil variables, warning=FALSE, message=FALSE, eval=TRUE}
+# be aware that this function call takes quite some time, this is also why results are saved to local disc
+SoilGrids.data <- soilDB::fetchSoilGrids(
+  x = database.locations.df,
+  progress = TRUE
+)
+
+# not a dataframe: class(SoilGrids.data)
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Saving the downloaded SoilGrids dataset to local disc
+ readr::write_rds(SoilGrids.data, "./DATASET.FROM.SCRIPT/SoilGrids.data.Rds")
+```
+
+**Generating dataframe with fetched soil variables - merging with
+database**
+
+```{r Dataframe with fetched soil variables}
+# selecting only relevant variables
+fetchedSoilGrid.df <-
+  aqp::horizons(SoilGrids.data) %>%
+  dplyr::select(id, label, claymean, sandmean, siltmean, bdodmean, nitrogenmean, socmean, phh2omean, cecmean) %>%
+  # notice: we exclude NA values - these are empty values from locations located in urban areas where SoilGrids do not have info
+  drop_na(claymean, sandmean, siltmean, bdodmean, nitrogenmean, socmean, phh2omean, cecmean) %>%
+  dplyr::mutate_at(vars(id), as.numeric) %>%
+  dplyr::arrange(id)
+```
+
+*Merging (joining) the location-specific soil values to the coordinates
+(x,y - with lat. lon.)*
+
+```{r Joining location-specific soil info to the original database}
+# first, we merge the SoilGrids soil data with the dataframe containing locations (using the 'id' column)
+merged.soilgrids <-
+  left_join(
+    x = fetchedSoilGrid.df, y = database.locations.df,
+    by = c("id" = "id")
+  ) %>%
+  relocate(id, lat, lon, label) %>%
+  as_tibble()
+
+# secondly, we join this newly formed dataset to the 'original' dataframe that contains all other information (using coordinates)
+database.coords.soilgrids <-
+  left_join(
+    x = merged.soilgrids, y = database.lat.lon,
+    by = c(
+      "lat" = "latitude",
+      "lon" = "longitude"
+    )
+  ) %>%
+  mutate_at(c("ID.P", "ID.S"), as.numeric) %>%
+  relocate(
+    ID.P, ID.S,
+    lat, lon
+  )
+
+# where there is NA values in SoilGrids data on soil variables will be empty. Hence only 107 observations have soil data
+```
+
+*Merging (joining) the location-specific soil dataset to the
+location-specific bioclim dataset (using ID.p and ID.S)*
+
+```{r, eval=TRUE}
+database.biophys <-
+  left_join(
+    x = database.coords.soilgrids, y = database.coords.bioclim,
+    by = c(
+      "ID.P" = "ID.P",
+      "ID.S" = "ID.S"
+    ),
+    suffix = c("", ".y")
+  ) %>%
+  # avoiding the ".x" and ".y" suffix notation
+  dplyr::select(-(ends_with(".y"))) %>%
+  dplyr::select(-id) %>%
+  relocate(
+    ID.P, ID.S,
+    lat, lon,
+    Temp, Prec,
+    claymean, sandmean, siltmean, bdodmean, nitrogenmean, socmean, phh2omean, cecmean
+  )
+
+# ----------------------------------------------------------------------------------------------------------------------
+# Saving the combined dataset with biopphysical information unto local disc
+readr::write_csv(database.biophys, "./DATASET.FROM.SCRIPT/database.biophys.csv")
+# -----------------------------------------------------------------
+glimpse(database.biophys)
+```
+
+## Tree genera - biophys
+
+-   RQ2.a - How does the system properties temperature and precipitation
+    drive inter-site differences?
+
+Creating the **trees - biophys dataset**
+
+```{r Preparing the trees - biophys dataset, warning=FALSE, message=FALSE}
+# loading the trees data from excel
+trees <- read_excel("DATA/DATABASE_2.0.xlsx",
+  sheet = "TREE_SPECIES"
+) %>%
+  # Generating broad categories of tree species - based on families, genus and hybrids
+  separate(TREE.SPECIES, c("TREE.FAMILY.GROUP", "TREE.GENUS.GROUP"), "^\\S*\\K\\s+", remove = FALSE) %>%
+  separate(TREE.GENUS.GROUP, c("TREE.HYBRID.SPEC.1", "TREE.HYBRID.SPEC.2"), "^\\S*\\K\\s+", remove = FALSE) %>%
+  dplyr::mutate(TREE.FAMILY.GROUP = case_when(
+    str_detect(TREE.FAMILY.GROUP, "(?<![:alpha:])UNSPECIFIED(?![:alpha:])") ~ "Unspecified trees",
+    TRUE ~ as.character(as.character(TREE.FAMILY.GROUP))
+  )) %>%
+  filter(TREE.FAMILY.GROUP != "NA") %>%
+  relocate(ID.P, ID.S, TREE.SPECIES, TREE.FAMILY.GROUP) %>%
+  mutate_at(c("ID.P", "ID.S"), as.numeric)
+
+
+# -------------------------------------------------------------------- merging trees data with the biophys database
+trees.biophys.data <-
+  full_join(database.biophys, trees,
+    by = c(
+      "ID.P" = "ID.P",
+      "ID.S" = "ID.S"
+    )
+  )
+
+# ----------------------------------------------------------------------------------------------------------------------
+# Saving the combined dataset with biopphysical information unto local disc
+readr::write_csv(trees.biophys.data, "./DATASET.FROM.SCRIPT/trees.biophys.data.csv")
+# -----------------------------------------------------------------
+glimpse(trees.biophys.data)
+```
+
+## Crop species (groups) - biophys
+
+Creating the **crops - biophys dataset**
+
+```{r }
+# loading the trees data
+crops <- read_excel("DATA/DATABASE_2.0.xlsx",
+  sheet = "CROP_SPECIES"
+) %>%
+  # Generating broad categories of crop species - based on broad output product
+  # based on FAO, 2019. FAOSTAT database. http://www.fao.org/faostat/en/#data.
+  mutate(CROP.OUTPUT.GROUP = case_when(
+    str_detect(CROP.SPECIES, "Triticum") ~ "CEREALS CROPS",
+    str_detect(CROP.SPECIES, "Zea") ~ "CEREALS CROPS",
+    str_detect(CROP.SPECIES, "Hordeum") ~ "CEREALS CROPS",
+    str_detect(CROP.SPECIES, "Secale") ~ "CEREALS CROPS",
+    str_detect(CROP.SPECIES, "Avena") ~ "CEREALS CROPS",
+    str_detect(CROP.SPECIES, "Sorghum") ~ "CEREALS CROPS",
+    str_detect(CROP.SPECIES, "Fagopyrum") ~ "CEREALS CROPS",
+    str_detect(CROP.SPECIES, "Glycine") ~ "PULSES",
+    str_detect(CROP.SPECIES, "Pisum") ~ "PULSES",
+    str_detect(CROP.SPECIES, "Cicer") ~ "PULSES",
+    str_detect(CROP.SPECIES, "Lupinus") ~ "PULSES",
+    str_detect(CROP.SPECIES, "Beta") ~ "SUGAR CROPS",
+    str_detect(CROP.SPECIES, "Cucurbita") ~ "VEGETABLES CROPS",
+    str_detect(CROP.SPECIES, "UNSPECIFIED.VEGETABLES") ~ "VEGETABLES CROPS",
+    str_detect(CROP.SPECIES, "Asparagus") ~ "VEGETABLES CROPS",
+    str_detect(CROP.SPECIES, "Brassica oleracea") ~ "VEGETABLES CROPS",
+    str_detect(CROP.SPECIES, "Capsicum") ~ "VEGETABLES CROPS",
+    str_detect(CROP.SPECIES, "Citrullus") ~ "VEGETABLES CROPS",
+    str_detect(CROP.SPECIES, "Cucumis") ~ "VEGETABLES CROPS",
+    str_detect(CROP.SPECIES, "Lactuca") ~ "VEGETABLES CROPS",
+    str_detect(CROP.SPECIES, "Solanum lycopersicum") ~ "VEGETABLES CROPS",
+    str_detect(CROP.SPECIES, "Brassica napus subsp. napus") ~ "OIL CROPS",
+    str_detect(CROP.SPECIES, "Helianthus") ~ "OIL CROPS",
+    str_detect(CROP.SPECIES, "Sinapsis") ~ "OIL CROPS",
+    str_detect(CROP.SPECIES, "Brassica alba") ~ "OIL CROPS",
+    str_detect(CROP.SPECIES, "Ribes") ~ "FRUIT CROPS",
+    str_detect(CROP.SPECIES, "Rubus") ~ "FRUIT CROPS",
+    str_detect(CROP.SPECIES, "Aronia") ~ "FRUIT CROPS",
+    str_detect(CROP.SPECIES, "Fragaria") ~ "FRUIT CROPS",
+    str_detect(CROP.SPECIES, "Solanum tuberosum") ~ "ROOTS AND TUBER CROPS",
+    str_detect(CROP.SPECIES, "HERBS") ~ "OTHER CROPS FOR HUMAN CONS.",
+    str_detect(CROP.SPECIES, "	SP.BEEF.CATTLE") ~ "OTHER CROPS FOR HUMAN CONS.",
+    str_detect(CROP.SPECIES, "	SP.DAIRY.CATTLE") ~ "OTHER CROPS FOR HUMAN CONS.",
+    str_detect(CROP.SPECIES, "	SP.PIG") ~ "OTHER CROPS FOR HUMAN CONS.",
+    str_detect(CROP.SPECIES, "Lolium") ~ "FORAGE CROPS",
+    str_detect(CROP.SPECIES, "Vicia") ~ "FORAGE CROPS",
+    str_detect(CROP.SPECIES, "Poa") ~ "FORAGE CROPS",
+    str_detect(CROP.SPECIES, "Festuca") ~ "FORAGE CROPS",
+    str_detect(CROP.SPECIES, "Medicago") ~ "FORAGE CROPS",
+    str_detect(CROP.SPECIES, "Panicum") ~ "FORAGE CROPS",
+    str_detect(CROP.SPECIES, "Trifolium") ~ "FORAGE CROPS",
+    str_detect(CROP.SPECIES, "HAY.FODDER") ~ "FORAGE CROPS",
+    str_detect(CROP.SPECIES, "UNSPECIFIED.CLOVERLAY") ~ "FORAGE CROPS",
+    str_detect(CROP.SPECIES, "UNSPECIFIED.FALLOW") ~ "FALLOW"
+  )) %>%
+  # removing 'unreal' species
+  filter(!grepl("HAY|UNSPECIFIED|HERBS|SP|NA|NS", CROP.SPECIES)) %>%
+  # Generating broad categories of crop species - based on genus
+  separate(CROP.SPECIES, c("CROP.GENUS.GROUP", "CROP.SPECIES.GROUP"), "^\\S*\\K\\s+", remove = FALSE)
+
+
+# ------------------------------------------------------- Merging with crop groups data with biophys database
+# merging crops data with the biophys database
+crops.biophys.data <-
+  full_join(database.biophys, crops,
+    by = c(
+      "ID.P" = "ID.P",
+      "ID.S" = "ID.S"
+    )
+  )
+
+# ----------------------------------------------------------------------------------------------------------------------
+# Saving the combined dataset with biopphysical information unto local disc
+readr::write_csv(crops.biophys.data, "./DATASET.FROM.SCRIPT/crops.biophys.data.csv")
+# -----------------------------------------------------------------
+glimpse(crops.biophys.data)
+```
+
+## SAF system Trait types - biophys
+
+Creating the **SAF system Trait types - biophys dataset**
+
+```{r Merging system trait types with biophys database}
+# using n_individual_study_sites because system trait types vary between sites, as some studies include multiple sites with different species compositions and arrangements.
+
+systrait.data <-
+  database.lat.lon %>%
+  filter(INCLUDED == TRUE) %>%
+  # renaming SAF System Trait type
+  rename("SAF System Trait type" = ST.TYPE) %>%
+  # selecting system trait columns
+  group_by(`SAF System Trait type`) %>%
+  dplyr::select(ID.P, ID.S, `SAF System Trait type`, MANAGEMENT) %>%
+  mutate_at(c("ID.P", "ID.S"), as.numeric) # <- converting ID columns from characters to numeric
+
+
+# ------------------------------------------------------- Merging with crop groups data with biophys database
+systrait.biophys.data <-
+  full_join(database.biophys, system.traits.data,
+    by = c(
+      "ID.P" = "ID.P",
+      "ID.S" = "ID.S"
+    )
+  )
+
+# ----------------------------------------------------------------------------------------------------------------------
+# Saving the combined dataset with biopphysical information unto local disc
+readr::write_csv(systrait.biophys.data, "./DATASET.FROM.SCRIPT/systrait.biophys.data.csv")
+# -----------------------------------------------------------------
+glimpse(systrait.biophys.data)
+```
+
+## Global map of study (experimental sites) locations (**see the other script: "2_generating_visualisations"**)
+
+# Geospatial data; multivariate data (matrices)
+
+## Ecosystem services (selected ES; including biodiversity + categories) - biophysical variables
+
+To answer the question; **does SAF, ES research focus differ as related
+to location-specific biophysical variables**
+
+Various biophysical variables are **discretised** (from numeric biophys
+into categorical groups). Adding grouped intervals based on continuous
+soil variables. This is in order to visualise them in relation to ES for
+instance.
+
+```{r eval=TRUE}
+biophys.discretised <- database.biophys %>%
+  # renaming SAF System Trait type
+  rename("SAF System Trait type" = ST.TYPE) %>%
+  # dividing bioclim variables by conversion factor to obtain the correct value
+  # not dividing SoilGrids variables becaise; SoilGrids API and maps return values as whole
+  # (integer) numbers to minimize the storage space used. These values are converted by to
+  # produce conventional units by 'fetchSoilGrids()“
+  dplyr::mutate(
+    Temp = Temp / 10,
+    # Prec = Prec/10
+  ) %>%
+  # discretising using ggplot2::cut_interval(), cut_number() or cut_width()
+  mutate(
+    Temp_interval = cut_width(Temp, width = 5, boundary = 0), # 6 levels
+    Prec_interval = cut_width(Prec, width = 300, boundary = 0), # 6 levels
+
+    clay_interval = cut_width(claymean, width = 10, boundary = 0), # 5 levels
+    sand_interval = cut_width(sandmean, width = 20, boundary = 0), # 5 levels
+    silt_interval = cut_width(siltmean, width = 15, boundary = 0), # 5 levels
+    bd_interval = cut_width(bdodmean, width = 0.25, boundary = 0), # 5 levels
+    nitrogen_interval = cut_width(nitrogenmean, width = 3, boundary = 0), # 5 levels
+    soc_interval = cut_width(socmean, width = 50, boundary = 0), # 5 levels
+    ph_interval = cut_width(phh2omean, width = 1, boundary = 0), # 5 levels
+    cec_interval = cut_width(cecmean, width = 10, boundary = 0)
+  ) %>% # 5 levels
+
+  relocate(
+    ID.P, ID.S,
+    `SAF System Trait type`,
+    lat, lon,
+    Temp, Temp_interval,
+    Prec, Prec_interval,
+    claymean, clay_interval,
+    sandmean, sand_interval,
+    siltmean, silt_interval,
+    bdodmean, bd_interval,
+    nitrogenmean, nitrogen_interval,
+    socmean, soc_interval,
+    phh2omean, ph_interval,
+    cecmean, cec_interval
+  )
+
+# glimpse(biophys.categorised)
+
+# --------------------------------------------------------------------------------- renaming ES variables
+
+biophys.discretised.data <- biophys.discretised %>%
+  rename(
+    "Food (yield)" = ES.SUB.PROV.FOOD,
+    "Feed" = ES.SUB.PROV.FEED,
+    "Fibre" = ES.SUB.PROV.FIBRE,
+    "Fuel (firewood etc.)" = ES.SUB.PROV.FUEL,
+    "Genetic resources" = ES.SUB.PROV.GENRES,
+    "Biochemicals" = ES.SUB.PROV.BIOCHEM,
+    "Ornamentals" = ES.SUB.PROV.ORNA,
+    "Fresh water" = ES.SUB.PROV.WATFRESH,
+    "Air regulation" = ES.SUB.REGU.AIR,
+    "Climate regulation" = ES.SUB.REGU.CLIMREG,
+    "Carbon sequestration" = ES.SUB.REGU.CSEQREG,
+    "Water regulation" = ES.SUB.REGU.WATREG,
+    "Nutrient leaching regulation" = ES.SUB.REGU.NUTRILE,
+    "Erosion regulation" = ES.SUB.REGU.EROREG,
+    "Water purification" = ES.SUB.REGU.WATPUR,
+    "Disease regulation" = ES.SUB.REGU.DISREG,
+    "Pest regulation" = ES.SUB.REGU.PESTREG,
+    "Polination regulation" = ES.SUB.REGU.POLREG,
+    "Natural hazards regulation" = ES.SUB.REGU.NATHAZREG,
+    "Soil formation" = ES.SUB.SUPP.SOILFORM,
+    "Photosynthesis" = ES.SUB.SUPP.PHOTSYNT,
+    "Primary production" = ES.SUB.SUPP.PRIMPROD,
+    "Nutrient cycling" = ES.SUB.SUPP.NUTRICYC,
+    "Water cycling" = ES.SUB.SUPP.WATCYC,
+    "Cultural diversity" = ES.SUB.CULT.CULTDIV,
+    "Spiritual value" = ES.SUB.CULT.SPIRITVAL,
+    "Knowledge systems" = ES.SUB.CULT.KNOWLSYS,
+    "Educational value" = ES.SUB.CULT.EDUVAL,
+    "Inspirational value" = ES.SUB.CULT.INSPIR,
+    "Aesthetic value" = ES.SUB.CULT.AESTVAL,
+    "Social relations" = ES.SUB.CULT.SOCREL,
+    "Sense of place" = ES.SUB.CULT.SENPLACE,
+    "Cultural heritage value" = ES.SUB.CULT.CULTHERIVAL,
+    "Recreational and ecotourism" = ES.SUB.CULT.RECRECOTOUR,
+    "Provisioning ES" = ES.PROV,
+    "Regulating ES" = ES.REGU,
+    "Supporting ES" = ES.SUPP,
+    "Cultural ES" = ES.CULT,
+    "Ecosystem Services" = ES,
+    # -----------------------------------------------------------------------------------------------------------------------
+    "BD.Biodiversity" = BD,
+    "FLORA.1" = BD.SUB.FLORAMACRO,
+    "FLORA.2" = BD.SUB.FLORAMICRO,
+    "FAUNA.1" = BD.SUB.FAUNAMACRO,
+    "FAUNA.2" = BD.SUB.FAUNAMICRO,
+    "Bacteria" = BD.SUB.BACTERIA,
+    "Fungi" = BD.SUB.FUNGI,
+    # --------------------------------------------------------------------------------------------------------------------
+    "Food" = CAT.SUB.AGRO.YIELD,
+    "Biomass" = CAT.SUB.AGRO.BIOMASS,
+    "Land equivalent ratio" = CAT.SUB.AGRO.LER,
+    "Pests" = CAT.SUB.AGRO.PESTS,
+    "Diseases" = CAT.SUB.AGRO.DISEASE,
+    "Weeds" = CAT.SUB.AGRO.WEEDS,
+    "Product quality" = CAT.SUB.AGRO.PRODQUAL,
+    "Product stability" = CAT.SUB.AGRO.PRODSTAB,
+    "Mechanisation" = CAT.SUB.AGRO.MECHAN,
+    "Belowground (crop-tree) competition" = CAT.SUB.AGRO.CRTRBLOW,
+    "Aboveground (crop-tree) light competition" = CAT.SUB.AGRO.LIGHTCMP,
+    "Nutrient use" = CAT.SUB.AGRO.NUTRIUSE,
+    "Nutrient use effeciency" = CAT.SUB.AGRO.NUTRIEF,
+    "Breeding and selection" = CAT.SUB.AGRO.BRDSELECT,
+    "Soil quality" = CAT.SUB.ENVI.SOILQUAL,
+    "Biodiversity" = CAT.SUB.ENVI.BIODIV,
+    "Carbon stock" = CAT.SUB.ENVI.CSTOCK,
+    "Greenhouse gas emissions" = CAT.SUB.ENVI.GHGEMS,
+    "Pollination" = CAT.SUB.ENVI.POLLCON,
+    "Soil structure" = CAT.SUB.ENVI.SOILSTRUCT,
+    "Chemical soil components" = CAT.SUB.ENVI.SOILCHEM,
+    "Biological soil components" = CAT.SUB.ENVI.SOILBIO,
+    "Soil water" = CAT.SUB.ENVI.SOILWAT,
+    "Soil erosion" = CAT.SUB.ENVI.SOILEROCO,
+    "Soil formations" = CAT.SUB.ENVI.SOILFORM,
+    "Water quality" = CAT.SUB.ENVI.WATQUAL,
+    "Water perculation" = CAT.SUB.ENVI.WATPERC,
+    "Water cyclings" = CAT.SUB.ENVI.WATCYC,
+    "Water availability" = CAT.SUB.ENVI.WATAVAIL,
+    "Hydraulic lift" = CAT.SUB.ENVI.HYDRAULIFT,
+    "Economic profit related" = CAT.SUB.ECON.PROFIT,
+    "Economic management related" = CAT.SUB.ECON.MANAGE,
+    "Economic market related" = CAT.SUB.ECON.MARKET,
+    "Landscape aesthetics" = CAT.SUB.SOCUL.LANAES,
+    "Recreational and ecotourisms" = CAT.SUB.SOCUL.RECRECOTOUR,
+    "Spiritual values" = CAT.SUB.SOCUL.SPIRITVAL,
+    "Perception of adoptation" = CAT.SUB.SOCUL.PERCEPADOPT,
+    "Policy information" = CAT.SUB.SOCUL.POLICYINFR,
+    "Agronomic category" = CAT.AGRO,
+    "Environmental category" = CAT.ENVIRON,
+    "Economic category" = CAT.ECONOM,
+    "Socio-cultural category" = CAT.SOCIOCUL
+  ) %>%
+  # converting flora + fauna to numeric
+  mutate_at(c("FLORA.1", "FLORA.2", "FAUNA.1", "FAUNA.2"), as.numeric) %>%
+  # ------------------------------------------------------------------------------------------------------------------------------
+  dplyr::mutate(
+    Flora = FLORA.1 + FLORA.2, # simplifying flora, fauna groups
+    Fauna = FAUNA.1 + FAUNA.2
+  ) %>%
+  mutate(`SAF System Trait type` = recode(`SAF System Trait type`, # rename dataframe rows
+    RBS = "Riparian buffer strips",
+    SHB = "Line belts *",
+    MIXED = "Mixed systems",
+    TIMBER.ARABLE = "Timber - Arable",
+    BIOMASS.ARABLE = "Biomass - Arable",
+    NUT.ARABLE = "Nut - Arable",
+    FRUIT.ARABLE = "Fruit - Arable",
+    .keep = "all"
+  )) %>%
+  dplyr::mutate(ST.TYPE.PROD.TYPE = "x") %>%
+  mutate(ST.TYPE.PROD.TYPE = recode(`SAF System Trait type`, # rename dataframe rows
+    TIMBER.ARABLE = "Biomass",
+    BIOMASS.ARABLE = "Biomass",
+    NUT.ARABLE = "Food",
+    FRUIT.ARABLE = "Food",
+    RBS = "Multiple",
+    SHB = "Multiple",
+    MIXED = "Multiple",
+    .keep = "all"
+  ))
+
+# ------------------------------------------------------------------------------------------------------------------------------
+# Saving the dataset
+readr::write_csv(biophys.discretised.data, "./DATASET.FROM.SCRIPT/biophys.discretised.data.csv")
+# ------------------------------------------------------------------------------
+glimpse(biophys.discretised.data)
+```
+
+To create (1) broad focus groups of ecosystem services as well as (2)
+selected ecosystem services we use information from the *data
+dimensions*; **ecosystem services**, **biodiversity** and **categories
+of approach**. Following the style of *Ditzler et al. (2021)*, *Duru et
+al. (2015)* and *Tamburini et al. (2020)*
+
+## Ecosystem services (selected ecosystem services) - soil sand content
+
+**Merging selected ecosystem services data with biophys variables; soil
+sand content**
+
+```{r}
+# ------------------------------------------------------------------------------------------------------------------------------
+# Preparing ES dataset for merging by converting it to long format and merging it with SAF system traits types
+A_ES <- biophys.discretised.data %>%
+  dplyr::select(
+    "ID.P",
+    "ID.S",
+    "Food (yield)",
+    "Feed",
+    "Fuel (firewood etc.)",
+    "Biodiversity",
+    "Disease regulation",
+    "Pest regulation",
+    "Water cycling",
+    "Economic management related",
+    "Economic profit related",
+    "Aboveground (crop-tree) light competition",
+    "Soil structure",
+    "Chemical soil components",
+    "Biological soil components",
+    "Land equivalent ratio",
+    "Climate regulation",
+    "Greenhouse gas emissions",
+    "Carbon sequestration"
+  ) %>%
+  mutate_if(is.character, as.factor) %>%
+  relocate(ID.P, ID.S) %>%
+  pivot_longer(
+    cols = c(-ID.P, -ID.S),
+    names_to = "ES.GROUPS",
+    values_to = "count"
+  ) %>%
+  mutate(count = as.numeric(count)) %>%
+  filter(count == 1)
+
+# --------------------------------------------------------------------------------------------------------------------------
+B_SAFTT <- biophys.discretised.data %>%
+  dplyr::select(
+    "ID.P",
+    "ID.S",
+    "SAF System Trait type"
+  )
+
+# --------------------------------------------------------------------------------------------------------------------------
+D_JOINED_A_B_ES_SAFTT <-
+  left_join(
+    x = A_ES, y = B_SAFTT,
+    by = c(
+      "ID.P" = "ID.P",
+      "ID.S" = "ID.S"
+    )
+  ) %>%
+  relocate(
+    ID.P, ID.S,
+    ES.GROUPS, `SAF System Trait type`
+  )
+
+# ------------------------------------------------------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------------------------------------------------------
+# Merging with sand content data
+C_SAND <- biophys.discretised.data %>%
+  dplyr::select(
+    "ID.P",
+    "ID.S",
+    "sand_interval"
+  ) %>%
+  # to avoid exhaustion of R memory
+  distinct() %>%
+  dplyr::mutate(sand_interval = recode(sand_interval, # renaming dataframe rows
+    "[0,20]" = "0 - 20 %",
+    "(20,40]" = "20 - 40 %",
+    "(40,60]" = "40 - 60 %",
+    "(60,80]" = "60 - 80 %",
+    "(80,100]" = "80 - 100 %",
+    .keep = "all"
+  ))
+
+# --------------------------------------------------------------------------------------------------------------------------
+# Final dataset of selected ecosystem services (including biodiversity and categories data) with soil sand content
+# --------------------------------------------------------------------------------------------------------------------------
+E_JOINED_D_C_SAND <-
+  left_join(
+    x = D_JOINED_A_B_ES_SAFTT, y = C_SAND,
+    by = c(
+      "ID.P" = "ID.P",
+      "ID.S" = "ID.S"
+    )
+  ) %>%
+  relocate(
+    ID.P, ID.S,
+    ES.GROUPS, `SAF System Trait type`, sand_interval
+  ) %>%
+  mutate_if(is.character, as.factor)
+
+es.systrait.sand.data <- E_JOINED_D_C_SAND
+# ------------------------------------------------------------------------------------------------------------------------------
+# Saving the dataset
+readr::write_csv(es.systrait.sand.data, "./DATASET.FROM.SCRIPT/es.systrait.sand.data.csv")
+# ------------------------------------------------------------------------------
+glimpse(es.systrait.sand.data)
+```
+
+## Ecosystem services (selected ecosystem services) - soil organic carbon (SOC content)
+
+**Merging selected ecosystem services data with biophys variables; SOC
+content**
+
+```{r warning=FALSE, message=FALSE}
+# --------------------------------------------------------------------------------------------------------------------------
+
+C_SOC <- biophys.discretised.data %>%
+  dplyr::select(
+    "ID.P",
+    "ID.S",
+    "soc_interval"
+  ) %>%
+  # to avoid exhaustion of R memory
+  distinct() %>%
+  mutate(soc_interval = recode(soc_interval, # renaming dataframe rows
+    "[0,50]" = "0 - 50 g/kg",
+    "(50,100]" = "50 - 100 g/kg",
+    "(100,150]" = "100 - 150 g/kg",
+    "(150,200]" = "150 - 200 g/kg",
+    "(200,250]" = "200 - 250 g/kg",
+    "(250,300]"  = "250 - 300 g/kg",
+    .keep = "all"
+  ))
+
+# --------------------------------------------------------------------------------------------------------------------------
+# Final dataset of selected ecosystem services (including biodiversity and categories data) with soil SOC content
+# --------------------------------------------------------------------------------------------------------------------------
+E_JOINED_D_C_SOC <-
+  left_join(
+    x = D_JOINED_A_B_ES_SAFTT, y = C_SOC,
+    by = c(
+      "ID.P" = "ID.P",
+      "ID.S" = "ID.S"
+    )
+  ) %>%
+  relocate(
+    ID.P, ID.S,
+    ES.GROUPS, `SAF System Trait type`, soc_interval
+  ) %>%
+  mutate_if(is.character, as.factor) %>%
+  # convert to factor, sort the facet plots in order of SOC intervals
+  mutate_at(vars(soc_interval), funs(factor(., levels = unique(.)))) 
+
+es.systrait.soc.data <- E_JOINED_D_C_SOC
+# ------------------------------------------------------------------------------------------------------------------------------
+# Saving the dataset
+readr::write_csv(es.systrait.soc.data, "./DATASET.FROM.SCRIPT/es.systrait.soc.data.csv")
+# ------------------------------------------------------------------------------
+glimpse(es.systrait.soc.data)
+```
+
+## Ecosystem services (selected ecosystem services) - temperature
+
+**Merging selected ecosystem services data with biophys variables;
+temperature**
+
+```{r warning=FALSE, message=FALSE}
+# --------------------------------------------------------------------------------------------------------------------------
+
+C_TEMP <- biophys.discretised.data %>%
+  dplyr::select(
+    "ID.P",
+    "ID.S",
+    "Temp_interval"
+  ) %>%
+  # to avoid exhaustion of R memory
+  distinct() %>%
+  mutate(Temp_interval = recode(Temp_interval, # rename dataframe rows
+    "[-10,-5]" = "-10 - -5 [°C]",
+    "(-5,0]" = "-5 - 0 [°C]",
+    "(0,5]"  = "0 - 5 [°C]",
+    "(5,10]" = "5 - 10 [°C]",
+    "(10,15]" = "10 - 15 [°C]",
+    "(15,20]" = "15 - 20 [°C]",
+    .keep = "all"
+  ))
+
+# --------------------------------------------------------------------------------------------------------------------------
+# Final dataset of selected ecosystem services (including biodiversity and categories data) with temperature
+# --------------------------------------------------------------------------------------------------------------------------
+E_JOINED_D_C_TEMP <-
+  left_join(
+    x = D_JOINED_A_B_ES_SAFTT, y = C_TEMP,
+    by = c(
+      "ID.P" = "ID.P",
+      "ID.S" = "ID.S"
+    )
+  ) %>%
+  relocate(
+    ID.P, ID.S,
+    ES.GROUPS, `SAF System Trait type`, Temp_interval
+  ) %>%
+  mutate_if(is.character, as.factor) %>%
+  # convert to factor, sort the facet plots in order of temperature intervals
+  mutate_at(vars(Temp_interval), funs(factor(., levels = unique(.))))
+
+es.systrait.temp.data <- E_JOINED_D_C_TEMP
+# ------------------------------------------------------------------------------------------------------------------------------
+# Saving the dataset
+readr::write_csv(es.systrait.temp.data, "./DATASET.FROM.SCRIPT/es.systrait.temp.data.csv")
+# ------------------------------------------------------------------------------
+glimpse(es.systrait.temp.data)
+```
+
+## Ecosystem services (selected ecosystem services) - precipitation
+
+**Merging selected ecosystem services data with biophys variables;
+precipitation**
+
+```{r warning=FALSE, message=FALSE}
+# --------------------------------------------------------------------------------------------------------------------------
+
+C_PREC <- biophys.discretised.data %>%
+    dplyr::select(
+    "ID.P",
+    "ID.S",
+    
+    "Prec_interval") %>%
+  # to avoid exhaustion of R memory
+  distinct() %>%
+  mutate(Prec_interval = recode(Prec_interval,                      # rename dataframe rows
+                                "[0,300]" = "0 - 300 [mm]",
+                                "(300,600]" = "300 - 600 [mm]",
+                                "(600,900]"  = "600 - 900 [mm]",
+                                "(900,1.2e+03]" = "900 - 1200 [mm]",
+                                "(1.2e+03,1.5e+03]" = "1200 - 1500 [mm]",
+                                "(1.5e+03,1.8e+03]" = "1500 - 1800 [mm]",
+                                .keep = "all"))
+
+# --------------------------------------------------------------------------------------------------------------------------
+# Final dataset of selected ecosystem services (including biodiversity and categories data) with precipitation
+# --------------------------------------------------------------------------------------------------------------------------
+E_JOINED_D_C_PREC <- 
+  left_join(x = D_JOINED_A_B_ES_SAFTT, y = C_PREC,
+            by = c("ID.P" = "ID.P",
+                   "ID.S" = "ID.S")) %>%
+  relocate(ID.P, ID.S,
+           ES.GROUPS, `SAF System Trait type`, Prec_interval) %>%
+  mutate_if(is.character, as.factor) %>%
+  # convert to factor, sort the facet plots in order of precipitation interval levels
+  mutate_at(vars(Prec_interval), funs(factor(., levels=unique(.)))) 
+
+es.systrait.prec.data <- E_JOINED_D_C_PREC
+# ------------------------------------------------------------------------------------------------------------------------------
+# Saving the dataset
+readr::write_csv(es.systrait.prec.data, "./DATASET.FROM.SCRIPT/es.systrait.prec.data.csv")
+# ------------------------------------------------------------------------------
+glimpse(es.systrait.prec.data)
+```
