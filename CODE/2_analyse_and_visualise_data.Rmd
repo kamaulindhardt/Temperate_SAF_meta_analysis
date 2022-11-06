@@ -19,16 +19,15 @@ The **aim** of this systematic mapping review is to thoroughly catalogue and ass
     SAF systems?
 
 3.  How are temperate SAF systems and ecosystem services distributed
-    across geographic and biophysical gradients?
+    across geographic and pedoclimatic gradients?
 
-4.  To what extend does biophysical properties, such as soil quality, temperature and precipitation drive inter-site differences? 
+4.  To what extend does pedoclimatic properties, such as soil quality, temperature and precipitation drive inter-site differences? 
 
 Descriptive statistics, e.g. frequency of occurrences is used to visualise data
 
 # Preparing R script
 
-Packages to be installed first
-
+**Packages to be installed first**
 ```{r Installing the pacman package, warning=FALSE}
 # install.packages("pacman")
 
@@ -43,8 +42,7 @@ Packages to be installed first
 # install.packages("geodata")
 ```
 
-Loading packages and libraries
-
+## Loading packages and libraries
 ```{r Loading other needed packages, warning=FALSE}
 suppressWarnings({
 
@@ -74,55 +72,22 @@ suppressWarnings({
     ggridges, # for making nice ridgeline plots
     gitcreds, # for GitHub syncronisation
     flextable, # for exporting nice lokking tables from R in ".png"
+    rnaturalearth, # for making maps
+    sf # for geospatial data analysis  
     #styler, # for neatly organising code
   ) 
 })
 ```
 
-Update GitHub credentials for efficient 'push' and 'pull' operations
-
+## Update GitHub credentials for efficient 'push' and 'pull' operations
 ```{r Update GitHub credentials for efficient 'push' and 'pull' operations}
 # Run this function in order to update GitHub credentials for efficient 'push' and 'pull' operations
 
 # gitcreds_set()
 ```
 
-Loading main database
-
-```{r Loading database 2.0, warning=FALSE, message=FALSE}
-suppressWarnings({ 
-  
-database <- read_excel("DATA/DATABASE_2.0.xlsx", 
-    sheet = "MAIN_DATABASE_2.0") %>%
-    filter(INCLUDED == TRUE)
-
-})
-```
-
-Glimpse (taking a look at the data)
-
-```{r Glimpse the dataset, eval=FALSE}
-database %>% dplyr::glimpse() 
-```
-
-Defining number of independent studies and number of observations based on individual study sites
-
-```{r Number of studies and study sites}
-n_independent_studies <- database %>%
-  distinct(ID.P) %>%
-  nrow()
-
-# n_independent_studies = 73 (16 aug. 2022)
-
-n_individual_study_sites <- database %>%
-  distinct(ID.P, ID.S) %>%
-  nrow()
-
-# n_individual_study_sites = 213 (16 aug. 2022)
-```
-
-Colour and design elements
-
+## Colour and design elements
+**Defining colour pallettes for figures**
 ```{r Colours and colour palettes}
 # scales::show_col(ipsum_pal()(9))
 
@@ -146,8 +111,7 @@ my_cols_pal_100 <- diverging_hcl(100, palette = "Green-Orange")
 
 ```
 
-Function that sets the size of the figure margins
-
+**Function that sets the size of the figure margins**
 ```{r Figure margin size function}
 # Writing a small function that sets the size of the margin based on the number of characters in the leftmost x-axis category value.
 # the function makes use of the number of characters in the dataset$column and adds an additional number of space based on what is specified in the function
@@ -163,17 +127,65 @@ margin_spacer <- function(x) {
 }
 ```
 
-# Structure of this script is as follows:
+## Loading main database
+
+```{r Loading database 2.0, warning=FALSE, message=FALSE}
+
+# Silencing any potential warnings
+suppressWarnings({ 
+
+# using the here::here function to load the data from file path  
+database <- read_excel(path = here::here("DATA/DATABASE_2.0.xlsx"), 
+    sheet = "MAIN_DATABASE_2.0") %>%
+    filter(INCLUDED == TRUE)
+
+})
+```
+
+**Glimpse (taking a look at the data)**
+```{r Glimpse the dataset, eval=FALSE}
+database %>% dplyr::glimpse() 
+```
+
+**Number of independent studies and distinct sites**
+Defining number of independent studies and number of observations based on individual study sites
+```{r Number of studies and study sites}
+n_independent_studies <- database %>%
+  distinct(ID.P) %>%
+  nrow()
+
+# n_independent_studies = 73 (16 aug. 2022)
+
+n_individual_study_sites <- database %>%
+  distinct(ID.P, ID.S) %>%
+  nrow()
+
+# n_individual_study_sites = 213 (16 aug. 2022)
+```
+
+## Loading prepared datasets 
+**Here we load the datasets prepared in the file "1_loading_and_preparing_data"**
+
+```{r}
+
+```
+
+
+# Structure of the script
+
+**Structure of this script is as follows:**
 
 1.  Single variate data dimensions are visualised (everything that is not matrices)
 
 2.  Multivariate data dimensions are visualised (mostly matrices)
 
-3.  Geospatially-related data dimensions (biophysical data) are visualised
+3.  Geospatially-related data dimensions (pedoclimatic data) are visualised
+
 
 # Visualising single variate datasets
 
-**Publications per year**
+
+## Number of publications per year
 
 ```{r Publications per year}
 # -----------------------------------------------------------------------------------------------------------
@@ -207,7 +219,6 @@ pub.year.plot <-
 ```
 
 **Bar plot; accumulated number of studies over the years**
-
 ```{r PLOTTING - accumulated number of studies over the years}
 pub.year.plot <-
   pub.year.data %>%
@@ -215,11 +226,14 @@ pub.year.plot <-
   geom_col(aes(x = PUB.YR, y = no_studies, alpha = 0.9), fill = my_col_single) +
   geom_step(aes(x = PUB.YR, y = no_studies_accum, alpha = 0.9), size = 0.5, col = "black") +
   theme_bw() +
-  scale_x_continuous(breaks = pretty(pub.year.data$PUB.YR, n = 25), minor_breaks = 1, limits = c(1990, 2025)) +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "none") +
+  scale_x_continuous(breaks = pretty(pub.year.data$PUB.YR, n = 25), 
+                     minor_breaks = 1, limits = c(1990, 2025)) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "none",
+        text = element_text(size = 18)) +
   labs(
     title = "Accumulated peer-reviewed publications over time",
     caption = paste0("Total number of independent studies = ", n_independent_studies),
+    x = "Year of publication",
     y = "Accumulated number of publications"
   )
 
@@ -399,7 +413,7 @@ temporal.scale.PD.data <- temp.scale %>%
 ```{r warning=FALSE, message=FALSE}
 # Pie-Donut chart
 webr::PieDonut(temporal.scale.PD.data,
-  aes(Tier_1_scale, Tier_2_scale, count = n),
+  aes(Tier_1_scale, count = n), #aes(Tier_1_scale, Tier_2_scale, count = n),
   ratioByGroup = TRUE,
   showPieName = FALSE,
   addDonutLabel = FALSE,
@@ -413,31 +427,34 @@ webr::PieDonut(temporal.scale.PD.data,
   selected = c(1, 2),
   explode = c(1, 2),
   explodeDonut = TRUE,
-  explodePos = 0.15,
+  explodePos = 0.1,
   explodePie = TRUE,
-  labelpositionThreshold = 0.8,
+  labelpositionThreshold = 0.1,
   showRatioThreshold = 0.001,
   labelposition = 8,
   maxx = 2,
   use.labels = TRUE,
-  donutLabelSize = 3.6,
-  pieLabelSize = 3.8,
+  donutLabelSize = 4.6,
+  pieLabelSize = 4.8,
   pieAlpha = 0.8
 )
 # scale_fill_manual(values = colorspace::qualitative_hcl(8, palette = "Dynamic")))
 ```
 
+
+
+
+
+
 ## Spatial scale of studies
 
 **Loading dataset**
-
 ```{r Loading data - SAF system trait types (agroforestry system types)}
 
 spatial.scale <- vroom::vroom("./DATASET.FROM.SCRIPT/spatial.scale.csv") 
 ```
 
 *Preparing data for pie-donut chart*
-
 ```{r}
 # Building a table with the data for the plot
 spatial.scale.PD.data <- spatial.scale %>% 
@@ -455,25 +472,25 @@ webr::PieDonut(spatial.scale.PD.data,
   ratioByGroup = FALSE,
   showPieName = FALSE,
   addDonutLabel = FALSE,
-  showRatioDonut = TRUE,
+  showRatioDonut = FALSE,
   showRatioPie = TRUE,
   title = "Spatial scale used by studies",
   r0 = 0.5,
   r1 = 1.2,
   r2 = 1.5,
-  start = 3 * pi / 4,
+  start = 1.9 * pi / 4,
   selected = c(1, 2),
   explode = c(2, 3),
   explodeDonut = TRUE,
-  explodePos = 0.15,
+  explodePos = 0.1,
   explodePie = TRUE,
-  labelpositionThreshold = 0.8,
+  labelpositionThreshold = 0.9,
   showRatioThreshold = 0.001,
   labelposition = 8,
   maxx = 2.1,
   use.labels = TRUE,
-  donutLabelSize = 3.6,
-  pieLabelSize = 3.8,
+  donutLabelSize = 4.6,
+  pieLabelSize = 4.8,
   pieAlpha = 0.8
 )
 # scale_fill_manual(values = colorspace::qualitative_hcl(8, palette = "Dynamic")))
@@ -489,7 +506,6 @@ ES.study.approach.PD.data <- vroom::vroom("./DATASET.FROM.SCRIPT/ES.study.approa
 ```
 
 **Pie-Donut chart**
-
 ```{r warning=FALSE, message=FALSE}
 # Pie-Donut chart
 webr::PieDonut(ES.study.approach.PD.data,
@@ -513,8 +529,8 @@ webr::PieDonut(ES.study.approach.PD.data,
   labelposition = 0.3,
   maxx = 2.7,
   use.labels = FALSE,
-  donutLabelSize = 3.6,
-  pieLabelSize = 3.8,
+  donutLabelSize = 4.2,
+  pieLabelSize = 4.5,
   pieAlpha = 0.8
 )
 ```
@@ -526,14 +542,12 @@ webr::PieDonut(ES.study.approach.PD.data,
 ## SAF System Trait Types
 
 **Loading dataset**
-
 ```{r Loading data - SAF system trait types (agroforestry system types)}
 
 system.trait.data <- vroom::vroom("./DATASET.FROM.SCRIPT/system.trait.data.csv") 
 ```
 
 **Barplot of silvoarable system traits**
-
 ```{r PLOTTING - Barplot of silvoarable system traits, tidy=TRUE}
 # using n_individual_study_sites because system traits vary between sites, as some studies include multiple sites with different species compositions and arrangements.
 system.trait.plot <-
@@ -547,13 +561,14 @@ system.trait.plot <-
     fill = my_col_single,
     alpha = 0.8
   ) +
-  geom_text(aes(label = paste0(round(pct * 100, 1), "%")), size = 3, vjust = -2) +
+  geom_text(aes(label = paste0(round(pct * 100, 1), "%")), size = 5, vjust = -1) +
   theme_bw() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "none") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "none",
+        text = element_text(size = 20)) +
   ylim(c(0, 100)) +
   labs(
-    title = "Distribution of silvoarable system trait types",
-    subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
+    #title = "Distribution of silvoarable system trait types",
+    #subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
     caption = paste0("* Line belts; shelterbelts, hedgerows and windbreaks. Total number of independent studies = ", n_independent_studies),
     x = "Silvoarable system trait type",
     y = "n (records)"
@@ -561,18 +576,40 @@ system.trait.plot <-
 
 system.trait.plot
 ```
+*Saving last plot*
+```{r}
+ggsave(
+  filename = "system.trait.plot.png",
+  plot = last_plot(),
+  path = "./FIGURES.OUTPUT.FROM.SCRIPT",
+  width = 25, 
+  height = 15, 
+  units = "cm",
+  dpi = 500
+)
+```
+
+
+```{r}
+ database %>%
+  filter(INCLUDED == TRUE) %>%
+  dplyr::select(ID.P, ID.S, 
+                ST.TYPE, TITLE) %>%
+  filter(ST.TYPE == "FRUIT.ARABLE") %>%
+  distinct(TITLE)
+```
+
+
 
 ## Functional role (product type) of the tree component in SAF systems
 
 **Loading dataset**
-
 ```{r Loading data - SAF system trait types (agroforestry system types)}
 
 system.trait.products <- vroom::vroom("./DATASET.FROM.SCRIPT/system.trait.products.csv") 
 ```
 
 **Barplot of the functional role (product type) of tree component**
-
 ```{r}
 system.trait.products.plot <-
   system.trait.products %>%
@@ -602,7 +639,6 @@ system.trait.products.plot
 ```
 
 *Saving last plot*
-
 ```{r}
 ggsave(
   filename = "system.trait.products.plot.png",
@@ -618,7 +654,6 @@ ggsave(
 ## Spatial arrangements (interrow distance)
 
 **Loading dataset**
-
 ```{r Loading data - SAF system trait types (agroforestry system types)}
 
 spatial.arrange.data <- vroom::vroom("./DATASET.FROM.SCRIPT/spatial.arrange.data.csv") 
@@ -697,7 +732,6 @@ histodensity.spatial.arrangements
 ```
 
 *Saving last plot*
-
 ```{r}
 ggsave(
   filename = "histodensity.spatial.arrangements.png",
@@ -713,7 +747,6 @@ ggsave(
 **Ridgeline plot of interrow distances for different SAF system trait types**
 
 *Defining dataset with average distances per SAF system trait type*
-
 ```{r}
 spatial.arrange.data.interrow <-
   spatial.arrange.data %>%
@@ -733,7 +766,6 @@ spatial.arrange.data.interrow <-
 ```
 
 **Ridgeline plot**
-
 ```{r}
 spatial.arrange.ridge.plot <-
   spatial.arrange.data.interrow %>%
@@ -752,13 +784,13 @@ spatial.arrange.ridge.plot <-
   ) +
   scale_fill_manual(values = colorspace::qualitative_hcl(6, palette = "Dynamic")) +
   theme_bw() +
-  theme(text = element_text(size = 20)) +
-  scale_x_continuous(breaks = c(0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100)) +
+  theme(text = element_text(size = 28)) +
+  scale_x_continuous(breaks = seq(0, 100, 10), limits = c(0, 100)) +
   labs( # title = "Distribution of interrow distances across the different SAF system trait types",
     # subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
     # caption = paste0("* Line belts; shelterbelts, hedgerows and windbreaks. Total number of individual studies = ", n_individual_study_sites),
-    caption = paste0("Total number of individual studies = ", n_individual_study_sites),
-    x = "Interrow distance [m]",
+    #caption = paste0("Total number of individual studies = ", n_individual_study_sites),
+    x = "Interrow width [m]",
     y = "SAF system trait type"
   )
 
@@ -818,7 +850,6 @@ flextable::save_as_image(spatial.arrange.data.interrow.ft, path = "./FIGURES.OUT
 ## Crops, crop species and crop groups
 
 **Loading dataset**
-
 ```{r Loading data - SAF system trait types (agroforestry system types)}
 
 crops.data <- vroom::vroom("./DATASET.FROM.SCRIPT/crops.data.csv") 
@@ -827,7 +858,6 @@ crops.data <- vroom::vroom("./DATASET.FROM.SCRIPT/crops.data.csv")
 Generated broad categories of crop species is based on broad output product based on FAO, 2019. FAOSTAT database. <http://www.fao.org/faostat/en/#data>.
 
 **Number of different crop species found in the dataset**
-
 ```{r}
 crops.data.species.unique <- crops.data %>% 
   distinct(CROP.SPECIES) %>%
@@ -837,7 +867,6 @@ crops.data.species.unique
 ```
 
 **Number of different crop genera found in the dataset**
-
 ```{r}
 crops.data.genus.unique <- crops.data %>% 
   dplyr::select(ID.P, ID.S,
@@ -849,7 +878,6 @@ crops.data.genus.unique
 ```
 
 **Table; frequency of occurrence of various crop groups**
-
 ```{r converting dataframe ti flextable and viewing}
 # converting dataframe (tibble) to a flextable class (https://ardata-fr.github.io/flextable-book/)
 crops.data.aggr.ft <- flextable(crops.data.aggr %>%
@@ -875,7 +903,6 @@ crops.data.aggr.ft
 ```
 
 *Exporting crop group table into to png*
-
 ```{r Exporting the table, warning=FALSE, message=FALSE, eval=FALSE}
 # saving / exporting the flextable to local disk as ".png"
 flextable::save_as_image(crops.data.aggr.ft, path = "./FIGURES.OUTPUT.FROM.SCRIPT/crops.data.aggr.png")
@@ -994,14 +1021,12 @@ ggsave(
 ## Trees, tree species and tree genera
 
 **Loading dataset**
-
 ```{r Loading data - SAF system trait types (agroforestry system types)}
 
 trees.data <- vroom::vroom("./DATASET.FROM.SCRIPT/trees.data.csv") 
 ```
 
 **Number of different tree species**
-
 ```{r}
 tree.data.species.unique <- trees.data %>% 
   filter(!grepl("spp.", TREE.SPECIES)) %>% # excluding 'spp.' species
@@ -1012,7 +1037,6 @@ tree.data.species.unique
 ```
 
 **Number of different tree genera**
-
 ```{r}
 tree.data.genus.unique <- trees.data %>%
   filter(!grepl("HAY|UNSPECIFIED|HERBS|SP|NA|NS", TREE.SPECIES)) %>%
@@ -1030,7 +1054,6 @@ tree.data.genus.unique
 ```
 
 **Table; tree species group data**
-
 ```{r Print tree species group data, tidy=TRUE}
 # colnames is a character vector of length 5, and we replace it
 datatable(head(trees.data.aggr, 20),
@@ -1039,7 +1062,6 @@ datatable(head(trees.data.aggr, 20),
 ```
 
 **Barplot of tree species group distribution**
-
 ```{r PLOTTING - Tree species group distribution, tidy=TRUE}
 # using n_individual_study_sites because crop species vary between sites, as some studies include multiple sites with different species compositions and arrangements.
 trees.data.aggr.plot <-
@@ -1071,7 +1093,6 @@ trees.data.aggr.plot
 ```
 
 **Populus only - split-up**
-
 ```{r Splitting up the largest group of trees (Populus)}
 trees.data.populus <-
   trees.data %>%
@@ -1089,19 +1110,36 @@ trees.data.populus <-
 
 ```
 
+
+## Tree age
+
+**Preparing database**
+```{r}
+database %>% 
+  dplyr::select(ID.S, ID.P,
+                TREE.AGE, TREE.AGE.MIN, TREE.AGE.MAX) %>%
+  mutate_if(is.character, as.numeric) %>%
+  # Where there is NA, calculating a TREE.AGE based on averages of TREE.AGE.MIN and TREE.AGE.MAX
+  dplyr::mutate(TREE.AGE_avr = (TREE.AGE.MIN + TREE.AGE.MAX)/2) %>%
+  dplyr::mutate(TREE.AGE_new = coalesce(TREE.AGE, TREE.AGE_avr)) %>%
+  dplyr::select(-(TREE.AGE_avr)) %>%
+  
+  
+```
+
+
+
 -   RQ1.c - Which biodiversity and ecosystem services are highly represented and which a poorly represented in different systems?
 
 ## Biodiversity indicators
 
 **Loading dataset**
-
 ```{r Loading data - SAF system trait types (agroforestry system types)}
 
 biodiversity.data <- vroom::vroom("./DATASET.FROM.SCRIPT/biodiversity.data.csv") 
 ```
 
 **Biodiversity total reported**
-
 ```{r}
 biodiversity.reported <-
   database %>%
@@ -1112,8 +1150,8 @@ biodiversity.reported <-
     starts_with("BD")
   ) %>%
   mutate(across(matches("BD"), as.logical)) %>%
+  # including NA's as 0 (FALSE)
   mutate_at(vars(-c(ID.P, ID.S)), tidyr::replace_na, 0) %>%
-  # <- Including NA's as 0 (FALSE)
   mutate_if(is.logical, as.numeric) %>%
   mutate_if(is.character, as.numeric) %>%
   dplyr::select(-c(ID.S)) %>%
@@ -1138,8 +1176,37 @@ biodiversity.total <-
 biodiversity.total
 ```
 
-**Barplot; biodiversity-related indicators reported by independent studies**
+**Biodiversity next to ES**
+```{r}
+biodiversity.ES.studies <- 
+  database %>%
+  filter(INCLUDED == TRUE) %>%
+  # selecting Biodiversity columns
+  dplyr::select(
+    ID.P, ID.S, AUTHOR, TITLE, DOI, PUB.YR, REVIEWER.NAME, STUDY.LOC.COUNTRY,
+    starts_with("BD"),
+    starts_with("ES")
+  ) %>%
+  mutate(across(matches("BD"), as.logical)) %>%
+  mutate(across(matches("ES"), as.logical)) %>%
+  mutate_if(is.logical, as.numeric) %>%
+   # including NA's as 0 (FALSE)
+  mutate_at(vars(-c(ID.P, ID.S, AUTHOR, TITLE, DOI, PUB.YR, REVIEWER.NAME, STUDY.LOC.COUNTRY)),
+            tidyr::replace_na, 0) %>%
+  mutate_at(c("ID.P", "ID.S"), as.numeric) %>%
+  # filter all recorded cases where biodiversity has been assessed together with ES
+  filter(BD == 1) %>%
+  distinct(ID.P, AUTHOR, TITLE, DOI, PUB.YR, REVIEWER.NAME, STUDY.LOC.COUNTRY,
+           across(contains("BD")),
+           across(contains("ES"))) # including only independent studies and not separate study sites
 
+  
+openxlsx::write.xlsx(biodiversity.ES.studies, "biodiversity.ES.studies.xlsx")
+```
+
+
+
+**Barplot; biodiversity-related indicators reported by independent studies**
 ```{r PLOTTING - biodiversity-related indicators reported in papers}
 # using n_independent_studies because biodiversity and ecosystem service related indicators do not (normally) vary between sites, because independent studies look at the same variables (biodiversity and ecosystem service) even if several individual study sites are used for the study.
 
@@ -1199,12 +1266,12 @@ ggsave(
 **Loading dataset**
 
 ```{r }
-
+total_n_ES <- vroom::vroom("./DATASET.FROM.SCRIPT/total_n_ES.csv") 
 ecosystem.data <- vroom::vroom("./DATASET.FROM.SCRIPT/ecosystem.data.csv") 
 ```
 
-**Preparing ES dataset**
 
+**Preparing ES dataset**
 ```{r Preparing the ecosystem service data}
 # ---------------------------------------------------------------------------------------------------
 # sum the ES data using apply
@@ -1236,7 +1303,6 @@ ecosystem.plot.data <-
 ```
 
 **Ecosystem services total reported**
-
 ```{r}
 ecosystem.sum.data %>%
   rename(count = value,
@@ -1245,8 +1311,8 @@ ecosystem.sum.data %>%
    mutate(pct_of_total = (count/n_independent_studies))
 ```
 
-**Percentage of various ES representation** Calculating the percentage of various ES representation and isolating total n of ES to be used in plotting
-
+**Percentage of various ES representation** 
+Calculating the percentage of various ES representation and isolating total n of ES to be used in plotting
 ```{r Percentage of various ES representation}
 total_ES_pct <- ecosystem.sum.data %>%
   rename(
@@ -1271,7 +1337,6 @@ total_n_records_ES_for_pct <- total_n_records_ES_for_pct[1]
 ```
 
 **Bar plots;** **Broad categories of ecosystem services reported by independent studies**
-
 ```{r PLOTTING - broad categories of ecosystem services}
 # using n_independent_studies because biodiversity and ecosystem service related indicators do not (normally) vary between sites, because independent studies look at the same variables (biodiversity and ecosystem service) even if several individual study sites are used for the study.
 
@@ -1305,7 +1370,6 @@ ecosystem.plot.broad
 ```
 
 **Provision**
-
 ```{r Preparing provision data}
 # ---------------------------------------------------------------------------------------------------
 total_n_prov_ES <- ecosystem.sum.data %>%
@@ -1346,7 +1410,6 @@ ecosystem.prov.plot.data <-
 ```
 
 *Bar plot; provisioning ES*
-
 ```{r PLOTTING - provision}
 ecosystem.prov.plot <-
   ecosystem.prov.plot.data %>%
@@ -1377,7 +1440,6 @@ ecosystem.prov.plot <-
 ```
 
 **Supporting**
-
 ```{r Preparing supporting data}
 # ---------------------------------------------------------------------------------------------------
 total_n_supp_ES <- ecosystem.sum.data %>%
@@ -1412,7 +1474,6 @@ ecosystem.supp.plot.data <-
 ```
 
 *Bar plot; supporting ES*
-
 ```{r PLOTTING - supporting}
 ecosystem.supp.plot <-
   ecosystem.supp.plot.data %>%
@@ -1443,7 +1504,6 @@ ecosystem.supp.plot <-
 ```
 
 **Regulating**
-
 ```{r Preparing regulating data}
 # ---------------------------------------------------------------------------------------------------
 total_n_regu_ES <- ecosystem.sum.data %>%
@@ -1484,7 +1544,6 @@ ecosystem.regu.plot.data <-
 ```
 
 *Bar plot; regulating ES*
-
 ```{r PLOTTING - regulating}
 ecosystem.regu.plot <-
   ecosystem.regu.plot.data %>%
@@ -1515,7 +1574,6 @@ ecosystem.regu.plot <-
 ```
 
 **Cultural**
-
 ```{r Preparing cultural data}
 # ---------------------------------------------------------------------------------------------------
 total_n_cult_ES <- ecosystem.sum.data %>%
@@ -1555,7 +1613,6 @@ ecosystem.cult.plot.data <-
 ```
 
 *Bar plot; cultural ES*
-
 ```{r PLOTTING - cultural}
 ecosystem.cult.plot <-
   ecosystem.cult.plot.data %>%
@@ -1586,7 +1643,6 @@ ecosystem.cult.plot <-
 ```
 
 **Combined ES bar plot; collecting in cowplot**
-
 ```{r PLOTTING - combined ecosystem service data in cowplot}
 # ecosystem.plot <- list(ecosystem.prov.plot, ecosystem.supp.plot, ecosystem.regu.plot, ecosystem.cult.plot)
 # plot_grid(plotlist = ecosystem.plot,
@@ -1617,7 +1673,6 @@ ES.cowplot.grid
 ```
 
 *Saving last plot*
-
 ```{r}
 ggsave(
   filename = "ES.cowplot.grid.png",
@@ -1633,14 +1688,12 @@ ggsave(
 ## Ecosystem services; frequency of occurance (using Pie-Donut chart)
 
 **Loading dataset**
-
 ```{r }
 
 ecosystem.sum.data.PD.tier1.tier2 <- vroom::vroom("./DATASET.FROM.SCRIPT/ecosystem.sum.data.PD.tier1.tier2.csv") 
 ```
 
 *Preparing ecosystem service data for Pie-Donut plot*
-
 ```{r}
 # Building a table with the data for the plot
 ES.PD.data <- ecosystem.sum.data.PD.tier1.tier2 %>% 
@@ -1652,7 +1705,6 @@ ES.PD.data <- ecosystem.sum.data.PD.tier1.tier2 %>%
 ```
 
 **Pie-Donut plot ecosystem services**
-
 ```{r warning=FALSE, message=FALSE}
 # Pie-Donut chart
 ES.PieDonut.plot <-
@@ -1784,7 +1836,253 @@ category.ecosystem.long %>%
   summarise(n_input.output = n())
 ```
 
+
+*Number of papers reporting on management/labour/mechanisation*
+```{r}
+category.ecosystem.long %>%
+  dplyr::filter(name == "Mechanisation" &
+                  value == 1) %>%
+  distinct()
+```
+
+
+
+
 # Visualising of multivariate datasets; Matrices
+
+## Study sites - continents
+
+*Distribution of study sites across continents*
+```{r}
+database %>%
+  filter(INCLUDED == TRUE) %>%
+  
+  dplyr::select(ID.P, ID.S, STUDY.CONTINENT) %>%
+  distinct() %>%
+  group_by(STUDY.CONTINENT) %>%
+  #filter(STUDY.CONTINENT == "Europe") %>%
+  summarise(count = n()) %>%
+  mutate(pct_of_study_sites_per_Continent = count / n_individual_study_sites * 100) %>%
+  mutate(across(where(is.numeric), round, 1)) %>%
+  drop_na() %>%
+  na.omit() %>%
+  arrange(desc(count))
+```
+
+*Distribution of studies across continents - Europe*
+```{r}
+database %>%
+  filter(INCLUDED == TRUE) %>%
+  
+  dplyr::select(ID.P, STUDY.CONTINENT) %>%
+  distinct() %>%
+  group_by(STUDY.CONTINENT) %>%
+  #filter(STUDY.CONTINENT == "Europe") %>%
+  summarise(count = n()) %>%
+  mutate(pct_of_study_sites_per_Continent = count / n_independent_studies * 100) %>%
+  mutate(across(where(is.numeric), round, 1)) %>%
+  drop_na() %>%
+  na.omit() %>%
+  arrange(desc(count))
+```
+
+
+
+## SAF system trait types - countries
+
+**Loading data**
+```{r}
+SAFT.countries <- vroom::vroom("./DATASET.FROM.SCRIPT/ES.countries.crops.SAFT.csv") 
+```
+
+**Most represented countries**
+```{r}
+rep.countries <- SAFT.countries %>%
+  dplyr::select(ID.P, ID.S, STUDY.LOC.COUNTRY, `SAF System Trait type`) %>%
+  distinct() %>%
+  group_by(STUDY.LOC.COUNTRY) %>%
+  summarise(count = n()) %>%
+  mutate(pct_of_total_study_sites = count / n_individual_study_sites * 100) %>%
+  mutate(across(where(is.numeric), round, 1)) %>%
+  arrange(desc(count)) 
+
+# -----------------------------------------------------------
+# converting dataframe (tibble) to a flextable class 
+# (https://ardata-fr.github.io/flextable-book/)
+
+rep.countries.ft <- flextable(rep.countries %>%
+  arrange(desc(count)))
+
+# setting headers
+rep.countries.ft <- set_header_labels(rep.countries.ft,
+  STUDY.LOC.COUNTRY = "Country",
+  count = "n records",
+  pct_of_total_study_sites = "% of total study sites"
+)
+
+# setting table properties
+rep.countries.ft <- set_table_properties(rep.countries.ft,
+  layout = "autofit",
+  width = 0.6
+)
+
+
+# viewing the exported table - crop groups
+rep.countries.ft
+```
+*Exporting represented countries table into to png*
+```{r Exporting the table, warning=FALSE, message=FALSE, eval=FALSE}
+# saving / exporting the flextable to local disk as ".png"
+flextable::save_as_image(rep.countries.ft, path = "./FIGURES.OUTPUT.FROM.SCRIPT/rep.countries.png")
+```
+
+*Custom factor level ordering of countries*
+```{r}
+# custom factor level ordering of countries based on the most represented countries
+# Poland is not included <-  because only top 10 is used
+custom_countries_order <- c(
+  "Belgium",
+  "France",
+  "Germany",
+  "Spain",
+  "UK",
+  "USA",
+  "Canada",
+  "Netherlands",
+  "Switzerland",
+  "China"
+)
+```
+
+## SAF system trait types - crop groups
+
+**Distribution of SAF system trait types and crop groups**
+```{r}
+SAFT.countries %>%
+  dplyr::select(ID.P, ID.S, CROP.OUTPUT.GROUP, `SAF System Trait type`) %>%
+  distinct() %>%
+  group_by(CROP.OUTPUT.GROUP, `SAF System Trait type`) %>%
+  drop_na() %>%
+  na.omit() %>%
+  summarise(count = n()) %>%
+  # arrange(desc(count)) %>%
+  # ungroup() %>%
+  # top_n(10, wt = count) %>%
+  mutate_if(is.integer, as.double) %>%
+  mutate_if(is.character, as.factor) %>%
+  arrange(CROP.OUTPUT.GROUP, desc(count))
+```
+
+**Distribution of countries and SAF system trait types**
+```{r}
+SAFT.countries %>%
+  dplyr::select(ID.P, ID.S, STUDY.LOC.COUNTRY, `SAF System Trait type`) %>%
+  distinct() %>%
+  group_by(STUDY.LOC.COUNTRY, `SAF System Trait type`) %>%
+  drop_na() %>%
+  na.omit() %>%
+  summarise(count = n()) %>%
+  # arrange(desc(count)) %>%
+  # ungroup() %>%
+  # top_n(10, wt = count) %>%
+  mutate_if(is.integer, as.double) %>%
+  mutate_if(is.character, as.factor) %>%
+  arrange(STUDY.LOC.COUNTRY, desc(count))
+```
+
+*Distribution of SAF system trait types across individual countries - USA*
+```{r}
+SAFT.countries %>%
+  dplyr::select(ID.P, ID.S, STUDY.LOC.COUNTRY, `SAF System Trait type`) %>%
+  distinct() %>%
+  group_by(STUDY.LOC.COUNTRY, `SAF System Trait type`) %>%
+  filter(STUDY.LOC.COUNTRY == "USA") %>%
+  summarise(count = n()) %>%
+  mutate(pct_of_studies_USA = count / sum(count) * 100) %>%
+  mutate(across(where(is.numeric), round, 1)) %>%
+  drop_na() %>%
+  na.omit() %>%
+  arrange(desc(count))
+```
+*Distribution of SAF system trait types across individual countries - Belgium*
+```{r}
+SAFT.countries %>%
+  dplyr::select(ID.P, ID.S, STUDY.LOC.COUNTRY, `SAF System Trait type`) %>%
+  distinct() %>%
+  group_by(STUDY.LOC.COUNTRY, `SAF System Trait type`) %>%
+  filter(STUDY.LOC.COUNTRY == "Belgium") %>%
+  summarise(count = n()) %>%
+  mutate(pct_of_studies_USA = count / sum(count) * 100) %>%
+  mutate(across(where(is.numeric), round, 1)) %>%
+  drop_na() %>%
+  na.omit() %>%
+  arrange(desc(count))
+```
+
+**Matrix; SAF system trait types - countries**
+```{r PLOTTING - selected countries and the SAF systems represented, warning=FALSE, message=FALSE}
+systrait.country.plot <- SAFT.countries %>%
+  dplyr::select(ID.P, ID.S, STUDY.LOC.COUNTRY, `SAF System Trait type`) %>%
+  distinct() %>%
+  group_by(STUDY.LOC.COUNTRY, `SAF System Trait type`) %>%
+  drop_na() %>%
+  na.omit() %>%
+  summarise(count = n()) %>%
+  mutate_if(is.integer, as.double) %>%
+  mutate_if(is.character, as.factor) %>%
+  mutate(custom_countries_order = factor(STUDY.LOC.COUNTRY, 
+                                          levels = custom_countries_order)) %>%
+  arrange(custom_countries_order) %>%
+  na.omi() %>%
+  
+  
+  ggplot(aes(
+    x = factor(custom_countries_order),
+    y = reorder(`SAF System Trait type`, count),
+    fill = STUDY.LOC.COUNTRY
+  )) +
+  geom_jitter(aes(size = count),
+    shape = 21, colour = "black",
+    alpha = 0.95,
+    height = 0.1,
+    width = 0.1
+  ) +
+  theme_bw() +
+ theme(
+    axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "right",
+    text = element_text(size = 25)
+  ) +
+  scale_y_discrete(limits = rev) +
+  scale_size_continuous(range = c(2, 12)) +
+  scale_fill_discrete_qualitative(palette = "Dynamic") +
+  guides(size = guide_legend(title = ""), fill = FALSE) +
+  labs(
+    # title = "Matrix showing the frequency of associations of studied ecosystem services for different SAF systems across soil sand concentration intervals
+    # reported by peer-reviewed papers",
+    # subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
+    caption = paste0(caption = paste0("* Line belts; shelterbelts, hedgerows and windbreaks.")),
+    x = "Countries of publication",
+    y = "SAF system trait type",
+  )
+# facet_grid(. ~ sand_interval)
+
+systrait.country.plot
+```
+
+*Saving last plot*
+```{r}
+ggsave(
+  filename = "systrait.country.plot.png",
+  plot = last_plot(),
+  path = "./FIGURES.OUTPUT.FROM.SCRIPT",
+  width = 35, 
+  height = 15, 
+  units = "cm",
+  dpi = 500
+)
+```
+
+
 
 ## Tree - crop associations
 
@@ -1833,7 +2131,6 @@ matrix.tree.genera.crop.group.plot
 ```
 
 *Saving last plot*
-
 ```{r}
 ggsave(
   filename = "matrix.tree.genera.crop.group.png",
@@ -1847,7 +2144,6 @@ ggsave(
 ```
 
 **Matrix; tree genera - crop species**
-
 ```{r PLOTTING the associations of crop species - tree dataset matrix, warning=FALSE, message=FALSE}
 # using n_independent_studies
 matrix.crop.species.tree.genera <-
@@ -1893,7 +2189,6 @@ ggsave(
 ```
 
 **Frequency of occurrences of associations of crop genera and tree genera**
-
 ```{r Assessing the frequency of associations occurrencesfor crop genera and tree genera}
 matrix.crop.species.tree.all %>%
   group_by(CROP.GENUS.GROUP, TREE.GENUS.GROUP) %>%
@@ -1906,14 +2201,12 @@ matrix.crop.species.tree.all %>%
 ## Biodiversity indicators - crops
 
 **Loading dataset**
-
 ```{r }
 
 matrix.crop.biodiversity.all <- vroom::vroom("./DATASET.FROM.SCRIPT/matrix.crop.biodiversity.all.csv") 
 ```
 
 **Matrix; biodiversity - crop groups**
-
 ```{r PLOTTING the biodiversity-crops dataset matrix, warning=FALSE, message=FALSE}
 # using n_individual_study_sites because crop species vary between sites, as some studies include multiple sites with different species compositions and arrangements.
 
@@ -1947,14 +2240,12 @@ matrix.crop.biodiversity.all %>%
 ## Biodiversity indicators - SAF system trait types
 
 **Loading dataset**
-
 ```{r }
 
 matrix.biodiversity.systrait <- vroom::vroom("./DATASET.FROM.SCRIPT/matrix.biodiversity.systrait.csv") 
 ```
 
 **Matrix; biodiversity - SAF system trait types**
-
 ```{r PLOTTING - biodiversity-system trait type dataset matrix}
 matrix.biodiversity.systrait %>%
   ggplot(aes(
@@ -1986,14 +2277,12 @@ matrix.biodiversity.systrait %>%
 ## Ecosystem services (broad ecosystem services) - crop groups
 
 **Loading dataset**
-
 ```{r }
 
 matrix.crop.ecosystem <- vroom::vroom("./DATASET.FROM.SCRIPT/matrix.crop.ecosystem.csv") 
 ```
 
 **Matrix; ecosystem services - crop groups**
-
 ```{r PLOTTING - ecosystem services-crops dataset matrix}
 # using n_individual_study_sites because crop species vary between sites, as some studies include multiple sites with different species compositions and arrangements.
 
@@ -2027,14 +2316,12 @@ matrix.crop.ecosystem %>%
 ## Ecosystem services - SAF system trait types
 
 **Loading dataset**
-
 ```{r }
 
 matrix.ecosystem.systrait <- vroom::vroom("./DATASET.FROM.SCRIPT/matrix.ecosystem.systrait.csv") 
 ```
 
 **Matrix; ecosystem services - SAF system trait types**
-
 ```{r PLOTTING - biodiversity-system trait type dataset matrix}
 matrix.ecosystem.systrait %>%
   ggplot(aes(
@@ -2066,14 +2353,12 @@ matrix.ecosystem.systrait %>%
 ## Input/output ecosystem services
 
 **Loading dataset**
-
 ```{r }
 
 matrix.inoutES.pub.yr.all <- vroom::vroom("./DATASET.FROM.SCRIPT/matrix.inoutES.pub.yr.all.csv") 
 ```
 
 **Developments of input/output ES and publication years** *Matrix; input/output ES - publication year*
-
 ```{r PLOTTING the input/output ES - publication year dataset matrix, warning=FALSE, message=FALSE}
 # using n_independent_studies
 inoutES.pub.yr.all.plot <-
@@ -2088,13 +2373,14 @@ inoutES.pub.yr.all.plot <-
     # colour = "black",
     alpha = 0.8,
     height = 0.4,
-    width = 2.5
+    width = 3
   ) +
   scale_size_area(max_size = 20, guide = "none") +
   scale_shape_manual(values = c(15, 16, 17, 18)) +
   # scale_x_discrete(limits = c("Agronomy", "Environment", "Economic", "Cultural")) +  # Change the order of legend items
   theme_bw() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "bottom") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "bottom",
+        text = element_text(size = 18)) +
   guides(shape = guide_legend(title = ""), colour = guide_legend(title = "")) +
   scale_x_continuous(breaks = pretty(matrix.inoutES.pub.yr.all$PUB.YR, n = 20), minor_breaks = 1, limits = c(1990, 2022)) +
   scale_y_discrete(labels = c("Input ES", "Output ES")) +
@@ -2102,8 +2388,8 @@ inoutES.pub.yr.all.plot <-
   guides(size = guide_bins(direction = "horizontal", show.limits = TRUE)) +
   scale_colour_discrete_qualitative(palette = "Dynamic") +
   labs(
-    title = "Matrix showing the number of peer-reviewed papers reporting on input/output ES for different years of publication",
-    subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
+    #title = "Matrix showing the number of peer-reviewed papers reporting on input/output ES for different years of publication",
+    #subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
     caption = paste0("n(independent studies) reporting on ES indicators = ", total_n_ES$value),
     x = "Year",
     y = "Ecosystem services"
@@ -2111,6 +2397,23 @@ inoutES.pub.yr.all.plot <-
 
 inoutES.pub.yr.all.plot
 ```
+
+*Saving last plot*
+
+```{r}
+ggsave(
+  filename = "inoutES.pub.yr.all.plot.png",
+  plot = last_plot(),
+  path = "./FIGURES.OUTPUT.FROM.SCRIPT",
+  width = 30, 
+  height = 15, 
+  units = "cm",
+  dpi = 500
+)
+```
+
+
+
 
 ## Ecosystem services (broad focus groups of ecosystem services) - crop groups - tree genera
 
@@ -2172,8 +2475,92 @@ focus.ES.crops.trees.plot
 ES.selected.crop.groups.SATF <- vroom::vroom("./DATASET.FROM.SCRIPT/ES.selected.crop.groups.SATF.csv") 
 ```
 
-**Matrix; selected ecosystem services - crop groups - SAF system trait types**
+*Custom factor level ordering of ES variables*
+```{r}
+# custom factor level ordering of ES variables
+custom_ES_order <- c(
+    # Biodiversity ---------------------------------------------
+    "Associated biodiversity",
+    # Supporting ecosystem services ----------------------------
+    "Soil formation",
+    "Soil structure",
+    "Water cycling",
+    "Nutrient cycling",
+    "Greenhouse gas emissions",
+    # Regulating ecosystem services ----------------------------
+    "Carbon sequestration",
+    "Climate regulation",
+    "Water regulation",
+    "Water quality",
+    "Pest regulation",
+    "Disease regulation",
+    "Polination regulation",
+    # Provisioning ecosystem services --------------------------
+    "Land equivalent ratio",
+    "Aboveground competition",
+    "Management",
+    "Profitability", 
+    "Production stability",
+    "Feed",
+    "Fuel (firewood etc.)",
+    "Food (yield)",
+    # Cultural ecosystem services ------------------------------
+    "Recreational and ecotourism",
+    "Landscape aesthetics",
+    "Policy information"
+)
 
+
+# custom factor level ordering of ES variables for the selected bioclim-related ES
+custom_selected_bioclim_ES_order <- c(
+    # --------------------------------------------------------------------
+#--# Biodiversity ---------------------------------------------
+    "Associated biodiversity",
+#--# Supporting ecosystem services ----------------------------
+    "Soil formation",
+    "Soil structure",
+    "Water cycling",
+    "Nutrient cycling",
+    "Carbon stock",
+        # "Chemical soil components",
+        # "Biological soil components",
+        # "Greenhouse gas emissions",
+#--# Regulating ecosystem services ----------------------------
+    "Erosion regulation",
+    "Carbon sequestration",
+    "Water regulation",
+    "Water perculation",
+    "Climate regulation",    
+    "Pest regulation",
+    "Disease regulation",
+    "Polination regulation",
+        # "Water quality",
+#--# Provisioning ecosystem services --------------------------
+    "Profitability",
+    "Aboveground competition",
+    "Water availability",
+    "Production stability",
+    "Feed",
+    "Fuel (firewood etc.)",
+    "Food (yield)",
+        # "Land equivalent ratio",
+        # "Management",
+#--# Cultural ecosystem services ------------------------------
+    "Recreational and ecotourism",
+    "Landscape aesthetics",
+    "Policy information"
+)
+```
+
+```{r}
+ES.selected.crop.groups.SATF %>%
+  filter(CROP.OUTPUT.GROUP == "Vegetable crops" &
+           `SAF System Trait type`== "Fruit - Arable" ) %>%
+  distinct(ID.P)
+```
+
+
+**Matrix; selected ecosystem services - crop groups - SAF system trait types**
 ```{r PLOTTING - selected ecosystem services (including biodiversity and categories data) with crop groups, warning=FALSE, message=FALSE}
 ES.cat.crop.groups.SATF.plot <- ES.selected.crop.groups.SATF %>%
   group_by(ES.GROUPS, CROP.OUTPUT.GROUP, `SAF System Trait type`) %>%
@@ -2181,25 +2568,32 @@ ES.cat.crop.groups.SATF.plot <- ES.selected.crop.groups.SATF %>%
   ungroup() %>%
   mutate_if(is.integer, as.double) %>%
   mutate_if(is.character, as.factor) %>%
+  mutate(ES_ordered = factor(ES.GROUPS, levels = custom_selected_bioclim_ES_order)) %>%
+  arrange(ES_ordered) %>%
+  drop_na(ES_ordered) %>%
+  na.omit(ES_ordered) %>%
+  
   ggplot(aes(
     x = reorder(`SAF System Trait type`, -count),
-    y = reorder(ES.GROUPS, -count),
-    fill = CROP.OUTPUT.GROUP
+    y = factor(ES_ordered, level = custom_selected_bioclim_ES_order),
+    fill = `SAF System Trait type`
   )) +
   geom_jitter(aes(size = count),
     shape = 21, colour = "black",
-    alpha = 0.9,
+    alpha = 0.95,
     height = 0.1,
     width = 0.1
   ) +
   theme_bw() +
   theme(
-    axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "none",
-    plot.margin = margin(l = 0 + margin_spacer(matrix.es.bd.cat.systrait.crop.all$CROP.OUTPUT.GROUP)),
+    axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "right",
+    plot.margin = margin(l = 0 + margin_spacer(ES.selected.crop.groups.SATF$CROP.OUTPUT.GROUP)),
     text = element_text(size = 18)
   ) +
+  scale_y_discrete(limits = rev) +
   scale_size_continuous(range = c(1, 10)) +
   scale_fill_discrete_qualitative(palette = "Dynamic") +
+  guides(size = guide_legend(title = ""), fill = FALSE) +
   labs( # title = "Matrix showing the frequency of associations of crop groups, ecosystem services for different silvoarable systems reported by peer-reviewed papers",
     # subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
     # caption = paste0(caption = paste0("* Line belts; shelterbelts, hedgerows and windbreaks. Total number of independent studies reporting on ES = ", total_n_ES$value)),
@@ -2213,10 +2607,84 @@ ES.cat.crop.groups.SATF.plot
 ```
 
 *Saving last plot*
-
 ```{r}
 ggsave(
   filename = "ES.cat.crop.groups.SATF.plot.png",
+  plot = last_plot(),
+  path = "./FIGURES.OUTPUT.FROM.SCRIPT",
+  width = 50, 
+  height = 18, 
+  units = "cm",
+  dpi = 500
+)
+```
+
+
+## Ecosystem services (selected ecosystem services) - tree genera - functional role (product type) of tree component of SAF system trait types
+
+**Loading dataset**
+```{r }
+
+ES.selected.tree.genera.SATF <- vroom::vroom("./DATASET.FROM.SCRIPT/ES.selected.tree.genera.SATF.csv") 
+ES_TREE <- vroom::vroom("./DATASET.FROM.SCRIPT/ES_TREE.csv") 
+```
+
+**Matrix; selected ecosystem services - tree.genera - functional role (product type) of tree component** of SAF system trait types
+```{r PLOTTING - selected ecosystem services (including biodiversity and categories data) with tree.genera, warning=FALSE, message=FALSE}
+ES.cat.tree.genera.plot <- ES.selected.tree.genera.SATF %>%
+  group_by(ES.GROUPS, TREE.GENUS.GROUP, ST.TYPE.PROD.TYPE) %>% # not `SAF System Trait type`
+  summarise(count = n()) %>%
+  ungroup() %>%
+  mutate_if(is.integer, as.double) %>%
+  mutate_if(is.character, as.factor) %>%
+  mutate(ES_ordered = factor(ES.GROUPS, levels = custom_selected_bioclim_ES_order)) %>%
+  arrange(ES_ordered) %>%
+  drop_na(ES_ordered) %>%
+  na.omit(ES_ordered) %>%
+  # removing unspecified trees
+  filter(!TREE.GENUS.GROUP == "Unspecified trees") %>%
+  # removing the category "mixed" and "nature + wind shelter" remaining with "biomass" and "food"
+  filter(ST.TYPE.PROD.TYPE != "Mixed",
+         ST.TYPE.PROD.TYPE != "Nature + wind shelter") %>%      
+  
+  
+  ggplot(aes(
+     x = reorder(TREE.GENUS.GROUP, -count),
+     y = factor(ES_ordered, level = custom_selected_bioclim_ES_order),
+    fill = ES_ordered
+  )) +
+  geom_jitter(aes(size = count),
+    shape = 21, colour = "black",
+    alpha = 0.9,
+    height = 0.1,
+    width = 0.1
+  ) +
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "right",
+    plot.margin = margin(l = 0 + margin_spacer(ES.selected.tree.genera.SATF$TREE.GENUS.GROUP)),
+    text = element_text(size = 20)
+  ) +
+  scale_size_continuous(range = c(1, 10)) +
+  scale_fill_discrete_qualitative(palette = "Dynamic") +
+  scale_y_discrete(limits = rev) +
+  guides(size = guide_legend(title = ""), fill = FALSE) +
+  labs( # title = "Matrix showing the frequency of associations of tree.genera, ecosystem services for different silvoarable systems reported by peer-reviewed papers",
+    # subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
+    # caption = paste0(caption = paste0("* Line belts; shelterbelts, hedgerows and windbreaks. Total number of independent studies reporting on ES = ", total_n_ES$value)),
+    caption = paste("n (individual study sites) = ", n_individual_study_sites),
+    x = "Silvoarable System Trait Types",
+    y = "Selected ecosystem services"
+  ) +
+  facet_grid(. ~ ST.TYPE.PROD.TYPE)
+
+ES.cat.tree.genera.plot
+```
+
+*Saving last plot*
+```{r}
+ggsave(
+  filename = "ES.cat.tree.genera.plot.png",
   plot = last_plot(),
   path = "./FIGURES.OUTPUT.FROM.SCRIPT",
   width = 48, 
@@ -2225,6 +2693,75 @@ ggsave(
   dpi = 500
 )
 ```
+
+
+
+**Matrix; selected ecosystem services - tree genera**
+```{r PLOTTING - selected ecosystem services (including biodiversity and categories data) with tree.genera, warning=FALSE, message=FALSE}
+ES.tree.genera.plot <- ES_TREE %>%
+  group_by(ES.GROUPS, TREE.GENUS.GROUP) %>% # not `SAF System Trait type`
+  summarise(count = n()) %>%
+  ungroup() %>%
+  mutate_if(is.integer, as.double) %>%
+  mutate_if(is.character, as.factor) %>%
+  mutate(ES_ordered = factor(ES.GROUPS, levels = custom_selected_bioclim_ES_order)) %>%
+  arrange(ES_ordered) %>%
+  drop_na(ES_ordered) %>%
+  na.omit(ES_ordered) %>%
+  # removing unspecified trees
+  filter(!TREE.GENUS.GROUP == "Unspecified trees") %>%
+  # removing "unspecified trees"NA" ES
+  filter(!ES_ordered == "NA") %>%
+  
+  ggplot(aes(
+    x = reorder(TREE.GENUS.GROUP, -count),
+    y = factor(ES_ordered, level = custom_selected_bioclim_ES_order),
+    fill = ES_ordered
+  )) +
+  geom_jitter(aes(size = count),
+    shape = 21, colour = "black",
+    alpha = 0.95,
+    height = 0.1,
+    width = 0.1
+  ) +
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "right",
+    plot.margin = margin(l = 0 + margin_spacer(ES_TREE$TREE.GENUS.GROUP)),
+    text = element_text(size = 20)
+  ) +
+  scale_size_continuous(range = c(1, 10)) +
+  scale_fill_discrete_qualitative(palette = "Dynamic") +
+  scale_y_discrete(limits = rev) +
+  guides(size = guide_legend(title = ""), fill = FALSE) +
+  labs( # title = "Matrix showing the frequency of associations of tree.genera, ecosystem services for different silvoarable systems reported by peer-reviewed papers",
+    # subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
+    # caption = paste0(caption = paste0("* Line belts; shelterbelts, hedgerows and windbreaks. Total number of independent studies reporting on ES = ", total_n_ES$value)),
+    caption = paste("n (individual study sites) = ", n_individual_study_sites),
+    x = "Tree genera",
+    y = "Selected ecosystem services"
+  ) 
+  #facet_grid(. ~ ST.TYPE.PROD.TYPE)
+
+ES.tree.genera.plot
+```
+
+*Saving last plot*
+```{r}
+ggsave(
+  filename = "ES.tree.genera.plot.png",
+  plot = last_plot(),
+  path = "./FIGURES.OUTPUT.FROM.SCRIPT",
+  width = 48, 
+  height = 18, 
+  units = "cm",
+  dpi = 500
+)
+```
+
+
+
+
 
 ## Ecosystem services (focus group ecosystem services) - crop groups - SAF system trait types
 
@@ -2246,6 +2783,7 @@ focus.ES.SAFT.plot <- joined.focus.ES.SAFT %>%
   ungroup() %>%
   mutate_if(is.integer, as.double) %>%
   mutate_if(is.character, as.factor) %>%
+  
   ggplot(aes(
     x = reorder(CROP.OUTPUT.GROUP, -count),
     y = reorder(FOCUS.GROUPS.BD.ES.CAT, -count),
@@ -2253,7 +2791,7 @@ focus.ES.SAFT.plot <- joined.focus.ES.SAFT %>%
   )) +
   geom_jitter(aes(size = count),
     shape = 21, colour = "black",
-    alpha = 0.8,
+    alpha = 0.95,
     height = 0.08,
     width = 0.08
   ) +
@@ -2301,18 +2839,39 @@ ES.countries.crops.SAFT <- vroom::vroom("./DATASET.FROM.SCRIPT/ES.countries.crop
 ```
 
 **Matrix; selected ecosystem services - SAF system trait types - countries**
+*Custom factor level ordering of countries*
+```{r}
+# custom factor level ordering of countries
+custom_countries_order <- c(
+  "Poland",
+  "Belgium",
+  "Germany",
+  "Denmark",
+  "Spain",
+  "UK",
+  "France",
+  "USA",
+  "Canada",
+  "Netherlands",
+  "Switzerland",
+  "China"
+)
+```
 
 ```{r PLOTTING - selected ecosystem services (including biodiversity and categories data) with countries, warning=FALSE, message=FALSE}
-D_JOINED_COUNTRIES_CROPS_ES_SAFT %>%
+ES.countries.crops.SAFT.plot <- ES.countries.crops.SAFT %>%
   group_by(STUDY.LOC.COUNTRY, ES.GROUPS, `SAF System Trait type`) %>%
   summarise(count = n()) %>%
   ungroup() %>%
   mutate_if(is.integer, as.double) %>%
   mutate_if(is.character, as.factor) %>%
+  mutate(ES_ordered = factor(ES.GROUPS, levels = custom_ES_order)) %>%
+  arrange(ES_ordered) %>%
   na.omit() %>%
+  
   ggplot(aes(
-    x = reorder(STUDY.LOC.COUNTRY, -count),
-    y = reorder(ES.GROUPS, -count),
+    x = factor(STUDY.LOC.COUNTRY, level = custom_countries_order),
+    y = factor(ES_ordered, level = custom_ES_order),
     fill = STUDY.LOC.COUNTRY
   )) +
   geom_jitter(aes(size = count),
@@ -2323,25 +2882,45 @@ D_JOINED_COUNTRIES_CROPS_ES_SAFT %>%
   ) +
   theme_bw() +
   theme(
-    axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "none",
-    plot.margin = margin(l = 0 + margin_spacer(D_JOINED_COUNTRIES_CROPS_ES_SAFT$STUDY.LOC.COUNTRY))
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 10), legend.position = "right",
+    text = element_text(size = 16),
+    plot.margin = margin(l = 0 + margin_spacer(ES.countries.crops.SAFT$STUDY.LOC.COUNTRY))
   ) +
   scale_size_continuous(range = c(1, 10)) +
   scale_fill_discrete_qualitative(palette = "Dynamic") +
+  guides(size = guide_legend(title = ""), fill = FALSE) +
+  scale_y_discrete(limits = rev) +
   labs(
-    title = "Matrix showing the frequency of associations of ecosystem services for different silvoarable systems across top ten most represented countries of publication reported by peer-reviewed papers",
-    subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
-    caption = paste0(caption = paste0("* Line belts; shelterbelts, hedgerows and windbreaks. Total number of independent studies reporting on ES = ", total_n_ES$value)),
+    #title = "Matrix showing the frequency of associations of ecosystem services for different silvoarable systems across top ten most represented countries of publication reported by peer-reviewed papers",
+    #subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
+    caption = paste0(caption = paste0("* Line belts; shelterbelts, hedgerows and windbreaks. Total number of independent studies reporting on ES = ", total_n_ES$value, "; n (individual study sites) = ", n_individual_study_sites)),
     x = "Countries",
     y = "Selected ecosystem services"
   ) +
   facet_grid(. ~ factor(`SAF System Trait type`, levels = c("Timber - Arable", "Biomass - Arable", "Nut - Arable", "Fruit - Arable", "Line belts *", "Riparian buffer strips", "Mixed systems")))
+
+ES.countries.crops.SAFT.plot
 ```
+
+*Saving last plot*
+
+```{r}
+ggsave(
+  filename = "ES.countries.crops.SAFT.plot.png",
+  plot = last_plot(),
+  path = "./FIGURES.OUTPUT.FROM.SCRIPT",
+  width = 40, 
+  height = 15, 
+  units = "cm",
+  dpi = 500
+)
+```
+
+
 
 # Geospatial data; singel variate data (not matrices)
 
 **Loading and preparing dataset with coordinates**
-
 ```{r Loading dataset with lat long coordinates}
 
 database.lat.lon <- vroom::vroom("./DATASET.FROM.SCRIPT/database.lat.lon.csv") %>%
@@ -2415,10 +2994,9 @@ location.missing <- database.lat.lon %>%
 # 28 studies had missing information for the latitude column (location missing). These were then manually checked and a nearby location was added where possible by re-visiting the papers and checking the study sites on Google Maps. The previous lines of code was run again, now with  zero (0) missing locations. 
 ```
 
-## Explorative analysis
+## Explorative analysis 
 
 **Visualising the locations on a map**
-
 ```{r Quick plot of the locations on a map}
 # using n_individual_study_sites because some studies include multiple sites with different system traits, species compositions and arrangements.
 
@@ -2438,7 +3016,6 @@ database.lat.lon %>%
 ```
 
 **Most prevailing countries - where most studies (study sites) have been conducted**
-
 ```{r Where most studies (study sites) have been conducted}
 # using n_individual_study_sites because system traits vary between sites, as some studies include multiple sites with different species compositions and arrangements.
 
@@ -2460,8 +3037,7 @@ pub.country.geo <-
   arrange(desc(no_studies))
 ```
 
-**Loading the combined database with location-specific biophysical (bioclim + soil) data**
-
+**Loading the combined database with location-specific pedoclimatic (bioclim + soil) data**
 ```{r Loading location-specific biopphysical dataset, warning=FALSE, message=FALSE}
 
 database.biophys <- vroom::vroom("./DATASET.FROM.SCRIPT/database.biophys.csv") %>%
@@ -2492,7 +3068,6 @@ database.biophys <- vroom::vroom("./DATASET.FROM.SCRIPT/database.biophys.csv") %
 ## Trees - biophys
 
 **Loading dataset**
-
 ```{r }
 
 trees.biophys.data <- vroom::vroom("./DATASET.FROM.SCRIPT/trees.biophys.data.csv") 
@@ -2501,7 +3076,6 @@ trees.biophys.data <- vroom::vroom("./DATASET.FROM.SCRIPT/trees.biophys.data.csv
 ## Tree genera - temperature
 
 **Violin plot; tree genera - tempreature**
-
 ```{r PLOTTING - tree genera in relation to temperature, warning=FALSE, message=FALSE}
 # number of observations per tree group
 trees.coords.data.N <-
@@ -2565,7 +3139,6 @@ ggsave(
 ## Tree genera - precipitation
 
 **Violin plot; tree genera - precipitation**
-
 ```{r PLOTTING - tree genera in relation to precipitation, warning=FALSE, message=FALSE}
 trees.prec.violin.plot <-
   trees.biophys.data %>%
@@ -2599,7 +3172,6 @@ trees.prec.violin.plot
 ```
 
 *Saving last plot*
-
 ```{r}
 ggsave(
   filename = "trees.prec.violin.plot.png",
@@ -2613,7 +3185,6 @@ ggsave(
 ```
 
 Random lm model to check for relationship between **tree genera and temperature**
-
 ```{r}
 model.lm <- lm(Temp ~ TREE.FAMILY.GROUP, data = trees.biophys.data)
 summary(model.lm)
@@ -2664,7 +3235,6 @@ trees.sand.violin.plot
 ```
 
 *Saving last plot*
-
 ```{r}
 ggsave(
   filename = "trees.sand.violin.plot.png",
@@ -2723,7 +3293,6 @@ trees.clay.violin.plot
 ```
 
 *Saving last plot*
-
 ```{r}
 ggsave(
   filename = "trees.sand.violin.plot.png",
@@ -3111,12 +3680,18 @@ ggsave(
 )
 ```
 
+
+
+
+
+
+
+
 ## SAF system trait types - biophys
 
 **Loading dataset**
 
 ```{r }
-
 systrait.biophys.data <- vroom::vroom("./DATASET.FROM.SCRIPT/systrait.biophys.data.csv") %>%
     mutate(`SAF System Trait type` = recode(ST.TYPE, # rename dataframe rows
     RBS = "Riparian buffer strips",
@@ -3140,6 +3715,7 @@ systrait.biophys.data <- vroom::vroom("./DATASET.FROM.SCRIPT/systrait.biophys.da
     .keep = "all"
   ))
 ```
+
 
 ## SAF system trait types - temperature
 
@@ -3602,7 +4178,7 @@ lm_eqn <- function(df) {
 
 ```
 
-**Line graph plot; relationship between interrow distance - latitute**
+**Line graph plot; relationship between interrow distance - latitude**
 
 ```{r}
 lat.interrow.plot <-
@@ -3618,27 +4194,25 @@ lat.interrow.plot <-
     x = CA.DIST.INTERROW,
     y = latitude, colour = `SAF System Trait type`
   ),
-  size = 0.4,
+  size = 1.2,
   alpha = 1,
-  width = 3,
+  width = 4,
   height = 4
   ) +
-  ggdensity::geom_hdr(xlim = c(0, 80), ylim = c(0, 60), alpha = 0.2) +
+  ggdensity::geom_hdr(xlim = c(0, 80), ylim = c(0, 60), alpha = 0.2, size = 2) +
   geom_smooth(method = lm, se = FALSE, colour = "black") + # add linear trend line formula = y ~ splines::bs(x, 3)
-  geom_text(x = 35, y = 65, label = lm_eqn(data), parse = TRUE, size = 3, col = "black") +
-  labs(
-    x = "Silvoarable system trait type",
-    y = "n (records)"
-  ) +
+  geom_text(x = 35, y = 65, label = lm_eqn(data), parse = TRUE, size = 8, col = "black") +
   theme_classic() +
   theme(
     axis.text.x = element_text(angle = 0, hjust = 1), legend.position = "none",
-    plot.margin = margin(t = 10, r = 0, b = 10, l = 10, unit = "pt"),
-    plot.title = element_text(vjust = 0)
+    plot.margin = margin(t = 10, r = 0, b = 15, l = 15, unit = "pt"),
+    plot.title = element_text(vjust = 0),
+    text = element_text(size = 25)
   ) +
+  scale_x_continuous(breaks = seq(0, 70, 10), limits = c(0, 70)) +
   scale_y_continuous(breaks = seq(30, 70, 10), limits = c(30, 70)) +
   labs( # title = "Latitude interrow distance",
-    x = "Alley crop interrow distance [m]",
+    x = "Interrow width [m]",
     y = "Latitude"
   )
 # ggtitle("B")
@@ -3647,7 +4221,6 @@ lat.interrow.plot
 ```
 
 *Saving last plot*
-
 ```{r}
 ggsave(
   filename = "lat.interrow.plot.png",
@@ -3663,7 +4236,6 @@ ggsave(
 ## Global map of study (experimental sites) locations
 
 Creating and plotting the **global map**
-
 ```{r}
 world <- map_data("world") %>%
   filter(region != "Antarctica") # get the world map coordinates using map_data() function from the tidyverse suit of packages
@@ -3706,7 +4278,6 @@ world.study.sites
 ```
 
 Creating map that is **zoomed on Europe** Now what if we wanted to use the *Mollweide projection* again as target projection
-
 ```{r}
 # At first, we set the target CRS and transform the whole worldmap dataset to that CRS.
 worldmap <- ne_countries(
@@ -3762,9 +4333,7 @@ lat_span <- 180 / 2^zoom_level
 ```
 
 **Calculate the longitude and latitude ranges for the the display window**
-
 Now we can calculate the longitude and latitude ranges for the the display window by subtracting/adding the half of the above ranges from/to the zoom center coordinates respectively.
-
 ```{r}
 # Europe
 lon_bounds.eu <- c(zoom_to.eu[1] - lon_span / 2, zoom_to.eu[1] + lon_span / 2)
@@ -3776,7 +4345,6 @@ lat_bounds.na <- c(zoom_to.na[2] - lat_span / 2, zoom_to.na[2] + lat_span / 2)
 ```
 
 **Plotting the map; Europe map**
-
 ```{r}
 # We can now plot the map with the specified display window for zoom level 2, highlighting the zoom center for Europe
 
@@ -3814,7 +4382,6 @@ map.europe
 ```
 
 **Creating and plotting; North America map**
-
 ```{r}
 # We can now plot the map with the specified display window for zoom level 2, highlighting the zoom center for North America
 
@@ -3843,7 +4410,6 @@ map.northamerica
 ```
 
 **Combining the three maps (global, Europe and interrow distance as effect of latitude)**
-
 ```{r}
 # Arrange plots using arrangeGrob and using gridExtra and cowplot
 # returns a gtable (gt)
@@ -3854,17 +4420,16 @@ gt <- arrangeGrob(world.study.sites, # bar plot spaning two columns
 )
 
 # Add labels to the arranged plots
-combined.geolocation.linterrow.lat <- as_ggplot(gt) + # transform to a ggplot
+combined.geolocation.interrow.lat <- as_ggplot(gt) + # transform to a ggplot
   draw_plot_label(
     label = c("A", "B", "C"), size = 15,
     x = c(0, 0, 0.5), y = c(1, 0.5, 0.5)
   ) # Add labels
 
-combined.geolocation.linterrow.lat
+combined.geolocation.interrow.lat
 ```
 
 *Saving last plot*
-
 ```{r}
 ggsave(
   filename = "combined.geolocation.linterrow.lat.png",
@@ -3877,17 +4442,229 @@ ggsave(
 )
 ```
 
+
+## Where (study sites)
+
+**Where and when; combining the two maps (global and Europe**
+*Creating different world map without top-bottom borders*
+```{r}
+
+world.study.sites.full <-
+  ggplot() +
+  geom_map(
+    data = world, map = world,
+    aes(long, lat, map_id = region),
+    color = "white", fill = "lightgray", size = 0.1
+  ) +
+  geom_point(
+    data = database.lat.lon,
+    aes(longitude, latitude, color = `SAF System Trait type`),
+    alpha = 1, size = 0.5
+  ) +
+  geom_rect(
+    aes(xmin = -15, xmax = 35, ymin = 35, ymax = 70),
+    color = "black", fill = NA, inherit.aes = FALSE
+  ) +
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(angle = 0, hjust = 1), legend.position = "none",
+    plot.margin = margin(t = 5, r = 5, b = 5, l = 5, unit = "pt"),
+                         text = element_text(size = 18)
+  ) +
+  # scale_colour_discrete_qualitative(palette = "Dynamic", nmax = 8) +
+  guides(color = guide_legend(override.aes = list(size = 5))) +
+  coord_sf(ylim = c(20, 70), xlim = c(-140, 140)) +
+  labs( # title = "Locations of study sites for peer-reviewed silvoarable agroforestry",
+    # subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
+    # caption = paste0("Total number of independent studies = ", n_independent_studies),
+    x = "Longitude",
+    y = "Latitude"
+  )
+# ggtitle("A")
+
+world.study.sites.full
+```
+
+*Creating map of Europe with legend and top-bottom boarders*
+```{r}
+# We can now plot the map with the specified display window for zoom level 2, highlighting the zoom center for Europe
+
+map.europe.full <-
+  ggplot() +
+  geom_sf(data = worldmap) +
+  geom_sf(
+    data = st_sfc(st_point(zoom_to.eu), crs = 4326),
+    color = "blue", alpha = 0
+  ) +
+  coord_sf(xlim = lon_bounds.eu, ylim = lat_bounds.eu) +
+  theme_bw() +
+  geom_point(
+    data = database.lat.lon,
+    aes(longitude, latitude, color = `SAF System Trait type`),
+    alpha = 1, size = 0.7
+  ) +
+  scale_x_continuous(label = abs) +
+  scale_y_continuous(label = abs) +
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(angle = 0, hjust = 1), legend.position = "right",
+    plot.margin = margin(t = 5, r = 5, b = 5, l = 5, unit = "pt"),
+    text = element_text(size = 18)
+  ) +
+  guides(colour = guide_legend(override.aes = list(size = 5))) +
+  # scale_colour_discrete_qualitative(palette = "Dynamic") +
+  labs( # title = "Locations of study sites for peer-reviewed silvoarable agroforestry",
+    # subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
+    # caption = paste0("Total number of independent studies = ", n_independent_studies),
+    x = "Longitude",
+    y = "Latitude"
+  )
+# labs(title = "Locations of study sites in Europe")
+
+map.europe.full
+```
+
+*Combining into new plot*
+```{r}
+# Arrange plots using arrangeGrob and using gridExtra and cowplot
+# returns a gtable (gt)
+gt_map <- arrangeGrob(
+  world.study.sites.full, 
+  map.europe.full,
+  ncol = 3,
+  nrow = 5,
+  layout_matrix = rbind(c(1, 1, 1),
+                        c(1, 1, 1),
+                        c(2, 2, 2),
+                        c(2, 2, 2),
+                        c(2, 2, 2))
+  )
+
+# Add labels to the arranged plots
+combined.geolocation.map <- as_ggplot(gt_map) + # transform to a ggplot
+  draw_plot_label(
+    label = c("a)", "b)"), size = 25,
+    x = c(0.18, 0.18), y = c(1, 0.6)
+  ) # Add labels
+
+combined.geolocation.map
+```
+
+*Saving last plot*
+```{r}
+ggsave(
+  filename = "combined.geolocation.map.png",
+  plot = last_plot(),
+  path = "./FIGURES.OUTPUT.FROM.SCRIPT",
+  width = 35, 
+  height = 15, 
+  units = "cm",
+  dpi = 500
+)
+```
+
+*Combining into new plot*
+```{r}
+# Arrange plots using arrangeGrob and using gridExtra and cowplot
+# returns a gtable (gt)
+gt_map.2 <- arrangeGrob(
+  world.study.sites.full, 
+  map.europe.full,
+  ncol = 7,
+  nrow = 3,
+  layout_matrix = rbind(c(1, 1, 1, 1, 2, 2, 2),
+                        c(1, 1, 1, 1, 2, 2, 2),
+                        c(1, 1, 1, 1, 2, 2, 2))
+  )
+
+# Add labels to the arranged plots
+combined.geolocation.map.2 <- as_ggplot(gt_map.2) + # transform to a ggplot
+  draw_plot_label(
+    label = c("a)", "b)"), size = 25,
+    x = c(0.0, 0.60), y = c(0.9, 0.9)
+  ) # Add labels
+
+combined.geolocation.map.2
+```
+
+*Saving last plot*
+```{r}
+ggsave(
+  filename = "combined.geolocation.map.2.png",
+  plot = last_plot(),
+  path = "./FIGURES.OUTPUT.FROM.SCRIPT",
+  width = 30, 
+  height = 15, 
+  units = "cm",
+  dpi = 500
+)
+```
+
+
+
+## Spatial arrangements (interrow distance/width) - study site location (latitude)
+
+```{r}
+# lat.interrow.plot               # (created further up)
+# spatial.arrange.ridge.plot      # (created further up)
+```
+
+*Combining two plots; ridgeline plot of interrow distance for different SAF systems and line graph latitude*
+```{r}
+# Arrange plots using arrangeGrob and using gridExtra and cowplot
+# returns a gtable (gt)
+gt_interrow <- arrangeGrob(
+  spatial.arrange.ridge.plot, 
+  lat.interrow.plot,
+  ncol = 5,
+  nrow = 1,
+  layout_matrix = rbind(c(1, 1, 1, 2, 2))
+  )
+
+# Add labels to the arranged plots
+combined.interrow <- as_ggplot(gt_interrow) + # transform to a ggplot
+  draw_plot_label(
+    label = c("a)", "b)"), size = 30,
+    x = c(0, 0.59), y = c(1.0, 1.0)
+  ) # Add labels
+
+combined.interrow
+```
+
+*Saving last plot*
+```{r}
+ggsave(
+  filename = "combined.interrow.png",
+  plot = last_plot(),
+  path = "./FIGURES.OUTPUT.FROM.SCRIPT",
+  width = 35, 
+  height = 20, 
+  units = "cm",
+  dpi = 500
+)
+```
+
+
+
+
+
+
+
+
 # Geospatial data; multivariate data (matrices)
 
-## Ecosystem services (including biodiversity + categories) - biophysical variables
 
-To answer the question; **does SAF, ES research focus differ as related to location-specific biophysical variables**
+## ES - SAF systems - pedoclimatic variables
+**Ecosystem services (selected ES; including biodiversity + categories) - pedoclimatic variables**
 
-Various biophysical variables are **discretised** (from numeric biophys into categorical groups). Adding grouped intervals based on continuous soil variables. This is in order to visualise them in relation to ES for instance.
+
+To answer the question; **does SAF, ES research focus differ as related to location-specific pedoclimatic variables**
+
+Various pedoclimatic variables are **discretised** (from numeric biophys into categorical groups). Adding grouped intervals based on continuous soil variables. This is in order to visualise them in relation to ES for instance.
 
 **Loading and preparing dataset** The dataset is including only *selected ecosystem services*
 
-To form the selected ecosystem services we use information from the *data dimensions*; **ecosystem services**, **biodiversity** and **categories of approach**, following the style of *Ditzler et al. (2021)*, *Duru et al. (2015)* and *Tamburini et al. (2020)*
+To form the selected ecosystem services we use information from the *data dimensions*; **ecosystem services**, **biodiversity** and **categories of approach**, following the style of *Ditzler et al. (2021)*, *Duru et al. (2015)*, *Beillouin et al. (2021)* and *Tamburini et al. (2020)*
 
 ```{r Loading dataset with lat long coordinates}
 biophys.discretised.data <- vroom::vroom("./DATASET.FROM.SCRIPT/biophys.discretised.data.csv") %>%
@@ -3898,28 +4675,50 @@ biophys.discretised.data <- vroom::vroom("./DATASET.FROM.SCRIPT/biophys.discreti
     "lat", 
     "lon",
 # ----------------------------------------------------------------------------------------------------------
-# These selected ecosystem services (below) are based on the *data dimensions*; **ecosystem services**, **biodiversity** and **categories of approach**. Following the style of *Ditzler et al. (2021)*, *Duru et al. (2015)* and *Tamburini et al. (2020)* 
+# These selected ecosystem services (below) are based on the *data dimensions*; **ecosystem services**, **biodiversity** and **categories of approach**. Following the style of *Ditzler et al. (2021)*, *Duru et al. (2015)* Beillouin et al. (2021) and *Tamburini et al. (2020)* 
 
-    "Food (yield)",
+# --------------------------------------------------------------------
+    # Biodiversity ---------------------------------------------
+    "Associated biodiversity",
+    # Supporting ecosystem services ----------------------------
+    "Soil formation",
+    "Soil structure",
+    "Water cycling",
+    "Nutrient cycling",
+    "Greenhouse gas emissions",
+    # Regulating ecosystem services ----------------------------
+    "Carbon sequestration",
+    "Climate regulation",
+    "Water regulation",
+    "Water quality",
+    "Pest regulation",
+    "Disease regulation",
+    "Polination regulation",
+    # Provisioning ecosystem services --------------------------
+    "Land equivalent ratio",
+    "Aboveground competition",
+    "Management",
+    "Profitability", 
+    "Production stability",
     "Feed",
     "Fuel (firewood etc.)",
-    "Biodiversity",
-    "Disease regulation",
-    "Pest regulation",
-    "Water cycling",
-    "Economic management related",
-    "Economic profit related",
-    "Aboveground (crop-tree) light competition",
-    "Soil structure", 
+    "Food (yield)",
+    # Cultural ecosystem services ------------------------------
+    "Recreational and ecotourism",
+    "Landscape aesthetics",
+    "Policy information",    
+    # Specific pedoclimatic, soil-related ecosystem services ---- following Ellili-Bargaoui et al. (2021)
+    "Nutrient cycling",
+    "Erosion regulation",
+    "Carbon stock", 
     "Chemical soil components",
     "Biological soil components",
-    "Land equivalent ratio",
-    "Climate regulation",
-    "Greenhouse gas emissions",
-    "Carbon sequestration",
+    "Water perculation",
+    "Water availability", 
 
-# --------------------------------------------------------------------------------------- biophysical (soil, bioclim) variables
-    "Temp", "Temp_interval", 
+
+# ------------------------------------------------------------------ pedoclimatic (soil, bioclim) variables
+    "Temp", "Temp_interval", "Temp_seasonality_interval", "Prec_seasonality_interval",
     "Prec", "Prec_interval",
     "claymean", "clay_interval",
     "sandmean", "sand_interval",
@@ -3931,17 +4730,131 @@ biophys.discretised.data <- vroom::vroom("./DATASET.FROM.SCRIPT/biophys.discreti
     "cecmean", "cec_interval") 
 ```
 
-## Ecosystem services (selected ecosystem services) - soil sand content
+### Costom order level ordering of ES
+
+*Custom factor level ordering of ES variables for specific pedoclimatic, soil-related ecosystem services*
+```{r}
+# custom factor level ordering of ES variables
+custom_ES_soil_order <- c(
+    # Biodiversity ---------------------------------------------
+    "Associated biodiversity",
+    # Supporting ecosystem services ----------------------------
+    "Soil formation",
+    "Soil structure",
+    "Water cycling",
+    "Nutrient cycling",
+    "Greenhouse gas emissions",
+    # Regulating ecosystem services ----------------------------
+    "Carbon sequestration",
+    "Climate regulation",
+    "Water regulation",
+    "Water quality",
+    "Pest regulation",
+    "Disease regulation",
+    "Polination regulation",
+    # Provisioning ecosystem services --------------------------
+    "Land equivalent ratio",
+    "Aboveground competition",
+    "Management",
+    "Profitability", 
+    "Production stability",
+    "Feed",
+    "Fuel (firewood etc.)",
+    "Food (yield)",
+    # Cultural ecosystem services ------------------------------
+    "Recreational and ecotourism",
+    "Landscape aesthetics",
+    "Policy information",
+    # Specific pedoclimatic, soil-related ecosystem services ---- following Ellili-Bargaoui et al. (2021)
+    "Erosion regulation",
+    "Carbon stock", 
+    "Chemical soil components",
+    "Biological soil components",
+    "Water perculation",
+    "Water availability"
+)
+
+# custom factor level ordering of ES variables for the selected soil-related ES
+custom_selected_soil_ES_order <- c(
+    #--# Biodiversity ---------------------------------------------
+    "Associated biodiversity",
+#--# Supporting ecosystem services ----------------------------
+    "Soil formation",
+    "Soil structure",
+    "Water cycling",
+    "Nutrient cycling",
+    "Carbon stock",
+    "Chemical soil components",
+    "Biological soil components",
+        # "Greenhouse gas emissions",
+#--# Regulating ecosystem services ----------------------------
+    "Erosion regulation",
+    "Carbon sequestration",
+    "Water regulation",
+    "Water perculation",
+        # "Water quality",
+        # "Climate regulation",
+        # "Pest regulation",
+        # "Disease regulation",
+        # "Polination regulation",
+#--# Provisioning ecosystem services --------------------------
+    "Water availability",
+    "Production stability",
+    "Feed",
+    "Fuel (firewood etc.)",
+    "Food (yield)"
+)
+
+# custom factor level ordering of ES variables for the selected soil-related ES
+custom_selected_bioclim_ES_order <- c(
+    # --------------------------------------------------------------------
+#--# Biodiversity ---------------------------------------------
+    "Associated biodiversity",
+#--# Supporting ecosystem services ----------------------------
+    "Soil formation",
+    "Soil structure",
+    "Water cycling",
+    "Nutrient cycling",
+    "Carbon stock",
+        # "Chemical soil components",
+        # "Biological soil components",
+        # "Greenhouse gas emissions",
+#--# Regulating ecosystem services ----------------------------
+    "Erosion regulation",
+    "Carbon sequestration",
+    "Water regulation",
+    "Water perculation",
+    "Climate regulation",    
+    "Pest regulation",
+    "Disease regulation",
+    "Polination regulation",
+        # "Water quality",
+#--# Provisioning ecosystem services --------------------------
+    "Profitability",
+    "Aboveground competition",
+    "Water availability",
+    "Production stability",
+    "Feed",
+    "Fuel (firewood etc.)",
+    "Food (yield)",
+        # "Land equivalent ratio",
+        # "Management",
+#--# Cultural ecosystem services ------------------------------
+    "Recreational and ecotourism",
+    "Landscape aesthetics",
+    "Policy information"
+)
+```
+
+### ES - sand content
 
 **Loading dataset**
-
 ```{r }
 
 es.systrait.sand.data <- vroom::vroom("./DATASET.FROM.SCRIPT/es.systrait.sand.data.csv") 
 ```
 
 **Matrix; selected ES (including biodiversity and categories data) with sand intervals**
-
 ```{r PLOTTING - selected ES (including biodiversity and categories data) with sand intervals, warning=FALSE, message=FALSE}
 es.systrait.sand.plot <- es.systrait.sand.data %>%
   group_by(ES.GROUPS, sand_interval, `SAF System Trait type`) %>%
@@ -3949,9 +4862,13 @@ es.systrait.sand.plot <- es.systrait.sand.data %>%
   ungroup() %>%
   mutate_if(is.integer, as.double) %>%
   mutate_if(is.character, as.factor) %>%
+  mutate(ES_ordered = factor(ES.GROUPS, levels = custom_ES_soil_order)) %>%
+  arrange(ES_ordered) %>%
+  na.omit() %>%
+  
   ggplot(aes(
     x = reorder(`SAF System Trait type`, -count),
-    y = reorder(ES.GROUPS, -count),
+    y = factor(ES_ordered, level = custom_ES_soil_order),
     fill = sand_interval
   )) +
   geom_jitter(aes(size = count),
@@ -3961,13 +4878,16 @@ es.systrait.sand.plot <- es.systrait.sand.data %>%
     width = 0.1
   ) +
   theme_bw() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "none") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "right",
+        text = element_text(size = 18)) +
+  scale_y_discrete(limits = rev) +
   scale_size_continuous(range = c(1, 10)) +
   scale_fill_discrete_qualitative(palette = "Dynamic") +
+  guides(size = guide_legend(title = ""), fill = FALSE) +
   labs(
-    title = "Matrix showing the frequency of associations of studied ecosystem services for different SAF systems across soil sand concentration intervals 
-reported by peer-reviewed papers",
-    subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
+    #title = "Matrix showing the frequency of associations of studied ecosystem services for different SAF systems across soil sand concentration intervals 
+#reported by peer-reviewed papers",
+    #subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
     caption = paste0(caption = paste0("* Line belts; shelterbelts, hedgerows and windbreaks. Total number of independent studies reporting on ES = ", total_n_ES$value)),
     x = "Silvoarable System Trait Types",
     y = "Selected ecosystem services"
@@ -3978,30 +4898,89 @@ es.systrait.sand.plot
 ```
 
 *Saving last plot*
-
 ```{r}
 ggsave(
-  filename = "es.systrait.sand.plot.png",
+  filename = "es.systrait.pedoclim.sand.plot.png",
   plot = last_plot(),
   path = "./FIGURES.OUTPUT.FROM.SCRIPT",
-  width = 35, 
-  height = 15, 
+  width = 45, 
+  height = 20, 
   units = "cm",
   dpi = 500
 )
 ```
 
-## Ecosystem services (selected ecosystem services) - soil organic carbon (SOC content)
+### ES - soil organic carbon *
 
 **Loading dataset**
-
 ```{r }
+selected.soil.es.systrait.soc.data <-
+  vroom::vroom("./DATASET.FROM.SCRIPT/selected.soil.es.systrait.soc.data.csv") 
 
-es.systrait.soc.data <- vroom::vroom("./DATASET.FROM.SCRIPT/es.systrait.soc.data.csv") 
+es.systrait.soc.data <- 
+  vroom::vroom("./DATASET.FROM.SCRIPT/es.systrait.soc.data.csv") 
 ```
 
-**Matrix; selected ES (including biodiversity and categories data) with SOC intervals**
+**Matrix; selected soil-related ES (including biodiversity and categories data) with SOC intervals**
+```{r PLOTTING - selected soil ES (including biodiversity and categories data) with SOC intervals, warning=FALSE, message=FALSE}
+selected.soil.es.systrait.soc.plot <- selected.soil.es.systrait.soc.data %>%
+  group_by(ES.GROUPS, soc_interval, `SAF System Trait type`) %>%
+  summarise(count = n()) %>%
+  ungroup() %>%
+  mutate_if(is.integer, as.double) %>%
+  mutate_if(is.character, as.factor) %>%
+  mutate(ES_ordered = factor(ES.GROUPS, levels = custom_selected_soil_ES_order)) %>%
+  arrange(ES_ordered) %>%
+  na.omit() %>%
+  
+  ggplot(aes(
+    x = reorder(`SAF System Trait type`, -count),
+    y = factor(ES_ordered, level = custom_selected_soil_ES_order),
+    fill = `SAF System Trait type`
+  )) +
+  geom_jitter(aes(size = count),
+    shape = 21, colour = "black",
+    alpha = 0.8,
+    height = 0.1,
+    width = 0.1
+  ) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "right",
+        text = element_text(size = 18)) +
+  scale_y_discrete(limits = rev) +
+  scale_size_continuous(range = c(1, 10)) +
+  scale_fill_discrete_qualitative(palette = "Dynamic") +
+  guides(size = guide_legend(title = ""), fill = FALSE) +
+  labs(
+    #title = "Matrix showing the frequency of associations of studied ecosystem services for different SAF systems across SOC content intervals 
+#reported by peer-reviewed papers",
+    #subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
+    caption = paste0(caption = paste0("* Line belts; shelterbelts, hedgerows and windbreaks. Total number of independent studies reporting on ES = ", total_n_ES$value)),
+    x = "Silvoarable System Trait Types",
+    y = "Selected ecosystem services"
+  ) +
+  facet_grid(. ~ factor(soc_interval,
+                        levels = c("0 - 50 g/kg", "50 - 100 g/kg", "100 - 150 g/kg", "150 - 200 g/kg", "200 - 250 g/kg", "250 - 300 g/kg")))
 
+selected.soil.es.systrait.soc.plot
+```
+
+*Saving last plot*
+```{r}
+ggsave(
+  filename = "selected.soil.es.systrait.pedoclim.soc.plot.png",
+  plot = last_plot(),
+  path = "./FIGURES.OUTPUT.FROM.SCRIPT",
+  width = 45, 
+  height = 20, 
+  units = "cm",
+  dpi = 500
+)
+```
+
+
+
+**Matrix; selected ES (including biodiversity and categories data) with SOC intervals**
 ```{r PLOTTING - selected ES (including biodiversity and categories data) with SOC intervals, warning=FALSE, message=FALSE}
 es.systrait.soc.plot <- es.systrait.soc.data %>%
   group_by(ES.GROUPS, soc_interval, `SAF System Trait type`) %>%
@@ -4009,9 +4988,13 @@ es.systrait.soc.plot <- es.systrait.soc.data %>%
   ungroup() %>%
   mutate_if(is.integer, as.double) %>%
   mutate_if(is.character, as.factor) %>%
+  mutate(ES_ordered = factor(ES.GROUPS, levels = custom_ES_soil_order)) %>%
+  arrange(ES_ordered) %>%
+  na.omit() %>%
+  
   ggplot(aes(
     x = reorder(`SAF System Trait type`, -count),
-    y = reorder(ES.GROUPS, -count),
+    y = factor(ES_ordered, level = custom_ES_soil_order),
     fill = soc_interval
   )) +
   geom_jitter(aes(size = count),
@@ -4021,13 +5004,16 @@ es.systrait.soc.plot <- es.systrait.soc.data %>%
     width = 0.1
   ) +
   theme_bw() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "none") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "right",
+        text = element_text(size = 18)) +
+  scale_y_discrete(limits = rev) +
   scale_size_continuous(range = c(1, 10)) +
   scale_fill_discrete_qualitative(palette = "Dynamic") +
+  guides(size = guide_legend(title = ""), fill = FALSE) +
   labs(
-    title = "Matrix showing the frequency of associations of studied ecosystem services for different SAF systems across SOC content intervals 
-reported by peer-reviewed papers",
-    subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
+    #title = "Matrix showing the frequency of associations of studied ecosystem services for different SAF systems across SOC content intervals 
+#reported by peer-reviewed papers",
+    #subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
     caption = paste0(caption = paste0("* Line belts; shelterbelts, hedgerows and windbreaks. Total number of independent studies reporting on ES = ", total_n_ES$value)),
     x = "Silvoarable System Trait Types",
     y = "Selected ecosystem services"
@@ -4039,23 +5025,449 @@ es.systrait.soc.plot
 ```
 
 *Saving last plot*
-
 ```{r}
 ggsave(
-  filename = "es.systrait.soc.plot.png",
+  filename = "es.systrait.pedoclim.soc.plot.png",
   plot = last_plot(),
   path = "./FIGURES.OUTPUT.FROM.SCRIPT",
-  width = 35, 
-  height = 15, 
+  width = 45, 
+  height = 20, 
   units = "cm",
   dpi = 500
 )
 ```
 
-## Ecosystem services (selected ecosystem services) - temperature
+
+### ES - soil bulk density *
 
 **Loading dataset**
+```{r }
+selected.soil.es.systrait.bd.data <-
+  vroom::vroom("./DATASET.FROM.SCRIPT/selected.soil.es.systrait.bd.data.csv") 
 
+es.systrait.bd.data <- 
+  vroom::vroom("./DATASET.FROM.SCRIPT/es.systrait.bd.data.csv") 
+```
+
+**Matrix; selected soil-related ES (including biodiversity and categories data) with bulk density intervals**
+```{r PLOTTING - selected soil-related ES (including biodiversity and categories data) with bulk density intervals, warning=FALSE, message=FALSE}
+selected.soil.es.systrait.bd.plot <- selected.soil.es.systrait.bd.data %>%
+  group_by(ES.GROUPS, bd_interval, `SAF System Trait type`) %>%
+  summarise(count = n()) %>%
+  ungroup() %>%
+  mutate_if(is.integer, as.double) %>%
+  mutate_if(is.character, as.factor) %>%
+  mutate(ES_ordered = factor(ES.GROUPS, levels = custom_selected_soil_ES_order)) %>%
+  arrange(ES_ordered) %>%
+  na.omit() %>%
+  
+  ggplot(aes(
+    x = reorder(`SAF System Trait type`, -count),
+    y = factor(ES_ordered, level = custom_selected_soil_ES_order),
+    fill = `SAF System Trait type`
+  )) +
+  geom_jitter(aes(size = count),
+    shape = 21, colour = "black",
+    alpha = 0.8,
+    height = 0.1,
+    width = 0.1
+  ) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "right",
+        text = element_text(size = 18)) +
+  scale_y_discrete(limits = rev) +
+  scale_size_continuous(range = c(1, 10)) +
+  scale_fill_discrete_qualitative(palette = "Dynamic") +
+  guides(size = guide_legend(title = ""), fill = FALSE) +
+  labs(
+    #title = "Matrix showing the frequency of associations of studied ecosystem services for different SAF systems across SOC content intervals 
+#reported by peer-reviewed papers",
+    #subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
+    caption = paste0(caption = paste0("* Line belts; shelterbelts, hedgerows and windbreaks. Total number of independent studies reporting on ES = ", total_n_ES$value)),
+    x = "Silvoarable System Trait Types",
+    y = "Selected ecosystem services"
+  ) +
+  facet_grid(. ~ factor(bd_interval,
+                        levels = c("0.75 - 1 [kg dm^-3]", 
+                                   "1 - 1.25 [kg dm^-3]", 
+                                   "1.25 - 1.5 [kg dm^-3]", 
+                                   "1.5 - 1.75 [kg dm^-3]", 
+                                   "1.75 - 2 [kg dm^-3]")))
+
+selected.soil.es.systrait.bd.plot
+```
+
+*Saving last plot*
+```{r}
+ggsave(
+  filename = "selected.soil.es.systrait.bd.plot.png",
+  plot = last_plot(),
+  path = "./FIGURES.OUTPUT.FROM.SCRIPT",
+  width = 45, 
+  height = 20, 
+  units = "cm",
+  dpi = 500
+)
+```
+
+
+**Matrix; selected ES (including biodiversity and categories data) with bulk density intervals**
+```{r PLOTTING - selected ES (including biodiversity and categories data) with bulk density intervals, warning=FALSE, message=FALSE}
+es.systrait.bd.plot <- es.systrait.bd.data %>%
+  group_by(ES.GROUPS, bd_interval, `SAF System Trait type`) %>%
+  summarise(count = n()) %>%
+  ungroup() %>%
+  mutate_if(is.integer, as.double) %>%
+  mutate_if(is.character, as.factor) %>%
+  mutate(ES_ordered = factor(ES.GROUPS, levels = custom_ES_soil_order)) %>%
+  arrange(ES_ordered) %>%
+  na.omit() %>%
+  
+  ggplot(aes(
+    x = reorder(`SAF System Trait type`, -count),
+    y = factor(ES_ordered, level = custom_ES_soil_order),
+    fill = bd_interval
+  )) +
+  geom_jitter(aes(size = count),
+    shape = 21, colour = "black",
+    alpha = 0.8,
+    height = 0.1,
+    width = 0.1
+  ) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "right",
+        text = element_text(size = 18)) +
+  scale_y_discrete(limits = rev) +
+  scale_size_continuous(range = c(1, 10)) +
+  scale_fill_discrete_qualitative(palette = "Dynamic") +
+  guides(size = guide_legend(title = ""), fill = FALSE) +
+  labs(
+    #title = "Matrix showing the frequency of associations of studied ecosystem services for different SAF systems across SOC content intervals 
+#reported by peer-reviewed papers",
+    #subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
+    caption = paste0(caption = paste0("* Line belts; shelterbelts, hedgerows and windbreaks. Total number of independent studies reporting on ES = ", total_n_ES$value)),
+    x = "Silvoarable System Trait Types",
+    y = "Selected ecosystem services"
+  ) +
+  facet_grid(. ~ factor(bd_interval,
+                        levels = c("0.75 - 1 [kg dm^-3]", 
+                                   "1 - 1.25 [kg dm^-3]", 
+                                   "1.25 - 1.5 [kg dm^-3]", 
+                                   "1.5 - 1.75 [kg dm^-3]", 
+                                   "1.75 - 2 [kg dm^-3]")))
+
+es.systrait.bd.plot
+```
+
+*Saving last plot*
+```{r}
+ggsave(
+  filename = "es.systrait.pedoclim.bd.plot.png",
+  plot = last_plot(),
+  path = "./FIGURES.OUTPUT.FROM.SCRIPT",
+  width = 45, 
+  height = 20, 
+  units = "cm",
+  dpi = 500
+)
+```
+
+### ES - soil pH
+
+**Loading dataset**
+```{r }
+
+es.systrait.ph.data <- vroom::vroom("./DATASET.FROM.SCRIPT/es.systrait.ph.data.csv") 
+```
+
+**Matrix; selected ES (including biodiversity and categories data) with bulk density intervals**
+```{r PLOTTING - selected ES (including biodiversity and categories data) with bulk density intervals, warning=FALSE, message=FALSE}
+es.systrait.ph.plot <- es.systrait.ph.data %>%
+  group_by(ES.GROUPS, ph_interval, `SAF System Trait type`) %>%
+  summarise(count = n()) %>%
+  ungroup() %>%
+  mutate_if(is.integer, as.double) %>%
+  mutate_if(is.character, as.factor) %>%
+  mutate(ES_ordered = factor(ES.GROUPS, levels = custom_ES_soil_order)) %>%
+  arrange(ES_ordered) %>%
+  na.omit() %>%
+  
+  ggplot(aes(
+    x = reorder(`SAF System Trait type`, -count),
+    y = factor(ES_ordered, level = custom_ES_soil_order),
+    fill = ph_interval
+  )) +
+  geom_jitter(aes(size = count),
+    shape = 21, colour = "black",
+    alpha = 0.8,
+    height = 0.1,
+    width = 0.1
+  ) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "right",
+        text = element_text(size = 18)) +
+  scale_y_discrete(limits = rev) +
+  scale_size_continuous(range = c(1, 10)) +
+  scale_fill_discrete_qualitative(palette = "Dynamic") +
+  guides(size = guide_legend(title = ""), fill = FALSE) +
+  labs(
+    #title = "Matrix showing the frequency of associations of studied ecosystem services for different SAF systems across SOC content intervals 
+#reported by peer-reviewed papers",
+    #subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
+    caption = paste0(caption = paste0("* Line belts; shelterbelts, hedgerows and windbreaks. Total number of independent studies reporting on ES = ", total_n_ES$value)),
+    x = "Silvoarable System Trait Types",
+    y = "Selected ecosystem services"
+  ) +
+  facet_grid(. ~ factor(ph_interval,
+                        levels = c("pH 4 - 5", "pH 5 - 6", "pH 6 - 7", "pH 7 - 8", "pH 8 - 9")))
+
+es.systrait.ph.plot
+```
+
+*Saving last plot*
+```{r}
+ggsave(
+  filename = "es.systrait.pedoclim.ph.plot.png",
+  plot = last_plot(),
+  path = "./FIGURES.OUTPUT.FROM.SCRIPT",
+  width = 45, 
+  height = 20, 
+  units = "cm",
+  dpi = 500
+)
+```
+
+
+### ES - isothermality
+
+**Loading dataset**
+```{r }
+
+es.systrait.isot.data <- vroom::vroom("./DATASET.FROM.SCRIPT/es.systrait.isot.data.csv") %>%
+  mutate_if(is.character, as.factor)
+```
+
+Isothermality is defined as; Isothermality quantifies how large the day-to-night temperatures oscillate relative to the summer-to-winter (annual) oscillations. Isothermality is generally useful for biological entities (e.g. species and organisms). Units: Percent. Isothermality quantifies how large the day-to-night temperatures oscillate relative to the summer-to-winter (annual) oscillations. An isothermal value of 100 indicates the diurnal temperature range is equivalent to the annual temperature range, while anything less than 100 indicates a smaller level of temperature variability within an average month relative to the year. A species distribution may be influenced by larger or smaller temperature fluctuations within a month relative to the year and this predictor is useful for ascertaining such information.
+
+**Matrix; selected ES (including biodiversity and categories data) with isothermality intervals**
+```{r PLOTTING - selected ES (including biodiversity and categories data) with isothermality intervals, warning=FALSE, message=FALSE}
+es.systrait.isot.data.plot <- es.systrait.isot.data %>%
+  group_by(ES.GROUPS, Isot_interval, `SAF System Trait type`) %>%
+  summarise(count = n()) %>%
+  ungroup() %>%
+  mutate_if(is.integer, as.double) %>%
+  mutate_if(is.character, as.factor) %>%
+  mutate(ES_ordered = factor(ES.GROUPS, levels = custom_ES_soil_order)) %>%
+  arrange(ES_ordered) %>%
+  na.omit() %>%
+  filter(!Isot_interval == "100 - 120 [%]") %>%
+  
+  ggplot(aes(
+    x = reorder(`SAF System Trait type`, -count),
+    y = factor(ES_ordered, level = custom_ES_soil_order),
+    fill = Isot_interval
+  )) +
+  geom_jitter(aes(size = count),
+    shape = 21, colour = "black",
+    alpha = 0.8,
+    height = 0.1,
+    width = 0.1
+  ) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "right",
+        text = element_text(size = 18)) +
+  scale_y_discrete(limits = rev) +
+  scale_size_continuous(range = c(1, 10)) +
+  scale_fill_discrete_qualitative(palette = "Dynamic") +
+  guides(size = guide_legend(title = ""), fill = FALSE) +
+  labs(
+    #title = "Matrix showing the frequency of associations of studied ecosystem services for different SAF systems across mean annual precipitation intervals 
+#reported by peer-reviewed papers",
+    #subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
+   # caption = paste0(caption = paste0("* Line belts; shelterbelts, hedgerows and windbreaks. Total number of independent studies reporting on ES = ", total_n_ES$value)),
+    caption = paste0(caption = paste0("* Line belts; shelterbelts, hedgerows and windbreaks. Total number of independent studies reporting on ES = ", total_n_ES$value)),
+    x = "Silvoarable System Trait Types",
+    y = "Selected ecosystem services"
+  ) +
+  facet_grid(. ~ factor(Isot_interval,
+    levels = c("12 - 18 [%]", "18 - 24 [%]", "24 - 30 [%]", "30 - 36 [%]", "36 - 42 [%]", "42 - 48 [%]")
+  ))
+
+es.systrait.isot.data.plot
+```
+
+*Saving last plot*
+```{r}
+ggsave(
+  filename = "es.systrait.pedoclim.isot.png",
+  plot = last_plot(),
+  path = "./FIGURES.OUTPUT.FROM.SCRIPT",
+  width = 45, 
+  height = 20, 
+  units = "cm",
+  dpi = 500
+)
+```
+
+
+
+### ES - temperature seasonality
+
+Temperature seasonality is defined as; the amount of temperature variation over a given year (or averaged years) based on the standard deviation (variation) of monthly temperature averages. Units: Temperature (degrees Celsius)
+
+**Loading dataset**
+```{r }
+
+es.systrait.temp.seasonality.data <- vroom::vroom("./DATASET.FROM.SCRIPT/es.systrait.temp.seasonality.data.csv") 
+```
+
+**Matrix; selected ES (including biodiversity and categories data) with temperature seasonality intervals**
+```{r PLOTTING - selected ES (including biodiversity and categories data) with temperature intervals, warning=FALSE, message=FALSE}
+es.systrait.temp.seasonality.plot <- es.systrait.temp.seasonality.data %>%
+  group_by(ES.GROUPS, Temp_seasonality_interval, `SAF System Trait type`) %>%
+  summarise(count = n()) %>%
+  ungroup() %>%
+  mutate_if(is.integer, as.double) %>%
+  mutate_if(is.character, as.factor) %>%
+  mutate(ES_ordered = factor(ES.GROUPS, levels = custom_ES_soil_order)) %>%
+  arrange(ES_ordered) %>%
+  na.omit() %>%
+  filter(!Temp_seasonality_interval == "-10 - -5 [°C]") %>%
+  
+  ggplot(aes(
+    x = reorder(`SAF System Trait type`, -count),
+    y = factor(ES_ordered, level = custom_ES_soil_order),
+    fill = Temp_seasonality_interval
+  )) +
+  geom_jitter(aes(size = count),
+    shape = 21, colour = "black",
+    alpha = 0.8,
+    height = 0.1,
+    width = 0.1
+  ) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "right",
+        text = element_text(size = 18)) +
+  scale_y_discrete(limits = rev) +
+  scale_size_continuous(range = c(1, 10)) +
+  scale_fill_discrete_qualitative(palette = "Dynamic") +
+  guides(size = guide_legend(title = ""), fill = FALSE) +
+  labs(
+    #title = "Matrix showing the frequency of associations of studied ecosystem services for different SAF systems across mean annual temperature intervals 
+#reported by peer-reviewed papers",
+    #subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
+   # caption = paste0(caption = paste0("* Line belts; shelterbelts, hedgerows and windbreaks. Total number of independent studies reporting on ES = ", total_n_ES$value)),
+    caption = paste0(caption = paste0("* Line belts; shelterbelts, hedgerows and windbreaks. Total number of independent studies reporting on ES = ", total_n_ES$value)),
+    x = "Silvoarable System Trait Types",
+    y = "Selected ecosystem services"
+  ) +
+  facet_grid(. ~ factor(Temp_seasonality_interval,
+    levels = c("2.5 - 5 [°C]", 
+               "5 - 7.5 [°C]", 
+               "7.5 - 10 [°C]", 
+               "10 - 12.5 [°C]", 
+               "12.5 - 15 [°C]", 
+               "15 - 17.5 [°C]")
+  ))
+
+es.systrait.temp.seasonality.plot
+```
+
+*Saving last plot*
+```{r}
+ggsave(
+  filename = "es.systrait.pedoclim.temp.seasonality.png",
+  plot = last_plot(),
+  path = "./FIGURES.OUTPUT.FROM.SCRIPT",
+  width = 45, 
+  height = 20, 
+  units = "cm",
+  dpi = 500
+)
+```
+
+
+
+
+### ES - precipitation seasonality
+
+Precipitation seasonality is defined as; a
+measure of the variation in monthly precipitation totals over the course
+of the year. This index is the ratio of the standard deviation of the
+monthly total precipitation to the mean monthly total precipitation
+(also known as the coefficient of variation) and is expressed as a
+percentage. Units: Percent
+
+**Loading dataset**
+```{r }
+
+es.systrait.prec.seasonality.data <- vroom::vroom("./DATASET.FROM.SCRIPT/es.systrait.prec.seasonality.data.csv") %>%
+  mutate_if(is.character, as.factor)
+```
+
+**Matrix; selected ES (including biodiversity and categories data) with precipitation seasonality intervals**
+```{r PLOTTING - selected ES (including biodiversity and categories data) with precipitation intervals, warning=FALSE, message=FALSE}
+es.systrait.prec.seasonality.plot <- es.systrait.prec.seasonality.data %>%
+  group_by(ES.GROUPS, Prec_seasonality_interval, `SAF System Trait type`) %>%
+  summarise(count = n()) %>%
+  ungroup() %>%
+  mutate_if(is.integer, as.double) %>%
+  mutate_if(is.character, as.factor) %>%
+  mutate(ES_ordered = factor(ES.GROUPS, levels = custom_ES_soil_order)) %>%
+  arrange(ES_ordered) %>%
+  na.omit() %>%
+  filter(!Prec_seasonality_interval == "100 - 120 [%]") %>%
+  
+  ggplot(aes(
+    x = reorder(`SAF System Trait type`, -count),
+    y = factor(ES_ordered, level = custom_ES_soil_order),
+    fill = Prec_seasonality_interval
+  )) +
+  geom_jitter(aes(size = count),
+    shape = 21, colour = "black",
+    alpha = 0.8,
+    height = 0.1,
+    width = 0.1
+  ) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "right",
+        text = element_text(size = 18)) +
+  scale_y_discrete(limits = rev) +
+  scale_size_continuous(range = c(1, 10)) +
+  scale_fill_discrete_qualitative(palette = "Dynamic") +
+  guides(size = guide_legend(title = ""), fill = FALSE) +
+  labs(
+    #title = "Matrix showing the frequency of associations of studied ecosystem services for different SAF systems across mean annual precipitation intervals 
+#reported by peer-reviewed papers",
+    #subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
+   # caption = paste0(caption = paste0("* Line belts; shelterbelts, hedgerows and windbreaks. Total number of independent studies reporting on ES = ", total_n_ES$value)),
+    caption = paste0(caption = paste0("* Line belts; shelterbelts, hedgerows and windbreaks. Total number of independent studies reporting on ES = ", total_n_ES$value)),
+    x = "Silvoarable System Trait Types",
+    y = "Selected ecosystem services"
+  ) +
+  facet_grid(. ~ factor(Prec_seasonality_interval,
+    levels = c("0 - 20 [%]", "20 - 40 [%]", "40 - 60 [%]", "60 - 80 [%]", "80 - 100 [%]", "100 - 120 [%]")
+  ))
+
+es.systrait.prec.seasonality.plot
+```
+*Saving last plot*
+```{r}
+ggsave(
+  filename = "es.systrait.pedoclim.prec.seasonality.png",
+  plot = last_plot(),
+  path = "./FIGURES.OUTPUT.FROM.SCRIPT",
+  width = 45, 
+  height = 20, 
+  units = "cm",
+  dpi = 500
+)
+```
+
+
+### ES - annual mean temperature
+
+**Loading dataset**
 ```{r }
 
 es.systrait.temp.data <- vroom::vroom("./DATASET.FROM.SCRIPT/es.systrait.temp.data.csv") 
@@ -4065,15 +5477,20 @@ es.systrait.temp.data <- vroom::vroom("./DATASET.FROM.SCRIPT/es.systrait.temp.da
 
 ```{r PLOTTING - selected ES (including biodiversity and categories data) with temperature intervals, warning=FALSE, message=FALSE}
 es.systrait.temp.plot <- es.systrait.temp.data %>%
-  group_by(ES.GROUPS, Temp_interval, `SAF System Trait type`) %>%
+  group_by(ES.GROUPS, bio01_Annual_mean_temp_interval, `SAF System Trait type`) %>%
   summarise(count = n()) %>%
   ungroup() %>%
   mutate_if(is.integer, as.double) %>%
   mutate_if(is.character, as.factor) %>%
+  mutate(ES_ordered = factor(ES.GROUPS, levels = custom_ES_soil_order)) %>%
+  arrange(ES_ordered) %>%
+  na.omit() %>%
+  #filter(!bio01_Annual_mean_temp_interval == "-10 - -5 [°C]") %>%
+  
   ggplot(aes(
     x = reorder(`SAF System Trait type`, -count),
-    y = reorder(ES.GROUPS, -count),
-    fill = Temp_interval
+    y = factor(ES_ordered, level = custom_ES_soil_order),
+    fill = bio01_Annual_mean_temp_interval
   )) +
   geom_jitter(aes(size = count),
     shape = 21, colour = "black",
@@ -4082,18 +5499,22 @@ es.systrait.temp.plot <- es.systrait.temp.data %>%
     width = 0.1
   ) +
   theme_bw() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "none") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "right",
+        text = element_text(size = 18)) +
+  scale_y_discrete(limits = rev) +
   scale_size_continuous(range = c(1, 10)) +
   scale_fill_discrete_qualitative(palette = "Dynamic") +
+  guides(size = guide_legend(title = ""), fill = FALSE) +
   labs(
-    title = "Matrix showing the frequency of associations of studied ecosystem services for different SAF systems across mean annual temperature intervals 
-reported by peer-reviewed papers",
-    subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
+    #title = "Matrix showing the frequency of associations of studied ecosystem services for different SAF systems across mean annual precipitation intervals 
+#reported by peer-reviewed papers",
+    #subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
+   # caption = paste0(caption = paste0("* Line belts; shelterbelts, hedgerows and windbreaks. Total number of independent studies reporting on ES = ", total_n_ES$value)),
     caption = paste0(caption = paste0("* Line belts; shelterbelts, hedgerows and windbreaks. Total number of independent studies reporting on ES = ", total_n_ES$value)),
     x = "Silvoarable System Trait Types",
     y = "Selected ecosystem services"
   ) +
-  facet_grid(. ~ factor(Temp_interval,
+  facet_grid(. ~ factor(bio01_Annual_mean_temp_interval,
     levels = c("-10 - -5 [°C]", "-5 - 0 [°C]", "0 - 5 [°C]", "5 - 10 [°C]", "10 - 15 [°C]", "15 - 20 [°C]")
   ))
 
@@ -4104,68 +5525,249 @@ es.systrait.temp.plot
 
 ```{r}
 ggsave(
-  filename = "es.systrait.temp.plot.png",
+  filename = "es.systrait.pedoclim.temp.png",
   plot = last_plot(),
   path = "./FIGURES.OUTPUT.FROM.SCRIPT",
-  width = 35, 
-  height = 15, 
+  width = 45, 
+  height = 20, 
   units = "cm",
   dpi = 500
 )
 ```
 
-## Ecosystem services (selected ecosystem services) - precipitation
+### ES - annual precipitation
 
 **Loading dataset**
-
 ```{r }
 
 es.systrait.prec.data <- vroom::vroom("./DATASET.FROM.SCRIPT/es.systrait.prec.data.csv") 
 ```
 
 **Matrix; selected ES (including biodiversity and categories data) with precipitation intervals**
-
 ```{r PLOTTING - selected ES (including biodiversity and categories data) with precipitation intervals, warning=FALSE, message=FALSE}
 es.systrait.prec.plot <- es.systrait.prec.data %>%
-  group_by(ES.GROUPS, Prec_interval, `SAF System Trait type`) %>%
+  group_by(ES.GROUPS, bio12_Annual_prec_interval, `SAF System Trait type`) %>%
   summarise(count = n()) %>%
   ungroup() %>%
   mutate_if(is.integer, as.double) %>%
   mutate_if(is.character, as.factor) %>%
-
-  ggplot(aes(x = reorder(`SAF System Trait type`, -count), 
-             y = reorder(ES.GROUPS, -count),
-             fill = Prec_interval)) +
-  geom_jitter(aes(size = count), shape = 21, colour = "black",
-             alpha = 0.8,
-             height = 0.1,
-             width = 0.1) +
+  mutate(ES_ordered = factor(ES.GROUPS, levels = custom_ES_soil_order)) %>%
+  arrange(ES_ordered) %>%
+  na.omit() %>%
+  
+  ggplot(aes(
+    x = reorder(`SAF System Trait type`, -count),
+    y = factor(ES_ordered, level = custom_ES_soil_order),
+    fill = bio12_Annual_prec_interval
+  )) +
+  geom_jitter(aes(size = count),
+    shape = 21, colour = "black",
+    alpha = 0.8,
+    height = 0.1,
+    width = 0.1
+  ) +
   theme_bw() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "none") +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "right",
+    text = element_text(size = 18)
+  ) +
+  scale_y_discrete(limits = rev) +
   scale_size_continuous(range = c(1, 10)) +
   scale_fill_discrete_qualitative(palette = "Dynamic") +
-  labs(title = "Matrix showing the frequency of associations of studied ecosystem services for different SAF systems across annual precipitation intervals 
-reported by peer-reviewed papers",
-       subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
-       caption = paste0(caption = paste0("* Line belts; shelterbelts, hedgerows and windbreaks. Total number of independent studies reporting on ES = ", total_n_ES$value)),
-       x = "Silvoarable System Trait Types",                       
-       y = "Selected ecosystem services") +
-  facet_grid(. ~factor(Prec_interval, 
-                       levels = c("0 - 300 [mm]", "300 - 600 [mm]", "600 - 900 [mm]", "900 - 1200 [mm]", "1200 - 1500 [mm]", "1500 - 1800 [mm]"))) 
-  
+  guides(size = guide_legend(title = ""), fill = FALSE) +
+  labs( # title = "Matrix showing the frequency of associations of studied ecosystem services for different SAF systems across annual precipitation intervals
+    # reported by peer-reviewed papers",
+    # subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
+    # caption = paste0(caption = paste0("* Line belts; shelterbelts, hedgerows and windbreaks. Total number of independent studies reporting on ES = ", total_n_ES$value)),
+    caption = paste0(caption = paste0("* Line belts; shelterbelts, hedgerows and windbreaks. Total number of independent studies reporting on ES = ", total_n_ES$value)),
+    x = "Silvoarable System Trait Types",
+    y = "Selected ecosystem services"
+  ) +
+  facet_grid(. ~ factor(bio12_Annual_prec_interval,
+    levels = c("0 - 300 [mm]", "300 - 600 [mm]", "600 - 900 [mm]", "900 - 1200 [mm]", "1200 - 1500 [mm]", "1500 - 1800 [mm]")
+  ))
+
 es.systrait.prec.plot
 ```
 
 *Saving last plot*
-
 ```{r}
 ggsave(
-  filename = "es.systrait.prec.plot.png",
+  filename = "es.systrait.pedoclim.prec.png",
   plot = last_plot(),
   path = "./FIGURES.OUTPUT.FROM.SCRIPT",
-  width = 35, 
-  height = 15, 
+  width = 45, 
+  height = 20, 
   units = "cm",
   dpi = 500
 )
 ```
+
+
+
+### ES - temperature extremes (bio10) *
+
+Bio10 = mean temperature warmest quarter
+
+**Loading dataset**
+```{r }
+
+es.systrait.temp.bio10.data <- vroom::vroom("./DATASET.FROM.SCRIPT/es.systrait.temp.bio10.data.csv") 
+```
+
+**Matrix; selected ES (including biodiversity and categories data) with temperature extremes intervals**
+```{r PLOTTING - selected ES (including biodiversity and categories data) with temperature extremes intervals, warning=FALSE, message=FALSE}
+es.systrait.temp.bio10.plot <- es.systrait.temp.bio10.data %>%
+  group_by(ES.GROUPS, bio10_Mean_temp_warmest_quarter_interval, `SAF System Trait type`) %>%
+  summarise(count = n()) %>%
+  ungroup() %>%
+  mutate_if(is.integer, as.double) %>%
+  mutate_if(is.character, as.factor) %>%
+  mutate(ES_ordered = factor(ES.GROUPS, levels = custom_selected_bioclim_ES_order)) %>%
+  arrange(ES_ordered) %>%
+  na.omit() %>%
+  
+  ggplot(aes(
+    x = reorder(`SAF System Trait type`, -count),
+    y = factor(ES_ordered, level = custom_selected_bioclim_ES_order),
+    fill = `SAF System Trait type`
+  )) +
+  geom_jitter(aes(size = count),
+    shape = 21, colour = "black",
+    alpha = 0.8,
+    height = 0.1,
+    width = 0.1
+  ) +
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "right",
+    text = element_text(size = 18)
+  ) +
+  scale_y_discrete(limits = rev) +
+  scale_size_continuous(range = c(1, 10)) +
+  scale_fill_discrete_qualitative(palette = "Dynamic") +
+  guides(size = guide_legend(title = ""), fill = FALSE) +
+  labs( # title = "Matrix showing the frequency of associations of studied ecosystem services for different SAF systems across annual precipitation intervals
+    # reported by peer-reviewed papers",
+    # subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
+    # caption = paste0(caption = paste0("* Line belts; shelterbelts, hedgerows and windbreaks. Total number of independent studies reporting on ES = ", total_n_ES$value)),
+    caption = paste0(caption = paste0("* Line belts; shelterbelts, hedgerows and windbreaks. Total number of independent studies reporting on ES = ", total_n_ES$value)),
+    x = "Silvoarable System Trait Types",
+    y = "Selected ecosystem services"
+  ) +
+  facet_grid(. ~ factor(bio10_Mean_temp_warmest_quarter_interval,
+    levels = c("7 - 10.5 [°C]", 
+               "10.5 - 14 [°C]", 
+               "14 - 17.5 [°C]",
+               "17.5 - 21 [°C]",
+               "21 - 24.5 [°C]",
+               "24.5 - 28 [°C]")
+  ))
+
+es.systrait.temp.bio10.plot
+```
+
+*Saving last plot*
+```{r}
+ggsave(
+  filename = "es.systrait.pedoclim.temp.bio10.png",
+  plot = last_plot(),
+  path = "./FIGURES.OUTPUT.FROM.SCRIPT",
+  width = 45, 
+  height = 20, 
+  units = "cm",
+  dpi = 500
+)
+```
+
+
+### ES - precipitation/draught extremes (bio17) *
+
+Bio17 = precipitation driest quarter
+
+**Loading dataset**
+```{r }
+
+es.systrait.prec.bio17.data <- vroom::vroom("./DATASET.FROM.SCRIPT/es.systrait.prec.bio17.data.csv") 
+```
+
+**Matrix; selected ES (including biodiversity and categories data) with precipitation/draught extremes intervals**
+```{r PLOTTING - selected ES (including biodiversity and categories data) with precipitation/draught extremes intervals, warning=FALSE, message=FALSE}
+es.systrait.prec.bio17.plot <- es.systrait.prec.bio17.data %>%
+  group_by(ES.GROUPS, bio17_Prec_driest_quarter_interval, `SAF System Trait type`) %>%
+  summarise(count = n()) %>%
+  ungroup() %>%
+  mutate_if(is.integer, as.double) %>%
+  mutate_if(is.character, as.factor) %>%
+  mutate(ES_ordered = factor(ES.GROUPS, levels = custom_selected_bioclim_ES_order)) %>%
+  arrange(ES_ordered) %>%
+  na.omit() %>%
+  
+  ggplot(aes(
+    x = reorder(`SAF System Trait type`, -count),
+    y = factor(ES_ordered, level = custom_selected_bioclim_ES_order),
+    fill = `SAF System Trait type`
+  )) +
+  geom_jitter(aes(size = count),
+    shape = 21, colour = "black",
+    alpha = 0.8,
+    height = 0.1,
+    width = 0.1
+  ) +
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "right",
+    text = element_text(size = 18)
+  ) +
+  scale_y_discrete(limits = rev) +
+  scale_size_continuous(range = c(1, 10)) +
+  scale_fill_discrete_qualitative(palette = "Dynamic") +
+  guides(size = guide_legend(title = ""), fill = FALSE) +
+  labs( # title = "Matrix showing the frequency of associations of studied ecosystem services for different SAF systems across annual precipitation intervals
+    # reported by peer-reviewed papers",
+    # subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
+    # caption = paste0(caption = paste0("* Line belts; shelterbelts, hedgerows and windbreaks. Total number of independent studies reporting on ES = ", total_n_ES$value)),
+    caption = paste0(caption = paste0("* Line belts; shelterbelts, hedgerows and windbreaks. Total number of independent studies reporting on ES = ", total_n_ES$value)),
+    x = "Silvoarable System Trait Types",
+    y = "Selected ecosystem services"
+  ) +
+  facet_grid(. ~ factor(bio17_Prec_driest_quarter_interval,
+    levels = c("0 - 60 [mm]",
+               "60 - 120 [mm]",
+               "120 - 180 [mm]",
+               "180 - 240 [mm]",
+               "240 - 300 [mm]",
+               "300 - 360 [mm]")
+  ))
+
+es.systrait.prec.bio17.plot
+```
+
+*Saving last plot*
+```{r}
+ggsave(
+  filename = "es.systrait.pedoclim.prec.bio17.png",
+  plot = last_plot(),
+  path = "./FIGURES.OUTPUT.FROM.SCRIPT",
+  width = 45, 
+  height = 20, 
+  units = "cm",
+  dpi = 500
+)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

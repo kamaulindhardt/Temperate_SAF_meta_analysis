@@ -23,13 +23,12 @@ following four **research questions**:
 1.  What temperate SAF systems and ecosystem services have been studied?
 
 2.  What tree and crop species composition and associations are used in
-    temperate
-    SAF systems?
+    temperate SAF systems?
 
 3.  How are temperate SAF systems and ecosystem services distributed
-    across geographic and biophysical gradients?
+    across geographic and pedoclimatic gradients?
 
-4.  To what extend does biophysical properties, such as soil quality,
+4.  To what extend does pedoclimatic properties, such as soil quality,
     temperature and precipitation drive inter-site differences? 
 
 Descriptive statistics, e.g. frequency of occurrences is used to
@@ -52,7 +51,7 @@ Packages to be installed first
 # install.packages("geodata")
 ```
 
-Loading packages and libraries
+## Loading packages and libraries
 
 ```{r Loading other needed packages, warning=FALSE}
 suppressWarnings({
@@ -79,7 +78,7 @@ suppressWarnings({
 })
 ```
 
-Update GitHub credentials for efficient 'push' and 'pull' operations
+## Update GitHub credentials for efficient 'push' and 'pull' operations
 
 ```{r Update GitHub credentials for efficient 'push' and 'pull' operations}
 # Run this function in order to update GitHub credentials for efficient 'push' and 'pull' operations
@@ -87,7 +86,7 @@ Update GitHub credentials for efficient 'push' and 'pull' operations
 # gitcreds_set()
 ```
 
-Loading main database
+## Loading main database
 
 ```{r Loading database 2.0, warning=FALSE, message=FALSE}
 suppressWarnings({
@@ -98,15 +97,22 @@ suppressWarnings({
 })
 ```
 
-Glimpse (taking a look at the data)
-
+**Glimpse (taking a look at the data)**
 ```{r Glimpse the dataset, eval=FALSE}
 database %>% dplyr::glimpse() 
 ```
 
-Defining number of independent studies and number of observations based
-on individual study sites
+```{r}
+database %>% 
+  dplyr::select(ID.P, ID.S,
+                STUDY.LOC.COUNTRY,
+                TITLE,
+                ST.TYPE) %>%
+  dplyr::filter(STUDY.LOC.COUNTRY == "Netherlands")
+```
 
+**Number of independent studies and distinct sites**
+Defining number of independent studies and number of observations based on individual study sites
 ```{r Number of studies and study sites}
 n_independent_studies <- database %>%
   distinct(ID.P) %>%
@@ -123,20 +129,17 @@ n_individual_study_sites <- database %>%
 
 # Structure of this script is as follows:
 
-1.  Single variate data dimensions are visualised (everything that is
-    not matrices)
+1.  Single variate data dimensions are visualised (everything that is not matrices)
 
 2.  Multivariate data dimensions are visualised (mostly matrices)
 
-3.  Geospatially-related data dimensions (biophysical data) are
-    visualised
+3.  Geospatially-related data dimensions (pedoclimatic data) are visualised
 
 # Single datasets (not matrices)
 
 ## Temporal scale of studies
 
-Creating the dataset for assessing the **temporal scale of studies**
-using Pie-Donut plot
+Creating the dataset for assessing the **temporal scale of studies** using Pie-Donut plot
 
 ```{r}
 temp.scale <- database %>%
@@ -171,7 +174,7 @@ temp.scale <- database %>%
   )) %>%
   relocate(Tier_1_scale, Tier_2_scale)
 
-# ---------------------------------------------------------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------------------------
 # Saving the saving dataset
 readr::write_csv(temp.scale, "./DATASET.FROM.SCRIPT/temp.scale.csv")
 # -----------------------------------------------------------------------------------------------
@@ -180,8 +183,7 @@ glimpse(temp.scale)
 
 ## Spatial scale of studies
 
-Creating the dataset for assessing the **spatial scale of studies**
-using Pie-Donut plot
+Creating the dataset for assessing the **spatial scale of studies** using Pie-Donut plot
 
 ```{r}
 spatial.scale <- database %>%
@@ -223,7 +225,7 @@ spatial.scale <- database %>%
   )) %>%
   relocate(Tier_1_scale, Tier_2_scale)
 
-# ---------------------------------------------------------------------------------------------------------------------------------
+# -----------------------------------------------------------------------------------------------
 # Saving the saving dataset
 readr::write_csv(spatial.scale, "./DATASET.FROM.SCRIPT/spatial.scale.csv")
 # -----------------------------------------------------------------------------------------------
@@ -232,8 +234,7 @@ glimpse(spatial.scale)
 
 ## Ecosystem services
 
-Creating **ecosystem services** data by renaming the variables
-(indicators)
+Creating **ecosystem services** data by renaming the variables (indicators)
 
 ```{r Ecosystem service}
 
@@ -266,6 +267,9 @@ ecosystem.sum$key <- rownames(ecosystem.sum)
 
 total_n_ES <- ecosystem.sum %>%
   filter(key == "ES")
+
+# Saving the saving dataset
+readr::write_csv(total_n_ES, "./DATASET.FROM.SCRIPT/total_n_ES.csv")
 # ---------------------------------------------------------------------------------------------------
 
 ecosystem.data <- ecosystem %>%
@@ -367,7 +371,7 @@ ES.study.approach.PD.data <- study.approach.ecosystem %>%
   ungroup() %>%
   mutate(Type = "Approach") %>%
   mutate(Approach = recode(Approach, # rename dataframe rows
-    BIO.PHYS = "Biophysical",
+    BIO.PHYS = "pedoclimatic",
     MIXED = "Mixed approach",
     MONETARY = "Monetary",
     SOCIO.CUL = "Socio-cultural"
@@ -379,6 +383,20 @@ readr::write_csv(ES.study.approach.PD.data, "./DATASET.FROM.SCRIPT/ES.study.appr
 # -----------------------------------------------------------------------------------------------
 glimpse(ES.study.approach.PD.data)
 ```
+
+
+## Experimental sites of SAF - countries
+
+```{r}
+sites.countries.data <- database %>%
+  filter(INCLUDED == TRUE) %>%
+  
+  dplyr::select(#ID.P, ID.S,
+                STUDY.LOC.COUNTRY) %>%
+  distinct()
+```
+
+
 
 ## SAF System Trait Types
 
@@ -435,8 +453,8 @@ glimpse(system.trait.data)
 
 ## Functional role (product type) of trees
 
-Creating the dataset for the **functional role (product type)** of the
-tree component in SAF system trait types
+Creating the dataset for the **functional role (product type) of tree
+component** of SAF system trait types
 
 ```{r Functional role (product type) of SAF system trait types}
 
@@ -643,7 +661,6 @@ glimpse(trees.data)
 ## Biodiversity indicators
 
 Creating the dataset for **biodiversity indicators**
-
 ```{r Biodiversity indicators}
 # using n_independent_studies because biodiversity and ecosystem service related indicators do not (normally) vary between sites, because independent studies look at the same variables (biodiversity and ecosystem service) even if several individual study sites are used for the study.
 
@@ -936,7 +953,7 @@ we base the grouping of ecosystem services on the *data dimensions*;
 Following the methodology of *Ditzler et al. (2021)* and *Duru et al.
 (2015)*
 
-```{r Combined ES + CAT dataset input / output ES and broad groups of ES, eval=TRUE}
+```{r Combined ES + CAT dataset input / output ES and broad groups of ES, eval=FALSE}
 # based on the datasets
 # category.data.renamed AND ecosystem.data
 
@@ -1205,19 +1222,56 @@ glimpse(category.ecosystem.long)
 ## Average number of ecosystem services (ES + CAT) reported by papers
 
 ```{r}
-ecosystem.data %>%
+no.ecosystem.paper.data <- ecosystem.data %>%
   dplyr::select(!c(`Provisioning ES`, `Regulating ES`, `Supporting ES`, `Cultural ES`, `Ecosystem Services`)) %>%
+  drop_na() %>%
   mutate(ES_sum_per_paper = rowSums(.[2:35])) %>%
   mutate(avr_ES_per_paper = sum(ES_sum_per_paper) / n_independent_studies) %>%
   relocate(ES_sum_per_paper, avr_ES_per_paper) %>%
   arrange(desc(ES_sum_per_paper)) %>%
+  mutate(across(where(is.numeric), round, 2))
+  #dplyr::summarise(pct = mean(ES_sum_per_paper < 3, na.rm = TRUE)) # % observation > a value
+
+# Defining quantiles 
+q <- quantile(no.ecosystem.paper.data$ES_sum_per_paper)  
+
+# Plotting histogram
+no.ecosystem.paper.plot <- no.ecosystem.paper.data %>%
   ggplot(aes(x = ES_sum_per_paper)) +
   geom_histogram(aes(y = ..density..),
     colour = "black", fill = "white",
     binwidth = 1
   ) +
   geom_density(alpha = 0.2, fill = "#FF6666") +
-  theme_bw()
+  geom_vline(aes(xintercept = avr_ES_per_paper),
+             linetype ="dashed", size = 1, show.legend = FALSE, col = "black") + 
+  geom_text(aes(x = avr_ES_per_paper + 0.6, label = paste0("Mean\n",avr_ES_per_paper), y = 0.25)) +
+  annotate(geom = "text", x = q + 0.45, y = 0.2, label = names(q)) +
+  theme(text = element_text(size = 10)) +
+  geom_vline(xintercept = q, linetype = "dotted") +
+  theme_bw() +
+  theme(axis.ticks.y = element_blank(),
+        axis.text.y = element_blank(),
+        text = element_text(size = 18)) +
+  scale_x_continuous(breaks = seq(0, 14, 1), limits = c(0, 14)) +
+  labs(x = "Number of ecosystem services studied per paper",
+       y = "") 
+
+no.ecosystem.paper.plot
+```
+
+*Saving last plot*
+
+```{r}
+ggsave(
+  filename = "no.ecosystem.paper.plot.png",
+  plot = last_plot(),
+  path = "./FIGURES.OUTPUT.FROM.SCRIPT",
+  width = 35, 
+  height = 15, 
+  units = "cm",
+  dpi = 500
+)
 ```
 
 # Multivariate datasets; matrices
@@ -1524,7 +1578,7 @@ ecosystem.data.raw <-
     "Ecosystem Services" = ES
   )
 
-# ------------------------------------------------------------ Merging (joining) the ecosystem services and crops datasets based on ID
+# ------------------------------------------------- Merging (joining) the ecosystem services and crops datasets based on ID
 
 joined.crop.ecosystem <-
   left_join(crop.data.raw, ecosystem.data.raw,
@@ -1580,7 +1634,7 @@ Creating the dataset for assessing the associations between **ecosystem
 services and SAF system trait types**
 
 ```{r }
-# ------------------------------------------- Merging (joining) the ecosystem services and system trait types datasets based on ID
+# ------------------------------------ Merging (joining) the ecosystem services and system trait types datasets based on ID
 joined.ecosystem.systemtrait <-
   left_join(ecosystem.data.raw, system.traits.data.raw,
     by = c(
@@ -1604,7 +1658,7 @@ matrix.ecosystem.systrait <-
   arrange(desc(count), ST.TYPE, name) %>%
   filter(!ST.TYPE == "NA")
 
-# ---------------------------------------------------------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------------------------------------------------
 # Saving the dataset
 readr::write_csv(matrix.ecosystem.systrait, "./DATASET.FROM.SCRIPT/matrix.ecosystem.systrait.csv")
 # -----------------------------------------------------------------------------------------------
@@ -1694,13 +1748,15 @@ readr::write_csv(joined.focus.ES.crops.trees, "./DATASET.FROM.SCRIPT/joined.focu
 glimpse(joined.focus.ES.crops.trees)
 ```
 
+## Dataset: Selected ecosystem services
+
 ## Ecosystem services (selected ecosystem services) - crop groups - SAF system trait types
 
 Creating dataset for assessing the associations between **ecosystem
 services (selected ES), crop groups and SAF system trait types**
 
 ```{r }
-# ------------------------------------------------------------------------------------------ Preparing combined data on  ES, BD, CAT
+# -------------------------------------------------------------------------------- Preparing combined data on  ES, BD, CAT
 es.bd.cat.systrait.data <-
   database %>%
   filter(INCLUDED == TRUE) %>%
@@ -1721,7 +1777,7 @@ es.bd.cat.systrait.data <-
   mutate(across(matches("ID"), as.numeric))
 # mutate_if(is.character, as.numeric)
 
-# ------------------------------------------------------------------------------------------renaming SAF system trait type variables
+# ------------------------------------------------------------------------------- renaming SAF system trait type variables
 es.bd.cat.systrait.data.renamed <-
   es.bd.cat.systrait.data %>%
   dplyr::mutate(ST.TYPE = case_when(
@@ -1735,17 +1791,16 @@ es.bd.cat.systrait.data.renamed <-
     TRUE ~ as.character(as.character(ST.TYPE))
   )) %>%
   dplyr::mutate(ST.TYPE.PROD.TYPE = "x") %>%
-  dplyr::mutate(ST.TYPE.PROD.TYPE == case_when(
-    str_detect(ST.TYPE, "Timber - Arable") ~ "Biomass",
-    str_detect(ST.TYPE, "Biomass - Arable") ~ "Biomass",
-    str_detect(ST.TYPE, "Nut - Arable") ~ "Food",
-    str_detect(ST.TYPE, "Fruit - Arable") ~ "Food",
-    str_detect(ST.TYPE, "Riparian buffer strips") ~ "Multiple",
-    str_detect(ST.TYPE, "Line belts *") ~ "Multiple",
-    str_detect(ST.TYPE, "Mixed systems") ~ "Multiple",
-    TRUE ~ as.character(as.character(ST.TYPE.PROD.TYPE))
+  mutate(ST.TYPE.PROD.TYPE = case_when(
+    ST.TYPE == "Timber - Arable" ~ "Biomass",
+    ST.TYPE == "Biomass - Arable" ~ "Biomass",
+    ST.TYPE == "Riparian buffer strips" ~ "Biomass",
+    ST.TYPE == "Nut - Arable" ~ "Food",
+    ST.TYPE == "Fruit - Arable" ~ "Food",
+    ST.TYPE == "Line belts *" ~ "Nature + wind shelter",
+    ST.TYPE == "Mixed systems" ~ "Mixed"
   )) %>%
-  # ------------------------------------------------------------------------------------------renaming ecosystem services variables
+  # -------------------------------------------------------------------------------- renaming ecosystem services variables
   rename(
     "SAF System Trait type" = ST.TYPE,
     "Food (yield)" = ES.SUB.PROV.FOOD,
@@ -1787,15 +1842,15 @@ es.bd.cat.systrait.data.renamed <-
     "Supporting ES" = ES.SUPP,
     "Cultural ES" = ES.CULT,
     "Ecosystem Services" = ES,
-    # --------------------------------------------------------------------------------------------renaming biodiversity variables
-    "BD.Biodiversity" = BD,
+    # ----------------------------------------------------------------------------------- renaming biodiversity variables
+    "Associated biodiversity" = BD, # Biodiversity -associated biodiversity (from Beillouin et al. 2021)
     "FLORA.1" = BD.SUB.FLORAMACRO,
     "FLORA.2" = BD.SUB.FLORAMICRO,
     "FAUNA.1" = BD.SUB.FAUNAMACRO,
     "FAUNA.2" = BD.SUB.FAUNAMICRO,
     "Bacteria" = BD.SUB.BACTERIA,
     "Fungi" = BD.SUB.FUNGI,
-    # -----------------------------------------------------------------------------------renaming categories of approach variables
+    # -------------------------------------------------------------------------- renaming categories of approach variables
     "Food" = CAT.SUB.AGRO.YIELD,
     "Biomass" = CAT.SUB.AGRO.BIOMASS,
     "Land equivalent ratio" = CAT.SUB.AGRO.LER,
@@ -1803,15 +1858,15 @@ es.bd.cat.systrait.data.renamed <-
     "Diseases" = CAT.SUB.AGRO.DISEASE,
     "Weeds" = CAT.SUB.AGRO.WEEDS,
     "Product quality" = CAT.SUB.AGRO.PRODQUAL,
-    "Product stability" = CAT.SUB.AGRO.PRODSTAB,
+    "Production stability" = CAT.SUB.AGRO.PRODSTAB,     # Product stability
     "Mechanisation" = CAT.SUB.AGRO.MECHAN,
-    "Belowground (crop-tree) competition" = CAT.SUB.AGRO.CRTRBLOW,
-    "Aboveground (crop-tree) light competition" = CAT.SUB.AGRO.LIGHTCMP,
+    "Belowground competition" = CAT.SUB.AGRO.CRTRBLOW,  # Belowground (crop-tree) competition
+    "Aboveground competition" = CAT.SUB.AGRO.LIGHTCMP,  # Aboveground (crop-tree) light competition
     "Nutrient use" = CAT.SUB.AGRO.NUTRIUSE,
     "Nutrient use effeciency" = CAT.SUB.AGRO.NUTRIEF,
     "Breeding and selection" = CAT.SUB.AGRO.BRDSELECT,
     "Soil quality" = CAT.SUB.ENVI.SOILQUAL,
-    "Biodiversity" = CAT.SUB.ENVI.BIODIV,
+    "Biodiversity" = CAT.SUB.ENVI.BIODIV, # Biodiversity -associated biodiversity (from Beillouin et al. 2021)
     "Carbon stock" = CAT.SUB.ENVI.CSTOCK,
     "Greenhouse gas emissions" = CAT.SUB.ENVI.GHGEMS,
     "Pollination" = CAT.SUB.ENVI.POLLCON,
@@ -1826,9 +1881,9 @@ es.bd.cat.systrait.data.renamed <-
     "Water cyclings" = CAT.SUB.ENVI.WATCYC,
     "Water availability" = CAT.SUB.ENVI.WATAVAIL,
     "Hydraulic lift" = CAT.SUB.ENVI.HYDRAULIFT,
-    "Economic profit related" = CAT.SUB.ECON.PROFIT,
-    "Economic management related" = CAT.SUB.ECON.MANAGE,
-    "Economic market related" = CAT.SUB.ECON.MARKET,
+    "Profitability" = CAT.SUB.ECON.PROFIT,       # Economic profit related
+    "Management" = CAT.SUB.ECON.MANAGE,          # Economic management related
+    "Market" = CAT.SUB.ECON.MARKET,              # Economic market related
     "Landscape aesthetics" = CAT.SUB.SOCUL.LANAES,
     "Recreational and ecotourisms" = CAT.SUB.SOCUL.RECRECOTOUR,
     "Spiritual values" = CAT.SUB.SOCUL.SPIRITVAL,
@@ -1837,17 +1892,17 @@ es.bd.cat.systrait.data.renamed <-
     "Agronomic category" = CAT.AGRO,
     "Environmental category" = CAT.ENVIRON,
     "Economic category" = CAT.ECONOM,
-    "Socio-cultural category" = CAT.SOCIOCUL
+    "Socio-cultural category" = CAT.SOCIOCUL 
   ) %>%
-  # -------------------------------------------------------------------------------------------- simplifying flora, fauna groups
+  # --------------------------------------------------------------------------------------- simplifying flora, fauna groups
   mutate(
     Flora = FLORA.1 + FLORA.2,
     Fauna = FAUNA.1 + FAUNA.2
   )
 
 
-# ------------------------------------------------------------------------------------------------------------------------------
-# -----------------------------------------------Merging (joining) ES, BD, CAT dataset with crop datasets based on ID.P and ID.S
+# -------------------------------------------------------------------------------------------------------------------------
+# ------------------------------------------ Merging (joining) ES, BD, CAT dataset with crop datasets based on ID.P and ID.S
 
 joined.es.bd.cat.systrait.crop <-
   left_join(
@@ -1860,7 +1915,14 @@ joined.es.bd.cat.systrait.crop <-
   dplyr::select(-(ends_with(".x") | ends_with(".y"))) %>%
   mutate_at(c("ID.P", "ID.S"), as.numeric) # <- converting ID columns from characters to numeric
 
-# ------------------------------------------------------------------------------------------------------------------------------
+```
+
+**Defining the final dataset for selected Ecosystem Services**
+```{r}
+# -------------------------------------------------------------------------------------------------------------------------
+# Defining the final selected Ecosystem Services based on 
+# Ditzler et al. (2021), Beillouin et al. 2021 and Fagerholm et al. (2016) and 
+# -------------------------------------------------------------------------------------------------------------------------
 matrix.es.bd.cat.systrait.crop <-
   joined.es.bd.cat.systrait.crop %>%
   filter(CROP.OUTPUT.GROUP != "NA") %>%
@@ -1869,55 +1931,98 @@ matrix.es.bd.cat.systrait.crop <-
 matrix.es.bd.cat.systrait.crop.all <-
   matrix.es.bd.cat.systrait.crop %>%
   dplyr::select(
+    # SAF system trait types, crop species info --------------------------
     "SAF System Trait type",
-    "Food (yield)",
+    "CROP.GENUS.GROUP",
+    "CROP.OUTPUT.GROUP",
+    # --------------------------------------------------------------------
+#--# Biodiversity ---------------------------------------------
+    "Associated biodiversity",
+#--# Supporting ecosystem services ----------------------------
+    "Soil formation",
+    "Soil structure",
+    "Water cycling",
+    "Nutrient cycling",
+    "Carbon stock",
+        # "Chemical soil components",
+        # "Biological soil components",
+        # "Greenhouse gas emissions",
+#--# Regulating ecosystem services ----------------------------
+    "Erosion regulation",
+    "Carbon sequestration",
+    "Water regulation",
+    "Water perculation",
+    "Climate regulation",    
+    "Pest regulation",
+    "Disease regulation",
+    "Polination regulation",
+        # "Water quality",
+#--# Provisioning ecosystem services --------------------------
+    "Profitability",
+    "Aboveground competition",
+    "Water availability",
+    "Production stability",
     "Feed",
     "Fuel (firewood etc.)",
-    "Biodiversity",
-    "Disease regulation",
-    "Pest regulation",
-    "Water cycling",
-    "Economic management related",
-    "Economic profit related",
-    "Aboveground (crop-tree) light competition",
-    "Soil structure",
-    "Chemical soil components",
-    "Biological soil components",
-    "Land equivalent ratio",
-    "Climate regulation",
-    "Greenhouse gas emissions",
-    "Carbon sequestration",
-    "CROP.GENUS.GROUP",
-    "CROP.OUTPUT.GROUP"
+    "Food (yield)",
+        # "Land equivalent ratio",
+        # "Management",
+#--# Cultural ecosystem services ------------------------------
+    "Recreational and ecotourism",
+    "Landscape aesthetics",
+    "Policy information"
   ) %>%
   mutate_if(is.character, as.factor) %>%
   relocate(`SAF System Trait type`, CROP.GENUS.GROUP, CROP.OUTPUT.GROUP)
 
-# ------------------------------------------------------------------------------------------------------------------------------
-# -------------------------------------------------------------------------Merging (joinging) with crop based on ID.P and ID.S*
+```
+
+```{r}
+# ----------------------------------------------------------------------------------------------------------------------
+# ------------------------------------------------------------------ Merging (joining) with crop based on ID.P and ID.S*
 
 A_ES_ID <-
   matrix.es.bd.cat.systrait.crop %>%
   dplyr::select(
+    # ID --------------------------
     "ID.P",
     "ID.S",
-    "Food (yield)",
+     # --------------------------------------------------------------------
+#--# Biodiversity ---------------------------------------------
+    "Associated biodiversity",
+#--# Supporting ecosystem services ----------------------------
+    "Soil formation",
+    "Soil structure",
+    "Water cycling",
+    "Nutrient cycling",
+    "Carbon stock",
+        # "Chemical soil components",
+        # "Biological soil components",
+        # "Greenhouse gas emissions",
+#--# Regulating ecosystem services ----------------------------
+    "Erosion regulation",
+    "Carbon sequestration",
+    "Water regulation",
+    "Water perculation",
+    "Climate regulation",    
+    "Pest regulation",
+    "Disease regulation",
+    "Polination regulation",
+        # "Water quality",
+#--# Provisioning ecosystem services --------------------------
+    "Profitability",
+    "Aboveground competition",
+    "Water availability",
+    "Production stability",
     "Feed",
     "Fuel (firewood etc.)",
-    "Biodiversity",
-    "Disease regulation",
-    "Pest regulation",
-    "Water cycling",
-    "Economic management related",
-    "Economic profit related",
-    "Aboveground (crop-tree) light competition",
-    "Soil structure",
-    "Chemical soil components",
-    "Biological soil components",
-    "Land equivalent ratio",
-    "Climate regulation",
-    "Greenhouse gas emissions",
-    "Carbon sequestration"
+    "Food (yield)",
+        # "Land equivalent ratio",
+        # "Management",
+#--# Cultural ecosystem services ------------------------------
+    "Recreational and ecotourism",
+    "Landscape aesthetics",
+    "Policy information"
   ) %>%
   mutate_if(is.character, as.factor) %>%
   relocate(ID.P, ID.S) %>%
@@ -1926,6 +2031,7 @@ A_ES_ID <-
     names_to = "ES.GROUPS",
     values_to = "count"
   ) %>%
+  distinct() %>%
   filter(count == 1)
 
 # ---------------------------------------------------------------------
@@ -1934,7 +2040,8 @@ B_SAFTT_ID <- joined.es.bd.cat.systrait.crop %>%
     "ID.P",
     "ID.S",
     "SAF System Trait type"
-  )
+  ) %>%
+  distinct()
 
 # ---------------------------------------------------------------------
 C_CROPS_ID <- matrix.es.bd.cat.systrait.crop %>%
@@ -1942,7 +2049,8 @@ C_CROPS_ID <- matrix.es.bd.cat.systrait.crop %>%
     "ID.P",
     "ID.S",
     "CROP.OUTPUT.GROUP"
-  )
+  ) %>%
+  distinct()
 
 # -----------------------------------------------------------------------
 D_JOINED_A_B <-
@@ -1956,7 +2064,8 @@ D_JOINED_A_B <-
   relocate(
     ID.P, ID.S,
     ES.GROUPS, `SAF System Trait type`
-  )
+  ) %>%
+  distinct()
 
 # --------------------------------------------------------------------------------------------------------------------------
 # Final dataset of selected ecosystem services (including biodiversity and categories data) with crop groups
@@ -1973,6 +2082,7 @@ E_JOINED_D_C <-
     ID.P, ID.S,
     ES.GROUPS, `SAF System Trait type`, CROP.OUTPUT.GROUP
   ) %>%
+  distinct() %>%
   dplyr::select(-count)
 
 ES.selected.crop.groups.SATF <- E_JOINED_D_C
@@ -1982,6 +2092,237 @@ ES.selected.crop.groups.SATF <- E_JOINED_D_C
 readr::write_csv(ES.selected.crop.groups.SATF, "./DATASET.FROM.SCRIPT/ES.selected.crop.groups.SATF.csv")
 # -----------------------------------------------------------------------------------------------
 glimpse(ES.selected.crop.groups.SATF)
+```
+
+```{r}
+E_JOINED_D_C
+# Next, we will identify the duplicated rows by each country and date and save into response2:
+
+#Mutate
+response2 <- E_JOINED_D_C %>% 
+  mutate_if(is.character, as.factor) %>%
+  group_by(ES.GROUPS, `SAF System Trait type`, CROP.OUTPUT.GROUP) %>%
+  summarise(count = n())
+  #mutate(count_2 = count/4)
+  #mutate(across(where(is.numeric), round, 0))
+```
+
+## Ecosystem services (selected ecosystem services) - tree genera - functional role (product type) of tree component of SAF system trait types
+
+Creating dataset for assessing the associations between **ecosystem
+services (selected ES), tree genera and \## Ecosystem services (selected
+ecosystem services) - tree genera - functional role (product type) of
+tree component of SAF system trait types**
+
+```{r}
+# -----------------------------------------------Merging (joining) ES, BD, CAT dataset with tree datasets based on ID.P and ID.S
+
+joined.es.bd.cat.systrait.tree <-
+  left_join(
+    x = es.bd.cat.systrait.data.renamed, y = trees.data,
+    by = c(
+      "ID.P" = "ID.P",
+      "ID.S" = "ID.S"
+    )
+  ) %>%
+  dplyr::select(-(ends_with(".x") | ends_with(".y"))) %>%
+  mutate_at(c("ID.P", "ID.S"), as.numeric) # <- converting ID columns from characters to numeric
+
+# ------------------------------------------------------------------------------------------------------------------------------
+matrix.es.bd.cat.systrait.tree <-
+  joined.es.bd.cat.systrait.tree %>%
+  filter(TREE.GENUS.GROUP != "NA") %>%
+  filter(!is.na(TREE.GENUS.GROUP))
+
+matrix.es.bd.cat.systrait.tree.all <-
+  matrix.es.bd.cat.systrait.tree %>%
+    dplyr::select(
+    # SAF system trait types, tree species info --------------------------
+    "SAF System Trait type",
+    "TREE.GENUS.GROUP",
+    "ST.TYPE.PROD.TYPE",
+       # --------------------------------------------------------------------
+#--# Biodiversity ---------------------------------------------
+    "Associated biodiversity",
+#--# Supporting ecosystem services ----------------------------
+    "Soil formation",
+    "Soil structure",
+    "Water cycling",
+    "Nutrient cycling",
+    "Carbon stock",
+        # "Chemical soil components",
+        # "Biological soil components",
+        # "Greenhouse gas emissions",
+#--# Regulating ecosystem services ----------------------------
+    "Erosion regulation",
+    "Carbon sequestration",
+    "Water regulation",
+    "Water perculation",
+    "Climate regulation",    
+    "Pest regulation",
+    "Disease regulation",
+    "Polination regulation",
+        # "Water quality",
+#--# Provisioning ecosystem services --------------------------
+    "Profitability",
+    "Aboveground competition",
+    "Water availability",
+    "Production stability",
+    "Feed",
+    "Fuel (firewood etc.)",
+    "Food (yield)",
+        # "Land equivalent ratio",
+        # "Management",
+#--# Cultural ecosystem services ------------------------------
+    "Recreational and ecotourism",
+    "Landscape aesthetics",
+    "Policy information"
+  ) %>%
+  mutate_if(is.character, as.factor) %>%
+  relocate(`SAF System Trait type`, TREE.GENUS.GROUP, ST.TYPE.PROD.TYPE)
+
+# -----------------------------------------------------------------------------------------------------------------------
+# ------------------------------------------------------------------- Merging (joinging) with crop based on ID.P and ID.S*
+
+A_ES_ID_tree <-
+  matrix.es.bd.cat.systrait.tree %>%
+  dplyr::select(
+    # ID --------------------------
+    "ID.S",
+    "ID.P",
+    # --------------------------------------------------------------------
+#--# Biodiversity ---------------------------------------------
+    "Associated biodiversity",
+#--# Supporting ecosystem services ----------------------------
+    "Soil formation",
+    "Soil structure",
+    "Water cycling",
+    "Nutrient cycling",
+    "Carbon stock",
+        # "Chemical soil components",
+        # "Biological soil components",
+        # "Greenhouse gas emissions",
+#--# Regulating ecosystem services ----------------------------
+    "Erosion regulation",
+    "Carbon sequestration",
+    "Water regulation",
+    "Water perculation",
+    "Climate regulation",    
+    "Pest regulation",
+    "Disease regulation",
+    "Polination regulation",
+        # "Water quality",
+#--# Provisioning ecosystem services --------------------------
+    "Profitability",
+    "Aboveground competition",
+    "Water availability",
+    "Production stability",
+    "Feed",
+    "Fuel (firewood etc.)",
+    "Food (yield)",
+        # "Land equivalent ratio",
+        # "Management",
+#--# Cultural ecosystem services ------------------------------
+    "Recreational and ecotourism",
+    "Landscape aesthetics",
+    "Policy information"
+  ) %>%
+  mutate_if(is.character, as.factor) %>%
+  relocate(ID.P, ID.S) %>%
+  pivot_longer(
+    cols = c(-ID.P, -ID.S),
+    names_to = "ES.GROUPS",
+    values_to = "count"
+  ) %>%
+  distinct() %>%
+  filter(count == 1)
+
+# ---------------------------------------------------------------------
+B_SAFTT_ID_tree <- joined.es.bd.cat.systrait.tree %>%
+  dplyr::select(
+    "ID.P",
+    "ID.S",
+    "SAF System Trait type"
+  )
+
+# ---------------------------------------------------------------------
+C_TREE_ID <- matrix.es.bd.cat.systrait.tree %>%
+  dplyr::select(
+    "ID.P",
+    "ID.S",
+    "TREE.GENUS.GROUP",
+    "ST.TYPE.PROD.TYPE"
+  ) %>%
+  distinct()
+
+# -----------------------------------------------------------------------
+D_JOINED_A_B_tree <-
+  left_join(
+    x = A_ES_ID_tree, y = B_SAFTT_ID_tree,
+    by = c(
+      "ID.P" = "ID.P",
+      "ID.S" = "ID.S"
+    )
+  ) %>%
+  relocate(
+    ID.P, ID.S,
+    ES.GROUPS, `SAF System Trait type`
+  ) %>%
+  distinct()
+
+# --------------------------------------------------------------------------------------------------------------------------
+# Final dataset of selected ecosystem services (including biodiversity and categories data) with crop groups
+# --------------------------------------------------------------------------------------------------------------------------
+E_JOINED_D_C_tree <-
+  left_join(
+    x = D_JOINED_A_B_tree, y = C_TREE_ID,
+    by = c(
+      "ID.P" = "ID.P",
+      "ID.S" = "ID.S"
+    )
+  ) %>%
+  relocate(
+    ID.P, ID.S,
+    ES.GROUPS, `SAF System Trait type`, TREE.GENUS.GROUP, ST.TYPE.PROD.TYPE
+  ) %>%
+  distinct() %>%
+  dplyr::select(-count)
+
+ES.selected.tree.genera.SATF <- E_JOINED_D_C_tree
+
+
+# ---------------------------------------------------------------------------------------------------------------------------------
+# Saving the dataset
+readr::write_csv(ES.selected.tree.genera.SATF, "./DATASET.FROM.SCRIPT/ES.selected.tree.genera.SATF.csv")
+
+# -----------------------------------------------------------------------------------------------
+glimpse(ES.selected.tree.genera.SATF)
+```
+
+%\>% distinct()
+
+```{r}
+# ---------------------------------------------------------------------------------------------------------------------------------
+ES_TREE <-
+  left_join(
+    x = C_TREE_ID %>% dplyr::select(-ST.TYPE.PROD.TYPE), y = A_ES_ID_tree,
+    by = c(
+      "ID.P" = "ID.P",
+      "ID.S" = "ID.S"
+    )
+  ) %>%
+  relocate(
+    ID.P, ID.S,
+    ES.GROUPS
+  ) %>%
+  distinct()
+
+
+# Saving the dataset
+readr::write_csv(ES_TREE, "./DATASET.FROM.SCRIPT/ES_TREE.csv")
+# -----------------------------------------------------------------------------------------------
+glimpse(ES_TREE)
+
 ```
 
 ## Ecosystem services (focus group ecosystem services) - crop groups - SAF system trait types
@@ -2021,25 +2362,39 @@ ES and countries of publication**
 ES_ID <-
   matrix.es.bd.cat.systrait.crop %>%
   dplyr::select(
-    "ID.P",
+    # ID --------------------------
     "ID.S",
-    "Food (yield)",
+    "ID.P",
+    # --------------------------------------------------------------------
+    # Biodiversity ---------------------------------------------
+    "Associated biodiversity",
+    # Supporting ecosystem services ----------------------------
+    "Soil formation",
+    "Soil structure",
+    "Water cycling",
+    "Nutrient cycling",
+    "Greenhouse gas emissions",
+    # Regulating ecosystem services ----------------------------
+    "Carbon sequestration",
+    "Climate regulation",
+    "Water regulation",
+    "Water quality",
+    "Pest regulation",
+    "Disease regulation",
+    "Polination regulation",
+    # Provisioning ecosystem services --------------------------
+    "Land equivalent ratio",
+    "Aboveground competition",
+    "Management",
+    "Profitability", 
+    "Production stability",
     "Feed",
     "Fuel (firewood etc.)",
-    "Biodiversity",
-    "Disease regulation",
-    "Pest regulation",
-    "Water cycling",
-    "Economic management related",
-    "Economic profit related",
-    "Aboveground (crop-tree) light competition",
-    "Soil structure",
-    "Chemical soil components",
-    "Biological soil components",
-    "Land equivalent ratio",
-    "Climate regulation",
-    "Greenhouse gas emissions",
-    "Carbon sequestration"
+    "Food (yield)",
+    # Cultural ecosystem services ------------------------------
+    "Recreational and ecotourism",
+    "Landscape aesthetics",
+    "Policy information"
   ) %>%
   mutate_if(is.character, as.factor) %>%
   relocate(ID.P, ID.S) %>%
@@ -2048,6 +2403,7 @@ ES_ID <-
     names_to = "ES.GROUPS",
     values_to = "count"
   ) %>%
+  distinct() %>%
   filter(count == 1)
 # --------------------------------------------------------------------------------------------------------------------------
 A_COUNTRIES_ID <- database %>%
@@ -2056,7 +2412,8 @@ A_COUNTRIES_ID <- database %>%
     "ID.P",
     "ID.S",
     "STUDY.LOC.COUNTRY"
-  )
+  ) %>%
+  distinct()
 # --------------------------------------------------------------------------------------------------------------------------
 D_JOINED_COUNTRIES_ES <-
   left_join(
@@ -2077,7 +2434,8 @@ B_CROPS_ID <- matrix.es.bd.cat.systrait.crop %>%
     "ID.P",
     "ID.S",
     "CROP.OUTPUT.GROUP"
-  )
+  ) %>%
+  distinct()
 # --------------------------------------------------------------------------------------------------------------------------
 D_JOINED_COUNTRIES_CROPS_ES <-
   left_join(
@@ -2086,14 +2444,16 @@ D_JOINED_COUNTRIES_CROPS_ES <-
       "ID.P" = "ID.P",
       "ID.S" = "ID.S"
     )
-  )
+  ) %>%
+  distinct()
 # --------------------------------------------------------------------------------------------------------------------------
 C_SAFTT_ID <- joined.es.bd.cat.systrait.crop %>%
   dplyr::select(
     "ID.P",
     "ID.S",
     "SAF System Trait type"
-  )
+  ) %>%
+  distinct()
 # --------------------------------------------------------------------------------------------------------------------------
 # Merged country, crop and SAF system trait type dataset
 # --------------------------------------------------------------------------------------------------------------------------
@@ -2116,6 +2476,32 @@ readr::write_csv(ES.countries.crops.SAFT, "./DATASET.FROM.SCRIPT/ES.countries.cr
 glimpse(ES.countries.crops.SAFT)
 ```
 
+*Proportion of studies represented by the top 10 countries*
+
+```{r}
+database %>%
+  dplyr::select(STUDY.LOC.COUNTRY, ST.TYPE) %>%
+  drop_na() %>%
+  group_by(STUDY.LOC.COUNTRY, ST.TYPE) %>%
+  summarise(count = n()) %>%
+  mutate(pct = count / sum(count)) %>%
+  mutate(across(where(is.numeric), round, 3)) %>%
+  ungroup() 
+
+database %>%
+  dplyr::select(STUDY.LOC.COUNTRY, ST.TYPE) %>%
+  drop_na() %>%
+  dplyr::group_by(STUDY.LOC.COUNTRY) %>%
+  summarise(count = n()) %>%
+  dplyr::mutate(count_country = sum(count)) %>%
+  dplyr::group_by(STUDY.LOC.COUNTRY, add = TRUE) %>%
+  dplyr::mutate(pct_per_country = paste0(round(100 * count / count_country, 2), '%')) %>%
+  slice_max(count, n = 10) %>%
+  arrange(desc(count))
+
+# 19.25+ 18.31+13.62+10.33+9.86+9.39+7.04+3.76+3.76+1.41 ~ 97 %
+```
+
 # Geospatial data; single variate data (not matrices)
 
 ## Adding coordinates to database
@@ -2136,20 +2522,28 @@ readr::write_csv(database.lat.lon, "./DATASET.FROM.SCRIPT/database.lat.lon.csv")
 glimpse(database.lat.lon)
 ```
 
+
+
+
+
+# Deriving pedoclimatic variables from BioClim and SoilGrids
+
+
+
 -   RQ2: How are the (major and minor) themes of temperate silvoarable
-    agroforestry systems distributed across geographical, bioclimatic
+    agroforestry systems distributed across geographical, pedoclimatic
     and socio-economic gradients?
 
-## Deriving WorldClim (BioClim) variables
+##  Bioclimatic variables (WorldClim)
 
 *A little info about using WorldClim variables in spatial analysis in r*
 
 BioClim variables available in WorldClim
 
-Bioclimatic variables are derived from the monthly temperature and
+pedoclimatic variables are derived from the monthly temperature and
 rainfall values in order to generate more biologically meaningful
 variables. These are often used in species distribution modelling and
-related ecological modelling techniques. The bioclimatic variables
+related ecological modelling techniques. The pedoclimatic variables
 represent annual trends (e.g., mean annual temperature, annual
 precipitation) seasonality (e.g., annual range in temperature and
 precipitation) and extreme or limiting environmental factors (e.g.,
@@ -2157,12 +2551,12 @@ temperature of the coldest and warmest month, and precipitation of the
 wet and dry quarters). A quarter is a period of three months (1/4 of the
 year). (see more here: <https://www.worldclim.org/data/bioclim.html>)
 
-Don't forget that WorldClim data has a scale factor of 10, so Temp = -37
-is -3.7 ºC.
+Don't forget that WorldClim data has a scale factor of 10 for
+temperature data, so Temp = -37 is -3.7 ºC.
 
 BIO1 = Annual Mean Temperature BIO2 = Mean Diurnal Range (Mean of
 monthly (max temp - min temp)) BIO3 = Isothermality (BIO2/BIO7) (×100)
-BIO4 = Temperature Seasonality (standard deviation ×100) BIO5 = Max
+BIO4 = Temperature Seasonality (standard deviation × 100) BIO5 = Max
 Temperature of Warmest Month BIO6 = Min Temperature of Coldest Month
 BIO7 = Temperature Annual Range (BIO5-BIO6) BIO8 = Mean Temperature of
 Wettest Quarter BIO9 = Mean Temperature of Driest Quarter BIO10 = Mean
@@ -2177,9 +2571,9 @@ The WorldClim data are available at different spatial resolutions
 (expressed as minutes or seconds of a degree of longitude and latitude):
 10 minutes, 5 minutes, 2.5 minutes, 30 seconds. The variables included
 are monthly minimum and maximum temperature, precipitation, and
-'bioclimatic' variables. The original WorldClim data were at a 30 second
-resolution, the other data have been derived through aggregation, by
-calculating the mean of groups of cells. The 10-minute spatial
+'pedoclimatic' variables. The original WorldClim data were at a 30
+second resolution, the other data have been derived through aggregation,
+by calculating the mean of groups of cells. The 10-minute spatial
 resolution is about 18.6 x 18.6 = 344 km2 at the equator. Here we are
 going to use 2.5-minute spatial resolution (res=2.5), this is about 4.5
 km at the equator according to WorldClim
@@ -2210,10 +2604,14 @@ see also more information:
 Emily Piche <https://emilypiche.github.io/BIO381/raster.html> and Peter
 Galante <https://rsh249.github.io/spatial_bioinformatics/worldclim.html>
 
-**Extracting/downloading WorldClim (BioClim) variables; Temperature and
-precipitation and merging dataset with the database**
+**Extracting/downloading WorldClim (BioClim) variables; Temperature and precipitation and merging dataset with the database**
 
-*Dataframe with coordinates*
+**Dataframe with coordinates** *Loading dataset*
+
+```{r }
+
+database.lat.lon <- vroom::vroom("./DATASET.FROM.SCRIPT/database.lat.lon.csv") 
+```
 
 ```{r Creating the simple dataframe with coordinates}
 # Make a dataframe with coordinates
@@ -2239,11 +2637,10 @@ coords <- data.frame(
 )
 ```
 
-*Extracting/downloading WorldClim (BioClim) variables using the
-getData() function from the raster package*
+*Extracting/downloading WorldClim (BioClim) variables using the getData() function from the raster package*
 
-```{r Extracting/downloading BioClim variables, warning=FALSE, message=FALSE, eval=TRUE}
-# downloading bioclimatic variables from worldclim at a resolution of 2.5 minutes
+```{r Extracting/downloading BioClim variables, warning=FALSE, message=FALSE, eval=FALSE}
+# downloading pedoclimatic variables from worldclim at a resolution of 2.5 minutes
 # this is saved as a RasterStack object that contains all the 19 bioclim variables
 
 # be aware of the warning ""getData will be removed in a future version of raster\n. Please use the geodata package instead"
@@ -2254,18 +2651,42 @@ bioclim.rasterstack <- raster::getData("worldclim",
 )
 
 # specifying that we only need; temperature (BIO1 = Annual Mean Temperature) and precipitation (BIO12 = Annual Precipitation)
-bioclim.temp.precip <- bioclim.rasterstack[[c(1, 12)]]
-names(bioclim.temp.precip) <- c("Temp", "Prec")
+bioclim.temp.precip <- bioclim.rasterstack[[c(
+  1,  # Bio 1 Annual Mean Temperature
+  3,  # Bio 3 Isothermality
+  4,  # Bio 4 Temperature Seasonality (Standard Deviation)
+  5,  # Bio 5 Maximum Temperature of Warmest Month
+  6,  # Bio 6 Minimum Temperature of Coldest Month
+  7,  # Bio 7 Annual Temperature Range
+  10, # Bio 10 Mean Temperature of Warmest Quarter
+  12, # Bio 12 Annual Precipitation
+  14, # Bio 14 Precipitation of Driest Month
+  15, # Bio 15 Precipitation Seasonality (Coefficient of Variation)
+  17  # Bio 17 Precipitation of Driest Quarter
+)]]
+names(bioclim.temp.precip) <- c(
+  "bio01_Annual_mean_temp",
+  "bio03_Isothermality",
+  "bio04_Temp_seasonality",
+  "bio05_Max_temp_warmest_month",
+  "bio06_Min_temp_coldest_month",
+  "bio07_Annual_temp_range",
+  "bio10_Mean_temp_warmest_quarter",
+  "bio12_Annual_prec",
+  "bio14_Prec_driest_month",
+  "bio15_Prec_seasonality",
+  "bio17_Prec_driest_quarter"
+)
 
 # converting the data into a SpatialPoints dataframe by adding the same coordinate reference system
-points <- SpatialPoints(coords, proj4string = bioclim.temp.precip@crs)
+points <- sp::SpatialPoints(coords, proj4string = bioclim.temp.precip@crs)
 
 # extracting point-specific information on temperature and precipitation from the bioclim RasterStack object using the point coordinates
 temp.precip.values <- raster::extract(
   x = bioclim.temp.precip,
   y = points
 ) %>%
-  as.data.frame()
+  raster::as.data.frame()
 
 
 # Saving the temp.precip.values dataset with derived coordinates unto local disc
@@ -2275,7 +2696,7 @@ temp.precip.values <- raster::extract(
 # Merging (joining) the location-specific temperature and precipitation values to the coordinates (x,y)
 
 bioclim.point.data <- cbind.data.frame(
-  coordinates(points),
+  sp::coordinates(points),
   temp.precip.values
 )
 
@@ -2294,14 +2715,28 @@ database.coords.bioclim <-
   relocate(
     ID.P, ID.S, TITLE,
     STUDY.LOC.COUNTRY, STUDY.LOC.SPEC, STUDY.LOC.SPEC.COORDS,
-    latitude, longitude, Temp, Prec
+    latitude, longitude,
+    
+    bio01_Annual_mean_temp,
+    bio03_Isothermality,
+    bio04_Temp_seasonality,
+    bio05_Max_temp_warmest_month,
+    bio06_Min_temp_coldest_month,
+    bio07_Annual_temp_range,
+    bio10_Mean_temp_warmest_quarter,
+    bio12_Annual_prec,
+    bio14_Prec_driest_month,
+    bio15_Prec_seasonality,
+    bio17_Prec_driest_quarter
   )
 # ------------------------------------------------------------------------------------------------
 # Saving the dataset with derived coordinates
 readr::write_csv(database.coords.bioclim, "./DATASET.FROM.SCRIPT/database.coords.bioclim.csv")
+# ------------------------------------
+glimpse(database.coords.bioclim)
 ```
 
-## SoilGrids soil variables from ISRIC
+## Soil variables (SoilGrids - ISRIC)
 
 *A little info about using SoilGrids variables in spatial analysis in r*
 
@@ -2414,7 +2849,7 @@ database.locations.df <-
 *Extracting/downloading soil variables from ISRIC SoilGrids using the
 fetchSoilGrids() function from the soilsDB package.*
 
-```{r Extracting/downloading SoilGrids soil variables, warning=FALSE, message=FALSE, eval=TRUE}
+```{r Extracting/downloading SoilGrids soil variables, warning=FALSE, message=FALSE, eval=FALSE}
 # be aware that this function call takes quite some time, this is also why results are saved to local disc
 SoilGrids.data <- soilDB::fetchSoilGrids(
   x = database.locations.df,
@@ -2431,6 +2866,13 @@ SoilGrids.data <- soilDB::fetchSoilGrids(
 
 **Generating dataframe with fetched soil variables - merging with
 database**
+
+*Loading dataset*
+
+```{r }
+# Loading the downloaded SoilGrids dataset to local disc
+SoilGrids.data <- readr::read_rds("./DATASET.FROM.SCRIPT/SoilGrids.data.Rds")
+```
 
 ```{r Dataframe with fetched soil variables}
 # selecting only relevant variables
@@ -2472,12 +2914,23 @@ database.coords.soilgrids <-
   )
 
 # where there is NA values in SoilGrids data on soil variables will be empty. Hence only 107 observations have soil data
+
+# Saving the combined dataset with biopphysical information unto local disc
+readr::write_csv(database.coords.soilgrids, "./DATASET.FROM.SCRIPT/database.coords.soilgrids.csv")
 ```
 
-*Merging (joining) the location-specific soil dataset to the
-location-specific bioclim dataset (using ID.p and ID.S)*
+*Merging (joining) the location-specific soil dataset to the location-specific bioclim dataset (using ID.p and ID.S)*
 
-```{r, eval=TRUE}
+**Loading dataset**
+
+```{r Loading data - SAF system trait types (agroforestry system types)}
+
+database.coords.soilgrids <- vroom::vroom("./DATASET.FROM.SCRIPT/database.coords.soilgrids.csv") 
+database.coords.bioclim <- vroom::vroom("./DATASET.FROM.SCRIPT/database.coords.bioclim.csv") 
+```
+
+
+```{r, eval=FALSE}
 database.biophys <-
   left_join(
     x = database.coords.soilgrids, y = database.coords.bioclim,
@@ -2493,15 +2946,44 @@ database.biophys <-
   relocate(
     ID.P, ID.S,
     lat, lon,
-    Temp, Prec,
-    claymean, sandmean, siltmean, bdodmean, nitrogenmean, socmean, phh2omean, cecmean
+    # Pedoclimatic variables from BioClim 
+    bio01_Annual_mean_temp,
+    bio03_Isothermality,
+    bio04_Temp_seasonality,
+    bio05_Max_temp_warmest_month,
+    bio06_Min_temp_coldest_month,
+    bio07_Annual_temp_range,
+    bio10_Mean_temp_warmest_quarter,
+    bio12_Annual_prec,
+    bio14_Prec_driest_month,
+    bio15_Prec_seasonality,
+    bio17_Prec_driest_quarter,
+    # Pedoclimatic variables from SoilGrids 
+    claymean, 
+    sandmean, 
+    siltmean, 
+    bdodmean, 
+    nitrogenmean, 
+    socmean, 
+    phh2omean, 
+    cecmean
   )
 
 # ----------------------------------------------------------------------------------------------------------------------
-# Saving the combined dataset with biopphysical information unto local disc
+# Saving the combined dataset with pedoclimatic information unto local disc
 readr::write_csv(database.biophys, "./DATASET.FROM.SCRIPT/database.biophys.csv")
 # -----------------------------------------------------------------
 glimpse(database.biophys)
+```
+
+## Global elevation data
+
+*A little info about using global elevation in spatial analysis in r*
+
+*Extracting elevation data*
+
+```{r}
+
 ```
 
 ## Tree genera - biophys
@@ -2587,9 +3069,9 @@ crops <- read_excel("DATA/DATABASE_2.0.xlsx",
     str_detect(CROP.SPECIES, "Fragaria") ~ "FRUIT CROPS",
     str_detect(CROP.SPECIES, "Solanum tuberosum") ~ "ROOTS AND TUBER CROPS",
     str_detect(CROP.SPECIES, "HERBS") ~ "OTHER CROPS FOR HUMAN CONS.",
-    str_detect(CROP.SPECIES, "	SP.BEEF.CATTLE") ~ "OTHER CROPS FOR HUMAN CONS.",
-    str_detect(CROP.SPECIES, "	SP.DAIRY.CATTLE") ~ "OTHER CROPS FOR HUMAN CONS.",
-    str_detect(CROP.SPECIES, "	SP.PIG") ~ "OTHER CROPS FOR HUMAN CONS.",
+    str_detect(CROP.SPECIES, "SP.BEEF.CATTLE") ~ "OTHER CROPS FOR HUMAN CONS.",
+    str_detect(CROP.SPECIES, "SP.DAIRY.CATTLE") ~ "OTHER CROPS FOR HUMAN CONS.",
+    str_detect(CROP.SPECIES, "SP.PIG") ~ "OTHER CROPS FOR HUMAN CONS.",
     str_detect(CROP.SPECIES, "Lolium") ~ "FORAGE CROPS",
     str_detect(CROP.SPECIES, "Vicia") ~ "FORAGE CROPS",
     str_detect(CROP.SPECIES, "Poa") ~ "FORAGE CROPS",
@@ -2644,7 +3126,7 @@ systrait.data <-
 
 # ------------------------------------------------------- Merging with crop groups data with biophys database
 systrait.biophys.data <-
-  full_join(database.biophys, system.traits.data,
+  full_join(database.biophys, systrait.data,
     by = c(
       "ID.P" = "ID.P",
       "ID.S" = "ID.S"
@@ -2662,33 +3144,71 @@ glimpse(systrait.biophys.data)
 
 # Geospatial data; multivariate data (matrices)
 
-## Ecosystem services (selected ES; including biodiversity + categories) - biophysical variables
+## ES - SAF systems - pedoclimatic variables
+**Ecosystem services (selected ES; including biodiversity + categories) - pedoclimatic variables**
 
 To answer the question; **does SAF, ES research focus differ as related
-to location-specific biophysical variables**
+to location-specific pedoclimatic variables**
 
-Various biophysical variables are **discretised** (from numeric biophys
+Various pedoclimatic variables are **discretised** (from numeric biophys
 into categorical groups). Adding grouped intervals based on continuous
 soil variables. This is in order to visualise them in relation to ES for
 instance.
 
-```{r eval=TRUE}
+### Descretising pedoclimatic variables 
+```{r}
+database.biophys <- vroom::vroom("./DATASET.FROM.SCRIPT/database.biophys.csv")
+```
+
+```{r}
+biophys.discretised <- vroom::vroom("./DATASET.FROM.SCRIPT/biophys.discretised.csv") 
+```
+
+```{r eval=FALSE}
 biophys.discretised <- database.biophys %>%
   # renaming SAF System Trait type
-  rename("SAF System Trait type" = ST.TYPE) %>%
-  # dividing bioclim variables by conversion factor to obtain the correct value
-  # not dividing SoilGrids variables becaise; SoilGrids API and maps return values as whole
-  # (integer) numbers to minimize the storage space used. These values are converted by to
+  #rename("SAF System Trait type" = ST.TYPE) %>%
+  # dividing bioclim temperature data variables by conversion factor to obtain the correct values
+  # not dividing SoilGrids variables because; SoilGrids API and maps return values as whole
+  # (integer) numbers to minimize the storage space used. These values are converted along the operation to
   # produce conventional units by 'fetchSoilGrids()“
+  # conversion factors
   dplyr::mutate(
-    Temp = Temp / 10,
-    # Prec = Prec/10
+    bio01_Annual_mean_temp = bio01_Annual_mean_temp / 10,
+    bio05_Max_temp_warmest_month = bio05_Max_temp_warmest_month / 10,
+    bio04_Temp_seasonality = bio04_Temp_seasonality / 1000,
+    #bio05_Max_temp_warmest_month = bio05_Max_temp_warmest_month / 10,
+    bio06_Min_temp_coldest_month = bio06_Min_temp_coldest_month / 10,
+    bio07_Annual_temp_range = bio07_Annual_temp_range / 10,
+    bio10_Mean_temp_warmest_quarter = bio10_Mean_temp_warmest_quarter / 10
+
   ) %>%
   # discretising using ggplot2::cut_interval(), cut_number() or cut_width()
   mutate(
-    Temp_interval = cut_width(Temp, width = 5, boundary = 0), # 6 levels
-    Prec_interval = cut_width(Prec, width = 300, boundary = 0), # 6 levels
-
+    # Pedoclimatic variables from BioClim --------------------------------------------------
+    bio01_Annual_mean_temp_interval = cut_width(bio01_Annual_mean_temp, 
+                                                width = 5, boundary = 0), # 6 levels
+    bio03_Isothermality_interval = cut_width(bio03_Isothermality, 
+                                             width = 6, boundary = 0), # 6 levels
+    bio04_Temp_seasonality_interval = cut_width(bio04_Temp_seasonality, 
+                                                width = 2.5, boundary = 0), # 6 levels 
+    bio05_Max_temp_warmest_month_interval = cut_width(bio05_Max_temp_warmest_month, 
+                                                      width = 4, boundary = 0), # 6 levels 
+    bio06_Min_temp_coldest_month_interval = cut_width(bio06_Min_temp_coldest_month, 
+                                                      width = 8, boundary = 0), # 6 levels 
+    bio07_Annual_temp_range_interval = cut_width(bio07_Annual_temp_range,
+                                                 width = 7, boundary = 0), # 6 levels 
+    bio10_Mean_temp_warmest_quarter_interval = cut_width(bio10_Mean_temp_warmest_quarter,
+                                                         width = 3.5, boundary = 0), # 6 levels
+    bio12_Annual_prec_interval = cut_width(bio12_Annual_prec, 
+                                           width = 300, boundary = 0), # 6 levels
+    bio14_Prec_driest_month_interval = cut_width(bio14_Prec_driest_month,
+                                                 width = 20, boundary = 0), # 6 levels
+    bio15_Prec_seasonality_interval = cut_width(bio15_Prec_seasonality,
+                                                 width = 20, boundary = 0), # 6 levels
+    bio17_Prec_driest_quarter_interval = cut_width(bio17_Prec_driest_quarter,
+                                                 width = 60, boundary = 0), # 6 levels
+    # Pedoclimatic variables from SoilGrids --------------------------------------------------
     clay_interval = cut_width(claymean, width = 10, boundary = 0), # 5 levels
     sand_interval = cut_width(sandmean, width = 20, boundary = 0), # 5 levels
     silt_interval = cut_width(siltmean, width = 15, boundary = 0), # 5 levels
@@ -2698,13 +3218,23 @@ biophys.discretised <- database.biophys %>%
     ph_interval = cut_width(phh2omean, width = 1, boundary = 0), # 5 levels
     cec_interval = cut_width(cecmean, width = 10, boundary = 0)
   ) %>% # 5 levels
-
   relocate(
     ID.P, ID.S,
     `SAF System Trait type`,
     lat, lon,
-    Temp, Temp_interval,
-    Prec, Prec_interval,
+    # Pedoclimatic variables from BioClim --------------------------------------------------
+    bio01_Annual_mean_temp, bio01_Annual_mean_temp_interval,
+    bio03_Isothermality, bio03_Isothermality_interval,
+    bio04_Temp_seasonality, bio04_Temp_seasonality_interval,
+    bio05_Max_temp_warmest_month, bio05_Max_temp_warmest_month_interval,
+    bio06_Min_temp_coldest_month, bio06_Min_temp_coldest_month_interval,
+    bio07_Annual_temp_range, bio07_Annual_temp_range_interval,
+    bio10_Mean_temp_warmest_quarter, bio10_Mean_temp_warmest_quarter_interval,
+    bio12_Annual_prec, bio12_Annual_prec_interval,
+    bio14_Prec_driest_month, bio14_Prec_driest_month_interval,
+    bio15_Prec_seasonality, bio15_Prec_seasonality_interval,
+    bio17_Prec_driest_quarter, bio17_Prec_driest_quarter_interval,
+    # Pedoclimatic variables from SoilGrids --------------------------------------------------
     claymean, clay_interval,
     sandmean, sand_interval,
     siltmean, silt_interval,
@@ -2721,6 +3251,7 @@ biophys.discretised <- database.biophys %>%
 
 biophys.discretised.data <- biophys.discretised %>%
   rename(
+    #"SAF System Trait type" = ST.TYPE,
     "Food (yield)" = ES.SUB.PROV.FOOD,
     "Feed" = ES.SUB.PROV.FEED,
     "Fibre" = ES.SUB.PROV.FIBRE,
@@ -2760,15 +3291,15 @@ biophys.discretised.data <- biophys.discretised %>%
     "Supporting ES" = ES.SUPP,
     "Cultural ES" = ES.CULT,
     "Ecosystem Services" = ES,
-    # -----------------------------------------------------------------------------------------------------------------------
-    "BD.Biodiversity" = BD,
+    # ----------------------------------------------------------------------------------- renaming biodiversity variables
+    "Associated biodiversity" = BD, # Biodiversity -associated biodiversity (from Beillouin et al. 2021)
     "FLORA.1" = BD.SUB.FLORAMACRO,
     "FLORA.2" = BD.SUB.FLORAMICRO,
     "FAUNA.1" = BD.SUB.FAUNAMACRO,
     "FAUNA.2" = BD.SUB.FAUNAMICRO,
     "Bacteria" = BD.SUB.BACTERIA,
     "Fungi" = BD.SUB.FUNGI,
-    # --------------------------------------------------------------------------------------------------------------------
+    # -------------------------------------------------------------------------- renaming categories of approach variables
     "Food" = CAT.SUB.AGRO.YIELD,
     "Biomass" = CAT.SUB.AGRO.BIOMASS,
     "Land equivalent ratio" = CAT.SUB.AGRO.LER,
@@ -2776,15 +3307,15 @@ biophys.discretised.data <- biophys.discretised %>%
     "Diseases" = CAT.SUB.AGRO.DISEASE,
     "Weeds" = CAT.SUB.AGRO.WEEDS,
     "Product quality" = CAT.SUB.AGRO.PRODQUAL,
-    "Product stability" = CAT.SUB.AGRO.PRODSTAB,
+    "Production stability" = CAT.SUB.AGRO.PRODSTAB,     # Product stability
     "Mechanisation" = CAT.SUB.AGRO.MECHAN,
-    "Belowground (crop-tree) competition" = CAT.SUB.AGRO.CRTRBLOW,
-    "Aboveground (crop-tree) light competition" = CAT.SUB.AGRO.LIGHTCMP,
+    "Belowground competition" = CAT.SUB.AGRO.CRTRBLOW,  # Belowground (crop-tree) competition
+    "Aboveground competition" = CAT.SUB.AGRO.LIGHTCMP,  # Aboveground (crop-tree) light competition
     "Nutrient use" = CAT.SUB.AGRO.NUTRIUSE,
     "Nutrient use effeciency" = CAT.SUB.AGRO.NUTRIEF,
     "Breeding and selection" = CAT.SUB.AGRO.BRDSELECT,
     "Soil quality" = CAT.SUB.ENVI.SOILQUAL,
-    "Biodiversity" = CAT.SUB.ENVI.BIODIV,
+    "Biodiversity" = CAT.SUB.ENVI.BIODIV, # Biodiversity -associated biodiversity (from Beillouin et al. 2021)
     "Carbon stock" = CAT.SUB.ENVI.CSTOCK,
     "Greenhouse gas emissions" = CAT.SUB.ENVI.GHGEMS,
     "Pollination" = CAT.SUB.ENVI.POLLCON,
@@ -2799,9 +3330,9 @@ biophys.discretised.data <- biophys.discretised %>%
     "Water cyclings" = CAT.SUB.ENVI.WATCYC,
     "Water availability" = CAT.SUB.ENVI.WATAVAIL,
     "Hydraulic lift" = CAT.SUB.ENVI.HYDRAULIFT,
-    "Economic profit related" = CAT.SUB.ECON.PROFIT,
-    "Economic management related" = CAT.SUB.ECON.MANAGE,
-    "Economic market related" = CAT.SUB.ECON.MARKET,
+    "Profitability" = CAT.SUB.ECON.PROFIT,       # Economic profit related
+    "Management" = CAT.SUB.ECON.MANAGE,          # Economic management related
+    "Market" = CAT.SUB.ECON.MARKET,              # Economic market related
     "Landscape aesthetics" = CAT.SUB.SOCUL.LANAES,
     "Recreational and ecotourisms" = CAT.SUB.SOCUL.RECRECOTOUR,
     "Spiritual values" = CAT.SUB.SOCUL.SPIRITVAL,
@@ -2810,7 +3341,7 @@ biophys.discretised.data <- biophys.discretised %>%
     "Agronomic category" = CAT.AGRO,
     "Environmental category" = CAT.ENVIRON,
     "Economic category" = CAT.ECONOM,
-    "Socio-cultural category" = CAT.SOCIOCUL
+    "Socio-cultural category" = CAT.SOCIOCUL 
   ) %>%
   # converting flora + fauna to numeric
   mutate_at(c("FLORA.1", "FLORA.2", "FAUNA.1", "FAUNA.2"), as.numeric) %>%
@@ -2854,35 +3385,67 @@ dimensions*; **ecosystem services**, **biodiversity** and **categories
 of approach**. Following the style of *Ditzler et al. (2021)*, *Duru et
 al. (2015)* and *Tamburini et al. (2020)*
 
-## Ecosystem services (selected ecosystem services) - soil sand content
+**Loading dataset**
+```{r }
 
-**Merging selected ecosystem services data with biophys variables; soil
-sand content**
+biophys.discretised.data <- vroom::vroom("./DATASET.FROM.SCRIPT/biophys.discretised.data.csv") 
+```
 
+### Defining selected soil-related ES for soil variables
+
+*Selected soil-related ES for plot*
 ```{r}
-# ------------------------------------------------------------------------------------------------------------------------------
-# Preparing ES dataset for merging by converting it to long format and merging it with SAF system traits types
-A_ES <- biophys.discretised.data %>%
+# ------------------------------------------------------------------------------------------------------------
+A_selected_soil_ES_soil <- biophys.discretised.data %>%
   dplyr::select(
-    "ID.P",
+    # ID --------------------------
     "ID.S",
-    "Food (yield)",
-    "Feed",
-    "Fuel (firewood etc.)",
-    "Biodiversity",
-    "Disease regulation",
-    "Pest regulation",
-    "Water cycling",
-    "Economic management related",
-    "Economic profit related",
-    "Aboveground (crop-tree) light competition",
+    "ID.P",
+    # --------------------------------------------------------------------
+#--# Biodiversity ---------------------------------------------
+    "Associated biodiversity",
+#--# Supporting ecosystem services ----------------------------
+    "Soil formation",
     "Soil structure",
+    "Water cycling",
+    "Nutrient cycling",
+    "Carbon stock",
     "Chemical soil components",
     "Biological soil components",
-    "Land equivalent ratio",
-    "Climate regulation",
-    "Greenhouse gas emissions",
-    "Carbon sequestration"
+        # "Greenhouse gas emissions",
+#--# Regulating ecosystem services ----------------------------
+    "Erosion regulation",
+    "Carbon sequestration",
+    "Water regulation",
+    "Water perculation",
+        # "Water quality",
+        # "Climate regulation",
+        # "Pest regulation",
+        # "Disease regulation",
+        # "Polination regulation",
+#--# Provisioning ecosystem services --------------------------
+    "Water availability",
+    "Production stability",
+    "Feed",
+    "Fuel (firewood etc.)",
+    "Food (yield)",
+        # "Land equivalent ratio",
+        # "Aboveground competition",
+        # "Management",
+        # "Profitability",
+#--# Cultural ecosystem services ------------------------------
+        # "Recreational and ecotourism",
+        # "Landscape aesthetics",
+        # "Policy information",
+    
+#--# Specific pedoclimatic, soil-related ecosystem services ---- following Ellili-Bargaoui et al. (2021)
+        # "Nutrient cycling",
+        # "Erosion regulation",
+        # "Carbon stock",
+        # "Chemical soil components",
+        # "Biological soil components",
+        # "Water perculation",
+        # "Water availability"
   ) %>%
   mutate_if(is.character, as.factor) %>%
   relocate(ID.P, ID.S) %>%
@@ -2892,6 +3455,186 @@ A_ES <- biophys.discretised.data %>%
     values_to = "count"
   ) %>%
   mutate(count = as.numeric(count)) %>%
+  distinct() %>%
+  filter(count == 1)
+
+# --------------------------------------------------------------------------------------------------------------------------
+B_SAFTT_data <- biophys.discretised.data %>%
+  dplyr::select(
+    "ID.P",
+    "ID.S",
+    "SAF System Trait type"
+  ) %>%
+  distinct()
+
+# --------------------------------------------------------------------------------------------------------------------------
+D_JOINED_A_B_selected_soil_ES_soil_SAFTT <-
+  left_join(
+    x = A_selected_soil_ES_soil, y = B_SAFTT_data,
+    by = c(
+      "ID.P" = "ID.P",
+      "ID.S" = "ID.S"
+    )
+  ) %>%
+  distinct() %>%
+  relocate(
+    ID.P, ID.S,
+    ES.GROUPS, `SAF System Trait type`
+  )
+```
+
+
+### Defining selected soil-related ES for bioclim variables
+
+*Selected soil-related ES for plot*
+```{r}
+# ------------------------------------------------------------------------------------------------------------
+A_selected_soil_ES_bioclim <- biophys.discretised.data %>%
+  dplyr::select(
+    # ID --------------------------
+    "ID.S",
+    "ID.P",
+    # --------------------------------------------------------------------
+#--# Biodiversity ---------------------------------------------
+    "Associated biodiversity",
+#--# Supporting ecosystem services ----------------------------
+    "Soil formation",
+    "Soil structure",
+    "Water cycling",
+    "Nutrient cycling",
+    "Carbon stock",
+        # "Chemical soil components",
+        # "Biological soil components",
+        # "Greenhouse gas emissions",
+#--# Regulating ecosystem services ----------------------------
+    "Erosion regulation",
+    "Carbon sequestration",
+    "Water regulation",
+    "Water perculation",
+    "Climate regulation",    
+    "Pest regulation",
+    "Disease regulation",
+    "Polination regulation",
+        # "Water quality",
+#--# Provisioning ecosystem services --------------------------
+    "Profitability",
+    "Aboveground competition",
+    "Water availability",
+    "Production stability",
+    "Feed",
+    "Fuel (firewood etc.)",
+    "Food (yield)",
+        # "Land equivalent ratio",
+        # "Management",
+#--# Cultural ecosystem services ------------------------------
+    "Recreational and ecotourism",
+    "Landscape aesthetics",
+    "Policy information",
+    
+#--# Specific pedoclimatic, soil-related ecosystem services ---- following Ellili-Bargaoui et al. (2021)
+        # "Nutrient cycling",
+        # "Erosion regulation",
+        # "Carbon stock",
+        # "Chemical soil components",
+        # "Biological soil components",
+        # "Water perculation",
+        # "Water availability"
+  ) %>%
+  mutate_if(is.character, as.factor) %>%
+  relocate(ID.P, ID.S) %>%
+  pivot_longer(
+    cols = c(-ID.P, -ID.S),
+    names_to = "ES.GROUPS",
+    values_to = "count"
+  ) %>%
+  mutate(count = as.numeric(count)) %>%
+  distinct() %>%
+  filter(count == 1)
+
+# --------------------------------------------------------------------------------------------------------------------------
+B_SAFTT_data <- biophys.discretised.data %>%
+  dplyr::select(
+    "ID.P",
+    "ID.S",
+    "SAF System Trait type"
+  ) %>%
+  distinct()
+
+# --------------------------------------------------------------------------------------------------------------------------
+D_JOINED_A_B_selected_soil_ES_bioclim_SAFTT <-
+  left_join(
+    x = A_selected_soil_ES_bioclim, y = B_SAFTT_data,
+    by = c(
+      "ID.P" = "ID.P",
+      "ID.S" = "ID.S"
+    )
+  ) %>%
+  distinct() %>%
+  relocate(
+    ID.P, ID.S,
+    ES.GROUPS, `SAF System Trait type`
+  )
+```
+
+
+### Defining general selected ES
+
+```{r}
+# ------------------------------------------------------------------------------------------------------------------------
+# Preparing ES dataset for merging by converting it to long format and merging it with SAF system traits types
+A_ES <- biophys.discretised.data %>%
+  dplyr::select(
+    # ID --------------------------
+    "ID.S",
+    "ID.P",
+    # --------------------------------------------------------------------
+    # Biodiversity ---------------------------------------------
+    "Associated biodiversity",
+    # Supporting ecosystem services ----------------------------
+    "Soil formation",
+    "Soil structure",
+    "Water cycling",
+    "Nutrient cycling",
+    "Greenhouse gas emissions",
+    # Regulating ecosystem services ----------------------------
+    "Carbon sequestration",
+    "Climate regulation",
+    "Water regulation",
+    "Water quality",
+    "Pest regulation",
+    "Disease regulation",
+    "Polination regulation",
+    # Provisioning ecosystem services --------------------------
+    "Land equivalent ratio",
+    "Aboveground competition",
+    "Management",
+    "Profitability", 
+    "Production stability",
+    "Feed",
+    "Fuel (firewood etc.)",
+    "Food (yield)",
+    # Cultural ecosystem services ------------------------------
+    "Recreational and ecotourism",
+    "Landscape aesthetics",
+    "Policy information",
+    # Specific pedoclimatic, soil-related ecosystem services ---- following Ellili-Bargaoui et al. (2021)
+    "Nutrient cycling",
+    "Erosion regulation",
+    "Carbon stock", 
+    "Chemical soil components",
+    "Biological soil components",
+    "Water perculation",
+    "Water availability"
+  ) %>%
+  mutate_if(is.character, as.factor) %>%
+  relocate(ID.P, ID.S) %>%
+  pivot_longer(
+    cols = c(-ID.P, -ID.S),
+    names_to = "ES.GROUPS",
+    values_to = "count"
+  ) %>%
+  mutate(count = as.numeric(count)) %>%
+  distinct() %>%
   filter(count == 1)
 
 # --------------------------------------------------------------------------------------------------------------------------
@@ -2900,7 +3643,8 @@ B_SAFTT <- biophys.discretised.data %>%
     "ID.P",
     "ID.S",
     "SAF System Trait type"
-  )
+  ) %>%
+  distinct()
 
 # --------------------------------------------------------------------------------------------------------------------------
 D_JOINED_A_B_ES_SAFTT <-
@@ -2911,12 +3655,17 @@ D_JOINED_A_B_ES_SAFTT <-
       "ID.S" = "ID.S"
     )
   ) %>%
+  distinct() %>%
   relocate(
     ID.P, ID.S,
     ES.GROUPS, `SAF System Trait type`
   )
+```
 
-# ------------------------------------------------------------------------------------------------------------------------------
+
+## ES - sand content
+**Merging selected ecosystem services data with biophys variables; soil sand content**
+```{r}
 # ------------------------------------------------------------------------------------------------------------------------------
 # Merging with sand content data
 C_SAND <- biophys.discretised.data %>%
@@ -2951,7 +3700,8 @@ E_JOINED_D_C_SAND <-
     ID.P, ID.S,
     ES.GROUPS, `SAF System Trait type`, sand_interval
   ) %>%
-  mutate_if(is.character, as.factor)
+  mutate_if(is.character, as.factor) %>%
+  distinct()
 
 es.systrait.sand.data <- E_JOINED_D_C_SAND
 # ------------------------------------------------------------------------------------------------------------------------------
@@ -2961,11 +3711,62 @@ readr::write_csv(es.systrait.sand.data, "./DATASET.FROM.SCRIPT/es.systrait.sand.
 glimpse(es.systrait.sand.data)
 ```
 
-## Ecosystem services (selected ecosystem services) - soil organic carbon (SOC content)
 
-**Merging selected ecosystem services data with biophys variables; SOC
-content**
 
+
+## ES - soil organic carbon *
+
+**Merging selected soil-related ecosystem services data with biophys variables; SOC content**
+```{r warning=FALSE, message=FALSE}
+# --------------------------------------------------------------------------------------------------------------------------
+
+C_SOC_data <- biophys.discretised.data %>%
+  dplyr::select(
+    "ID.P",
+    "ID.S",
+    "soc_interval"
+  ) %>%
+  # to avoid exhaustion of R memory
+  distinct() %>%
+  mutate(soc_interval = recode(soc_interval, # renaming dataframe rows
+    "[0,50]" = "0 - 50 g/kg",
+    "(50,100]" = "50 - 100 g/kg",
+    "(100,150]" = "100 - 150 g/kg",
+    "(150,200]" = "150 - 200 g/kg",
+    "(200,250]" = "200 - 250 g/kg",
+    "(250,300]"  = "250 - 300 g/kg",
+    .keep = "all"
+  ))
+
+# --------------------------------------------------------------------------------------------------------------------------
+# Final dataset of selected ecosystem services (including biodiversity and categories data) with soil SOC content
+# --------------------------------------------------------------------------------------------------------------------------
+E_JOINED_soil_selected_ES_SOC <-
+  left_join(
+    x = D_JOINED_A_B_selected_soil_ES_soil_SAFTT, y = C_SOC_data,
+    by = c(
+      "ID.P" = "ID.P",
+      "ID.S" = "ID.S"
+    )
+  ) %>%
+  distinct() %>%
+  relocate(
+    ID.P, ID.S,
+    ES.GROUPS, `SAF System Trait type`, soc_interval
+  ) %>%
+  mutate_if(is.character, as.factor) %>%
+  # convert to factor, sort the facet plots in order of SOC intervals
+  mutate_at(vars(soc_interval), funs(factor(., levels = unique(.)))) 
+
+selected.soil.es.systrait.soc.data <- E_JOINED_soil_selected_ES_SOC
+# ------------------------------------------------------------------------------------------------------------------------------
+# Saving the dataset
+readr::write_csv(selected.soil.es.systrait.soc.data, "./DATASET.FROM.SCRIPT/selected.soil.es.systrait.soc.data.csv")
+# ------------------------------------------------------------------------------
+glimpse(selected.soil.es.systrait.soc.data)
+```
+
+**Merging selected ecosystem services data with biophys variables; SOC content**
 ```{r warning=FALSE, message=FALSE}
 # --------------------------------------------------------------------------------------------------------------------------
 
@@ -2998,6 +3799,7 @@ E_JOINED_D_C_SOC <-
       "ID.S" = "ID.S"
     )
   ) %>%
+  distinct() %>%
   relocate(
     ID.P, ID.S,
     ES.GROUPS, `SAF System Trait type`, soc_interval
@@ -3014,11 +3816,346 @@ readr::write_csv(es.systrait.soc.data, "./DATASET.FROM.SCRIPT/es.systrait.soc.da
 glimpse(es.systrait.soc.data)
 ```
 
-## Ecosystem services (selected ecosystem services) - temperature
+## ES - soil bulk density *
+
+**Merging selected soil-related ecosystem services data with biophys variables; soil bulk density**
+```{r}
+# --------------------------------------------------------------------------------------------------------------------
+
+C_BULK_data <- biophys.discretised.data %>%
+  dplyr::select(
+    "ID.P",
+    "ID.S",
+    "bd_interval"
+  ) %>%
+  # to avoid exhaustion of R memory
+  distinct() %>%
+  mutate(bd_interval = recode(bd_interval, # renaming dataframe rows
+    "[0.75,1]"   =   "0.75 - 1 [kg dm^-3]",
+    "(1,1.25]"   =   "1 - 1.25 [kg dm^-3]",
+    "(1.25,1.5]" =   "1.25 - 1.5 [kg dm^-3]",
+    "(1.5,1.75]" =   "1.5 - 1.75 [kg dm^-3]",
+    "(1.75,2]"   =   "1.75 - 2 [kg dm^-3]",
+    .keep = "all"
+  ))
+
+# -------------------------------------------------------------------------------------------------------------------
+# Final dataset of selected ecosystem services (including biodiversity and categories data) with soil SOC content
+# --------------------------------------------------------------------------------------------------------------------
+E_JOINED_soil_selected_ES_BULK <-
+  left_join(
+    x = D_JOINED_A_B_selected_soil_ES_soil_SAFTT, y = C_BULK_data,
+    by = c(
+      "ID.P" = "ID.P",
+      "ID.S" = "ID.S"
+    )
+  ) %>%
+  distinct() %>%
+  relocate(
+    ID.P, ID.S,
+    ES.GROUPS, `SAF System Trait type`, bd_interval
+  ) %>%
+  mutate_if(is.character, as.factor) %>%
+  # convert to factor, sort the facet plots in order of SOC intervals
+  mutate_at(vars(bd_interval), funs(factor(., levels = unique(.)))) 
+
+selected.soil.es.systrait.bd.data <- E_JOINED_soil_selected_ES_BULK
+# ------------------------------------------------------------------------------------------------------------------------------
+# Saving the dataset
+readr::write_csv(selected.soil.es.systrait.bd.data,
+                 "./DATASET.FROM.SCRIPT/selected.soil.es.systrait.bd.data.csv")
+# ------------------------------------------------------------------------------
+glimpse(selected.soil.es.systrait.bd.data)
+```
+
+
+**Merging selected ecosystem services data with biophys variables; soil bulk density**
+```{r}
+# --------------------------------------------------------------------------------------------------------------------
+
+C_BULK <- biophys.discretised.data %>%
+  dplyr::select(
+    "ID.P",
+    "ID.S",
+    "bd_interval"
+  ) %>%
+  # to avoid exhaustion of R memory
+  distinct() %>%
+  mutate(bd_interval = recode(bd_interval, # renaming dataframe rows
+    "[0.75,1]"   =   "0.75 - 1 [kg dm^-3]",
+    "(1,1.25]"   =   "1 - 1.25 [kg dm^-3]",
+    "(1.25,1.5]" =   "1.25 - 1.5 [kg dm^-3]",
+    "(1.5,1.75]" =   "1.5 - 1.75 [kg dm^-3]",
+    "(1.75,2]"   =   "1.75 - 2 [kg dm^-3]",
+    .keep = "all"
+  ))
+
+# -------------------------------------------------------------------------------------------------------------------
+# Final dataset of selected ecosystem services (including biodiversity and categories data) with soil SOC content
+# --------------------------------------------------------------------------------------------------------------------
+E_JOINED_D_C_BULK <-
+  left_join(
+    x = D_JOINED_A_B_ES_SAFTT, y = C_BULK,
+    by = c(
+      "ID.P" = "ID.P",
+      "ID.S" = "ID.S"
+    )
+  ) %>%
+  distinct() %>%
+  relocate(
+    ID.P, ID.S,
+    ES.GROUPS, `SAF System Trait type`, bd_interval
+  ) %>%
+  mutate_if(is.character, as.factor) %>%
+  # convert to factor, sort the facet plots in order of SOC intervals
+  mutate_at(vars(bd_interval), funs(factor(., levels = unique(.)))) 
+
+es.systrait.bd.data <- E_JOINED_D_C_BULK
+# ------------------------------------------------------------------------------------------------------------------------------
+# Saving the dataset
+readr::write_csv(es.systrait.bd.data, "./DATASET.FROM.SCRIPT/es.systrait.bd.data.csv")
+# ------------------------------------------------------------------------------
+glimpse(es.systrait.bd.data)
+```
+
+## ES - soil pH
+
+**Merging selected ecosystem services data with biophys variables; soil pH**
+```{r}
+# --------------------------------------------------------------------------------------------------------------------
+
+C_PH <- biophys.discretised.data %>%
+  dplyr::select(
+    "ID.P",
+    "ID.S",
+    "ph_interval"
+  ) %>%
+  # to avoid exhaustion of R memory
+  distinct() %>%
+  mutate(ph_interval = recode(ph_interval, # renaming dataframe rows
+    "[4,5]"   =   "pH 4 - 5",
+    "(5,6]"   =   "pH 5 - 6",
+    "(6,7]"   =   "pH 6 - 7",
+    "(7,8]"   =   "pH 7 - 8",
+    "(8,9]"   =   "pH 8 - 9",
+    .keep = "all"
+  ))
+
+# -------------------------------------------------------------------------------------------------------------------
+# Final dataset of selected ecosystem services (including biodiversity and categories data) with soil pH content
+# --------------------------------------------------------------------------------------------------------------------
+E_JOINED_D_C_PH <-
+  left_join(
+    x = D_JOINED_A_B_ES_SAFTT, y = C_PH,
+    by = c(
+      "ID.P" = "ID.P",
+      "ID.S" = "ID.S"
+    )
+  ) %>%
+  distinct() %>%
+  relocate(
+    ID.P, ID.S,
+    ES.GROUPS, `SAF System Trait type`, ph_interval
+  ) %>%
+  mutate_if(is.character, as.factor) %>%
+  # convert to factor, sort the facet plots in order of pH intervals
+  mutate_at(vars(ph_interval), funs(factor(., levels = unique(.)))) 
+
+es.systrait.ph.data <- E_JOINED_D_C_PH
+# ------------------------------------------------------------------------------------------------------------------------------
+# Saving the dataset
+readr::write_csv(es.systrait.ph.data, "./DATASET.FROM.SCRIPT/es.systrait.ph.data.csv")
+# ------------------------------------------------------------------------------
+glimpse(es.systrait.ph.data)
+```
+
+
+
+## ES - isothermality
 
 **Merging selected ecosystem services data with biophys variables;
-temperature**
+isothermality** Isothermality is defined as; Isothermality quantifies
+how large the day-to-night temperatures oscillate relative to the
+summer-to-winter (annual) oscillations. Isothermality is generally
+useful for biological entities (e.g. species and organisms). Units:
+Percent. Isothermality quantifies how large the day-to-night
+temperatures oscillate relative to the summer-to-winter (annual)
+oscillations. An isothermal value of 100 indicates the diurnal
+temperature range is equivalent to the annual temperature range, while
+anything less than 100 indicates a smaller level of temperature
+variability within an average month relative to the year. A species
+distribution may be influenced by larger or smaller temperature
+fluctuations within a month relative to the year and this predictor is
+useful for ascertaining such information.
 
+```{r warning=FALSE, message=FALSE}
+# --------------------------------------------------------------------------------------------------------------------------
+
+C_ISOT <- biophys.discretised.data %>%
+  dplyr::select(
+    "ID.P",
+    "ID.S",
+    "bio03_Isothermality_interval"
+  ) %>%
+  # to avoid exhaustion of R memory
+  distinct() %>%
+  mutate(bio03_Isothermality_interval = recode(bio03_Isothermality_interval, # rename dataframe rows
+    "[12,18]" = "12 - 18 [%]",
+    "(18,24]" = "18 - 24 [%]",
+    "(24,30]"  = "24 - 30 [%]",
+    "(30,36]" = "30 - 36 [%]",
+    "(36,42]" = "36 - 42 [%]",
+    "(42,48]" = "42 - 48 [%]",
+    .keep = "all"
+  ))
+
+# --------------------------------------------------------------------------------------------------------------------------
+# Final dataset of selected ecosystem services (including biodiversity and categories data) with temperature
+# --------------------------------------------------------------------------------------------------------------------------
+E_JOINED_D_C_ISOTs <-
+  left_join(
+    x = D_JOINED_A_B_ES_SAFTT, y = C_ISOT,
+    by = c(
+      "ID.P" = "ID.P",
+      "ID.S" = "ID.S"
+    )
+  ) %>%
+  distinct() %>%
+  relocate(
+    ID.P, ID.S,
+    ES.GROUPS, `SAF System Trait type`, bio03_Isothermality_interval
+  ) %>%
+  mutate_if(is.character, as.factor) %>%
+  # convert to factor, sort the facet plots in order of temperature intervals
+  mutate_at(vars(bio03_Isothermality_interval), funs(factor(., levels = unique(.))))
+
+es.systrait.isot.data <- E_JOINED_D_C_ISOTs
+# ------------------------------------------------------------------------------------------------------------------------------
+# Saving the dataset
+readr::write_csv(es.systrait.isot.data, "./DATASET.FROM.SCRIPT/es.systrait.isot.data.csv")
+# ------------------------------------------------------------------------------
+glimpse(es.systrait.isot.data)
+```
+
+## ES - temperature seasonality
+
+**Merging selected ecosystem services data with biophys variables;
+temperature seasonality** Temperature seasonality is defined as; the
+amount of temperature variation over a given year (or averaged years)
+based on the standard deviation (variation) of monthly temperature
+averages. Units: Temperature (degrees Celsius)
+
+```{r warning=FALSE, message=FALSE}
+# --------------------------------------------------------------------------------------------------------------------------
+
+C_TEMP_s <- biophys.discretised.data %>%
+  dplyr::select(
+    "ID.P",
+    "ID.S",
+    "bio04_Temp_seasonality_interval"
+  ) %>%
+  # to avoid exhaustion of R memory
+  distinct() %>%
+  mutate(bio04_Temp_seasonality_interval = recode(bio04_Temp_seasonality_interval, # rename dataframe rows
+    "[2.5,5]" = "2.5 - 5 [°C]",
+    "(5,7.5]" = "5 - 7.5 [°C]",
+    "(7.5,10]"  = "7.5 - 10 [°C]",
+    "(10,12.5]" = "10 - 12.5 [°C]",
+    "(12.5,15]" = "12.5 - 15 [°C]",
+    "(15,17.5]" = "15 - 17.5 [°C]",
+    .keep = "all"
+  ))
+
+# --------------------------------------------------------------------------------------------------------------------------
+# Final dataset of selected ecosystem services (including biodiversity and categories data) with temperature
+# --------------------------------------------------------------------------------------------------------------------------
+E_JOINED_D_C_TEMP_s <-
+  left_join(
+    x = D_JOINED_A_B_ES_SAFTT, y = C_TEMP_s,
+    by = c(
+      "ID.P" = "ID.P",
+      "ID.S" = "ID.S"
+    )
+  ) %>%
+  distinct() %>%
+  relocate(
+    ID.P, ID.S,
+    ES.GROUPS, `SAF System Trait type`, bio04_Temp_seasonality_interval
+  ) %>%
+  mutate_if(is.character, as.factor) %>%
+  # convert to factor, sort the facet plots in order of temperature intervals
+  mutate_at(vars(bio04_Temp_seasonality_interval), funs(factor(., levels = unique(.))))
+
+es.systrait.temp.seasonality.data <- E_JOINED_D_C_TEMP_s
+# ------------------------------------------------------------------------------------------------------------------------------
+# Saving the dataset
+readr::write_csv(es.systrait.temp.seasonality.data, "./DATASET.FROM.SCRIPT/es.systrait.temp.seasonality.data.csv")
+# ------------------------------------------------------------------------------
+glimpse(es.systrait.temp.seasonality.data)
+```
+
+## ES - precipitation seasonality
+
+Precipitation seasonality is defined as; a
+measure of the variation in monthly precipitation totals over the course
+of the year. This index is the ratio of the standard deviation of the
+monthly total precipitation to the mean monthly total precipitation
+(also known as the coefficient of variation) and is expressed as a
+percentage. Units: Percent
+
+**Merging selected ecosystem services data with biophys variables; precipitation seasonality** 
+```{r warning=FALSE, message=FALSE}
+# --------------------------------------------------------------------------------------------------------------------------
+
+C_PREC_s <- biophys.discretised.data %>%
+  dplyr::select(
+    "ID.P",
+    "ID.S",
+    "bio15_Prec_seasonality_interval"
+  ) %>%
+  # to avoid exhaustion of R memory
+  distinct() %>%
+  mutate(bio15_Prec_seasonality_interval = recode(bio15_Prec_seasonality_interval, # rename dataframe rows
+    "[0,20]" = "0 - 20 [%]",
+    "(20,40]" = "20 - 40 [%]",
+    "(40,60]"  = "40 - 60 [%]",
+    "(60,80]" = "60 - 80 [%]",
+    "(80,100]" = "80 - 100 [%]",
+    "(100,120]" = "100 - 120 [%]",
+    .keep = "all"
+  ))
+
+# --------------------------------------------------------------------------------------------------------------------------
+# Final dataset of selected ecosystem services (including biodiversity and categories data) with precipitation
+# --------------------------------------------------------------------------------------------------------------------------
+E_JOINED_D_C_PREC_s <-
+  left_join(
+    x = D_JOINED_A_B_ES_SAFTT, y = C_PREC_s,
+    by = c(
+      "ID.P" = "ID.P",
+      "ID.S" = "ID.S"
+    )
+  ) %>%
+  distinct() %>%
+  relocate(
+    ID.P, ID.S,
+    ES.GROUPS, `SAF System Trait type`, bio15_Prec_seasonality_interval
+  ) %>%
+  mutate_if(is.character, as.factor) %>%
+  # convert to factor, sort the facet plots in order of precipitation intervals
+  mutate_at(vars(bio15_Prec_seasonality_interval), funs(factor(., levels = unique(.))))
+
+es.systrait.prec.seasonality.data <- E_JOINED_D_C_PREC_s
+# ------------------------------------------------------------------------------------------------------------------------------
+# Saving the dataset
+readr::write_csv(es.systrait.prec.seasonality.data, "./DATASET.FROM.SCRIPT/es.systrait.prec.seasonality.data.csv")
+# ------------------------------------------------------------------------------
+glimpse(es.systrait.prec.seasonality.data)
+```
+
+## ES - annual mean temperature
+
+**Merging selected ecosystem services data with biophys variables; temperature**
 ```{r warning=FALSE, message=FALSE}
 # --------------------------------------------------------------------------------------------------------------------------
 
@@ -3026,11 +4163,11 @@ C_TEMP <- biophys.discretised.data %>%
   dplyr::select(
     "ID.P",
     "ID.S",
-    "Temp_interval"
+    "bio01_Annual_mean_temp_interval"
   ) %>%
   # to avoid exhaustion of R memory
   distinct() %>%
-  mutate(Temp_interval = recode(Temp_interval, # rename dataframe rows
+  mutate(bio01_Annual_mean_temp_interval = recode(bio01_Annual_mean_temp_interval, # rename dataframe rows
     "[-10,-5]" = "-10 - -5 [°C]",
     "(-5,0]" = "-5 - 0 [°C]",
     "(0,5]"  = "0 - 5 [°C]",
@@ -3051,13 +4188,14 @@ E_JOINED_D_C_TEMP <-
       "ID.S" = "ID.S"
     )
   ) %>%
+  distinct() %>%
   relocate(
     ID.P, ID.S,
-    ES.GROUPS, `SAF System Trait type`, Temp_interval
+    ES.GROUPS, `SAF System Trait type`, bio01_Annual_mean_temp_interval
   ) %>%
   mutate_if(is.character, as.factor) %>%
   # convert to factor, sort the facet plots in order of temperature intervals
-  mutate_at(vars(Temp_interval), funs(factor(., levels = unique(.))))
+  mutate_at(vars(bio01_Annual_mean_temp_interval), funs(factor(., levels = unique(.))))
 
 es.systrait.temp.data <- E_JOINED_D_C_TEMP
 # ------------------------------------------------------------------------------------------------------------------------------
@@ -3067,11 +4205,9 @@ readr::write_csv(es.systrait.temp.data, "./DATASET.FROM.SCRIPT/es.systrait.temp.
 glimpse(es.systrait.temp.data)
 ```
 
-## Ecosystem services (selected ecosystem services) - precipitation
+## ES - annual precipitation
 
-**Merging selected ecosystem services data with biophys variables;
-precipitation**
-
+**Merging selected ecosystem services data with biophys variables; precipitation**
 ```{r warning=FALSE, message=FALSE}
 # --------------------------------------------------------------------------------------------------------------------------
 
@@ -3080,10 +4216,10 @@ C_PREC <- biophys.discretised.data %>%
     "ID.P",
     "ID.S",
     
-    "Prec_interval") %>%
+    "bio12_Annual_prec_interval") %>%
   # to avoid exhaustion of R memory
   distinct() %>%
-  mutate(Prec_interval = recode(Prec_interval,                      # rename dataframe rows
+  mutate(bio12_Annual_prec_interval = recode(bio12_Annual_prec_interval,               # rename dataframe rows
                                 "[0,300]" = "0 - 300 [mm]",
                                 "(300,600]" = "300 - 600 [mm]",
                                 "(600,900]"  = "600 - 900 [mm]",
@@ -3099,11 +4235,12 @@ E_JOINED_D_C_PREC <-
   left_join(x = D_JOINED_A_B_ES_SAFTT, y = C_PREC,
             by = c("ID.P" = "ID.P",
                    "ID.S" = "ID.S")) %>%
+  distinct() %>%
   relocate(ID.P, ID.S,
-           ES.GROUPS, `SAF System Trait type`, Prec_interval) %>%
+           ES.GROUPS, `SAF System Trait type`, bio12_Annual_prec_interval) %>%
   mutate_if(is.character, as.factor) %>%
   # convert to factor, sort the facet plots in order of precipitation interval levels
-  mutate_at(vars(Prec_interval), funs(factor(., levels=unique(.)))) 
+  mutate_at(vars(bio12_Annual_prec_interval), funs(factor(., levels=unique(.)))) 
 
 es.systrait.prec.data <- E_JOINED_D_C_PREC
 # ------------------------------------------------------------------------------------------------------------------------------
@@ -3111,4 +4248,377 @@ es.systrait.prec.data <- E_JOINED_D_C_PREC
 readr::write_csv(es.systrait.prec.data, "./DATASET.FROM.SCRIPT/es.systrait.prec.data.csv")
 # ------------------------------------------------------------------------------
 glimpse(es.systrait.prec.data)
+```
+
+## ES - temperature extremes (bio10) *
+
+Bio10 = mean temperature warmest quarter
+
+**Merging selected ecosystem services data with biophys variables; temperature extremes**
+```{r warning=FALSE, message=FALSE}
+# --------------------------------------------------------------------------------------------------------------------------
+
+C_TEMP_bio10 <- biophys.discretised.data %>%
+  dplyr::select(
+    "ID.P",
+    "ID.S",
+    "bio10_Mean_temp_warmest_quarter_interval"
+  ) %>%
+  # to avoid exhaustion of R memory
+  distinct() %>%
+  mutate(bio10_Mean_temp_warmest_quarter_interval = recode(bio10_Mean_temp_warmest_quarter_interval, 
+    "[7,10.5]" = "7 - 10.5 [°C]",
+    "(10.5,14]" = "10.5 - 14 [°C]",
+    "(14,17.5]"  = "14 - 17.5 [°C]",
+    "(17.5,21]" = "17.5 - 21 [°C]",
+    "(21,24.5]" = "21 - 24.5 [°C]",
+    "(24.5,28]" = "24.5 - 28 [°C]",
+    .keep = "all"
+  ))
+
+# --------------------------------------------------------------------------------------------------------------------------
+# Final dataset of selected ecosystem services (including biodiversity and categories data) with temperature
+# --------------------------------------------------------------------------------------------------------------------------
+E_JOINED_D_C_TEMP_bio10 <-
+  left_join(
+    x = D_JOINED_A_B_selected_soil_ES_bioclim_SAFTT, y = C_TEMP_bio10,
+    by = c(
+      "ID.P" = "ID.P",
+      "ID.S" = "ID.S"
+    )
+  ) %>%
+  distinct() %>%
+  relocate(
+    ID.P, ID.S,
+    ES.GROUPS, `SAF System Trait type`, bio10_Mean_temp_warmest_quarter_interval
+  ) %>%
+  mutate_if(is.character, as.factor) %>%
+  # convert to factor, sort the facet plots in order of temperature intervals
+  mutate_at(vars(bio10_Mean_temp_warmest_quarter_interval), funs(factor(., levels = unique(.))))
+
+es.systrait.temp.bio10.data <- E_JOINED_D_C_TEMP_bio10
+# ------------------------------------------------------------------------------------------------------------------------------
+# Saving the dataset
+readr::write_csv(es.systrait.temp.bio10.data, "./DATASET.FROM.SCRIPT/es.systrait.temp.bio10.data.csv")
+# ------------------------------------------------------------------------------
+glimpse(es.systrait.temp.bio10.data)
+```
+
+
+**Merging selected ecosystem services data with biophys variables; temperature extremes**
+```{r warning=FALSE, message=FALSE}
+# --------------------------------------------------------------------------------------------------------------------------
+
+C_TEMP_bio10 <- biophys.discretised.data %>%
+  dplyr::select(
+    "ID.P",
+    "ID.S",
+    "bio10_Mean_temp_warmest_quarter_interval"
+  ) %>%
+  # to avoid exhaustion of R memory
+  distinct() %>%
+  mutate(bio10_Mean_temp_warmest_quarter_interval = recode(bio10_Mean_temp_warmest_quarter_interval, 
+    "[7,10.5]" = "7 - 10.5 [°C]",
+    "(10.5,14]" = "10.5 - 14 [°C]",
+    "(14,17.5]"  = "14 - 17.5 [°C]",
+    "(17.5,21]" = "17.5 - 21 [°C]",
+    "(21,24.5]" = "21 - 24.5 [°C]",
+    "(24.5,28]" = "24.5 - 28 [°C]",
+    .keep = "all"
+  ))
+
+# --------------------------------------------------------------------------------------------------------------------------
+# Final dataset of selected ecosystem services (including biodiversity and categories data) with temperature
+# --------------------------------------------------------------------------------------------------------------------------
+E_JOINED_D_C_TEMP_bio10 <-
+  left_join(
+    x = D_JOINED_A_B_selected_soil_ES_bioclim_SAFTT, y = C_TEMP_bio10,
+    by = c(
+      "ID.P" = "ID.P",
+      "ID.S" = "ID.S"
+    )
+  ) %>%
+  distinct() %>%
+  relocate(
+    ID.P, ID.S,
+    ES.GROUPS, `SAF System Trait type`, bio10_Mean_temp_warmest_quarter_interval
+  ) %>%
+  mutate_if(is.character, as.factor) %>%
+  # convert to factor, sort the facet plots in order of temperature intervals
+  mutate_at(vars(bio10_Mean_temp_warmest_quarter_interval), funs(factor(., levels = unique(.))))
+
+es.systrait.temp.bio10.data <- E_JOINED_D_C_TEMP_bio10
+# ------------------------------------------------------------------------------------------------------------------------------
+# Saving the dataset
+readr::write_csv(es.systrait.temp.bio10.data, "./DATASET.FROM.SCRIPT/es.systrait.temp.bio10.data.csv")
+# ------------------------------------------------------------------------------
+glimpse(es.systrait.temp.bio10.data)
+```
+
+## ES - precipitation/draught extremes (bio17) *
+
+Bio17 = precipitation driest quarter
+
+**Merging selected ecosystem services data with biophys variables; precipitation extremes**
+```{r warning=FALSE, message=FALSE}
+# --------------------------------------------------------------------------------------------------------------------------
+
+C_PREC_bio17 <- biophys.discretised.data %>%
+  dplyr::select(
+    "ID.P",
+    "ID.S",
+    "bio17_Prec_driest_quarter_interval"
+  ) %>%
+  # to avoid exhaustion of R memory
+  distinct() %>%
+  mutate(bio17_Prec_driest_quarter_interval = recode(bio17_Prec_driest_quarter_interval, 
+    "[0,60]" = "0 - 60 [mm]",
+    "(60,120]" = "60 - 120 [mm]",
+    "(120,180]"  = "120 - 180 [mm]",
+    "(180,240]" = "180 - 240 [mm]",
+    "(240,300]" = "240 - 300 [mm]", # does not exist, so a dummy row is added further down to have 6 intervals
+    "(300,360]" = "300 - 360 [mm]",
+    .keep = "all"
+  )) 
+
+# --------------------------------------------------------------------------------------------------------------------------
+# Final dataset of selected ecosystem services (including biodiversity and categories data) with temperature
+# --------------------------------------------------------------------------------------------------------------------------
+E_JOINED_D_C_PREC_bio17 <-
+  left_join(
+    x = D_JOINED_A_B_selected_soil_ES_bioclim_SAFTT, y = C_PREC_bio17,
+    by = c(
+      "ID.P" = "ID.P",
+      "ID.S" = "ID.S"
+    )
+  ) %>%
+  distinct() %>%
+  relocate(
+    ID.P, ID.S,
+    ES.GROUPS, `SAF System Trait type`, bio17_Prec_driest_quarter_interval
+  ) %>%
+  mutate_if(is.character, as.factor) %>%
+  # convert to factor, sort the facet plots in order of temperature intervals
+  mutate_at(vars(bio17_Prec_driest_quarter_interval), funs(factor(., levels = unique(.)))) %>%   
+# Adding dummy row for the range (240,300] because there is no such incedence and it looks ugly in the plot
+  add_row(bio17_Prec_driest_quarter_interval = "240 - 300 [mm]",
+          `SAF System Trait type` = "Timber - Arable", 
+          ES.GROUPS = "Food (yield)",
+          ID.P = 3,
+          ID.S = 1,
+          count = 1)
+
+es.systrait.prec.bio17.data <- E_JOINED_D_C_PREC_bio17 
+# ------------------------------------------------------------------------------------------------------------------------------
+# Saving the dataset
+readr::write_csv(es.systrait.prec.bio17.data, "./DATASET.FROM.SCRIPT/es.systrait.prec.bio17.data.csv")
+# ------------------------------------------------------------------------------
+glimpse(es.systrait.prec.bio17.data)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Projected future climates and relation to ES research for silvoarable agroforestry in Europe
+
+## Get current climate data
+
+```{r}
+file_path <- paste0(dirname(here::here()), "/silvoarable_review/DATASET.FROM.SCRIPT/")
+
+# geodata::worldclim_global(var = 'bio', res = 2.5, path = file_path)
+
+raster::getData(name = 'worldclim', 
+                var = 'bio', 
+                # resolution 10 in order to get the right data types for processing
+                res = 10, 
+                path = file_path)
+```
+
+## Get projected future climate data
+
+```{r}
+raster::getData(
+  # data from the CMIP5 models - resolution 10 in order to get the right data types for processing
+  name = "CMIP5", var = "bio", res = 10, 
+  # RCP 4.5 assumes a peak decline in GHG emissions around 2040, followed by decreasing emission
+  rcp = 45, 
+  # single model results of the IPSL-CM5A-LR’ model
+  model = "IP",
+  # get projections for the period 2061-2080 (alternative is 50).
+  year = 70, 
+  path = file_path
+)
+```
+
+## Load and process isothermality data
+
+```{r}
+iso_T <- stars::read_stars(paste0(file_path, "wc10/bio3.bil"))
+
+iso_T_70 <- stars::read_stars(paste0(file_path, "cmip5/10m/ip45bi703.tif"))
+```
+
+## Plotting Europe map
+
+## Global map of study (experimental sites) locations
+
+Creating and plotting the **global map**
+
+```{r}
+world <- map_data("world") %>%
+  filter(region != "Antarctica") # get the world map coordinates using map_data() function from the tidyverse suit of packages
+
+
+
+world.study.sites <-
+  ggplot() +
+  geom_map(
+    data = world, map = world,
+    aes(long, lat, map_id = region),
+    color = "white", fill = "lightgray", size = 0.1
+  ) +
+  geom_point(
+    data = database.lat.lon,
+    aes(longitude, latitude, color = ST.TYPE),
+    alpha = 1, size = 0.2
+  ) +
+  geom_rect(
+    aes(xmin = -15, xmax = 35, ymin = 35.5, ymax = 59),
+    color = "black", fill = NA, inherit.aes = FALSE
+  ) +
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(angle = 0, hjust = 1), legend.position = "top",
+    plot.margin = margin(t = 0, r = 5, b = 0, l = 5, unit = "pt")
+  ) +
+  # scale_colour_discrete_qualitative(palette = "Dynamic", nmax = 8) +
+  guides(color = guide_legend(override.aes = list(size = 1.5))) +
+  coord_sf(ylim = c(20, 70), xlim = c(-140, 140)) +
+  labs( # title = "Locations of study sites for peer-reviewed silvoarable agroforestry",
+    # subtitle = paste("n (individual study sites) = ", n_individual_study_sites),
+    # caption = paste0("Total number of independent studies = ", n_independent_studies),
+    x = "Longitude",
+    y = "Latitude"
+  )
+# ggtitle("A")
+
+world.study.sites
+```
+
+Creating map that is **zoomed on Europe** Now what if we wanted to use
+the *Mollweide projection* again as target projection
+
+```{r}
+# At first, we set the target CRS and transform the whole worldmap dataset to that CRS.
+worldmap <- ne_countries(
+  scale = "medium", type = "map_units",
+  returnclass = "sf"
+)
+target_crs <- "+proj=moll"
+worldmap_trans <- st_transform(worldmap, crs = target_crs)
+
+# Next, we specify the display window in WGS84 coordinates as longitude / latitude degrees.
+
+disp_win_wgs84 <- st_sfc(st_point(c(-20, 30)), st_point(c(45, 73)),
+  crs = 4326
+)
+
+# These coordinates can be transformed to our target CRS via st_transform.
+
+disp_win_trans <- st_transform(disp_win_wgs84, crs = target_crs)
+
+# We can extract the coordinates from these points and pass them as limits for the x and y scale respectively. Note also that I set datum = target_crs which makes sure that the graticule is displayed in the target CRS. Otherwise ggplot2 by default displays a WGS84 graticule.
+
+disp_win_coord <- st_coordinates(disp_win_trans)
+
+ Europe_map <- 
+   ggplot() +
+  geom_sf(data = worldmap_trans) +
+  coord_sf(
+    xlim = disp_win_coord[, "X"], ylim = disp_win_coord[, "Y"],
+    datum = target_crs, expand = FALSE
+  ) +
+  theme_bw()
+```
+
+```{r}
+south_america_map <- rnaturalearth::ne_countries(continent = "south america", returnclass = "sf")
+# The precision has to be set to a value > 0 to resolve internal boundaries.
+st_precision(south_america_map) <- 1e9 # Required to
+south_america_map <- st_union(south_america_map)
+
+{
+par(mar = c(0,0,0,0))
+plot(south_america_map)
+}
+```
+
+## Get map of Europe
+
+```{r}
+
+world_map <- ne_countries(scale = "medium", returnclass = "sf")
+Europe_map <- world[which(world$continent == "Europe"),]
+
+glimpse(Europe_map)
+
+Europe_map <- Europe_map %>%
+  dplyr::filter(!sovereignt == "Russia")
+
+# The precision has to be set to a value > 0 to resolve internal boundaries.
+st_precision(Europe_map) <- 1e15 # Required to
+Europe_map <- st_union(Europe_map)
+
+ggplot(Europe_map) +
+  geom_sf() +
+  coord_sf(xlim = c(-25,50), ylim = c(35,70), expand = FALSE)
+```
+
+## Crop climate raster data to area of Europe
+
+To crop a raster with the stars package, square brackets [] will work as
+crop operator (see here for details).
+
+```{r}
+iso_T_Eu <- iso_T[Europe_map]
+# CRS for projected T and south america map are the same (EPSG 4326) but the
+# proj4string includes more details for annual_T_70. Thus, they have to
+# be made identical before cropping.
+st_crs(iso_T_70) <- st_crs(Europe_map)
+iso_T_70_Eu <- iso_T_70[Europe_map]
+```
+
+```{r}
+nbreaks <- 9
+# colors.
+temp_colors <- colorRampPalette(c("#fff7ec", "#fee8c8", "#fdd49e", "#fdbb84", "#fc8d59", "#ef6548", "#d7301f", "#b30000", "#7f0000"))
+
+{
+  par(mfrow = c(1, 2))
+  plot(iso_T_70_Eu, main = "Isothermality - 1960-1990",
+       nbreaks = nbreaks,
+       col = temp_colors(nbreaks - 1))
+  plot(main = "Isothermality - RCP 4.5 projection for 2061-2080",
+       iso_T_70_Eu, nbreaks = nbreaks,
+       col = temp_colors(nbreaks - 1)) 
+}
 ```
