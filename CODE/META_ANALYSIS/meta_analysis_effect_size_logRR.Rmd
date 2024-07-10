@@ -5,10 +5,20 @@ date: "2024-07-06"
 output: html_document
 ---
 
+#############
+# STEP 0
+##########################################################################################################################################
+PREPARING SCRIPT AND READ IN THE DATA
+##########################################################################################################################################
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+```{r}
+# Clean workspace
+rm(list = ls())
+```
 
 
 ## Loading required packages and libraries
@@ -28,6 +38,7 @@ suppressWarnings({
     rnaturalearth,    # For accessing Natural Earth map data
     rnaturalearthdata,# Companion package to rnaturalearth providing the data
     raster,           # For spatial data analysis, especially BioClim variables from WorldClim
+    missForest,       # Random Forest method for imputing missing data
     sp,               # For spatial data classes and methods
     sf,               # For simple features in R, handling vector data
     soilDB,           # For downloading soil data from ISRIC SoilGrids
@@ -40,14 +51,15 @@ suppressWarnings({
 ```
 
 
-## Loading main database
+## Loading the dataset (main database)
 
 ```{r Loading database, warning=FALSE, message=FALSE}
-# Get the current working directory
-place_of_database <- "~/Library/Mobile Documents/com~apple~CloudDocs/Temperate_Agroforestry_PAPER/META_ANALYSIS/R/silvoarable_review/DATA/DATABASE_2.0.xlsx"
+# Set the working directory
+setwd("~/Library/Mobile Documents/com~apple~CloudDocs/SAF_Meta_analysis/META_ANALYSIS/R/Temperate_SAF_meta_analysis")
 
+# Suppress warnings to avoid clutter in the console output
 suppressWarnings({
-  database <- read_excel("DATA/Final_database_2024_05_17.xlsx", 
+  database <- read_excel("DATA/META_ANALYSIS/Final_database_2024_05_17.xlsx", 
                            sheet = "Quantatitive data") 
   #%>%
   #  filter(INCLUDED == TRUE) # include only data entries that have been assesed and deemed included
@@ -58,14 +70,41 @@ suppressWarnings({
 ```{r Glimpse the dataset, eval=FALSE}
 database %>% dplyr::glimpse() 
 ```
+
 ```{r}
 database %>% summary() 
 ```
 
+
+#############
+# STEP 1
+##########################################################################################################################################
+DATA PREPROCESSING
+##########################################################################################################################################
+
+```{r}
+# Replace non-numeric values with NA and ensure the columns are numeric
+database_clean <- database %>% 
+  mutate(
+    silvo_se = if_else(is.na(as.numeric(silvo_se)), NA_real_, as.numeric(silvo_se)),
+    control_se = if_else(is.na(as.numeric(control_se)), NA_real_, as.numeric(control_se))
+  )
+
+```
+
+
+
+#############
+# STEP 2
+##########################################################################################################################################
+CALCULATING INITIAL EFFECT SIZES AND EVALUATING NUMBER OF STUDIES TO INCLUDE (SENSITIVITY ANALYSIS)
+##########################################################################################################################################
+
+
 ```{r}
 ## Calculate Effect Sizes and Variances for Multiple Parameters
 # Log-transformed response ratios (lnRR) and corresponding variances
-meta_data <- database %>%
+data_lnRR <- database_clean %>%
   filter(
     !is.na(silvo_mean) & !is.na(control_mean) & !is.na(silvo_n) & 
     !is.na(control_n) & !is.na(silvo_se) & !is.na(control_se)
@@ -152,4 +191,37 @@ for (response in response_vars) {
 ```
 
 
+#############
+# STEP 3
+##########################################################################################################################################
 
+##########################################################################################################################################
+
+
+
+
+
+
+
+
+#############
+# STEP 4
+##########################################################################################################################################
+
+##########################################################################################################################################
+
+
+
+
+
+
+
+
+
+
+
+#############
+# STEP 5
+##########################################################################################################################################
+
+##########################################################################################################################################
