@@ -12,6 +12,10 @@ editor_options:
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+```{r}
+setwd("~/Library/Mobile Documents/com~apple~CloudDocs/Temperate_Agroforestry_PAPER/META_ANALYSIS/R/silvoarable_review")
+```
+
 # Aim & Research questions
 
 The **aim** of this systematic mapping review is to thoroughly catalogue
@@ -40,6 +44,7 @@ Packages to be installed first
 
 ```{r Installing the pacman package, warning=FALSE}
 # install.packages("pacman")
+# install.packages("readxl")
 # install.packages("pacman")
 # install.packages("tidygeocoder")
 # install.packages("ggdensity")
@@ -89,8 +94,11 @@ suppressWarnings({
 ## Loading main database
 
 ```{r Loading database 2.0, warning=FALSE, message=FALSE}
+# Get the current working directory
+place_of_database <- "~/Library/Mobile Documents/com~apple~CloudDocs/Temperate_Agroforestry_PAPER/META_ANALYSIS/R/silvoarable_review/DATA/DATABASE_2.0.xlsx"
+
 suppressWarnings({
-  database <- read_excel("DATA/DATABASE_2.0.xlsx",
+  database <- readxl::read_excel(path = place_of_database,
     sheet = "MAIN_DATABASE_2.0"
   ) %>%
     filter(INCLUDED == TRUE) # include only data entries that have been assesed and deemed included
