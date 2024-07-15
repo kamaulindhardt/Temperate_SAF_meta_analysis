@@ -1,0 +1,515 @@
+---
+title: "logRR"
+author: "Kamau Lindhardt, lbk125"
+date: "2024-07-06"
+output: html_document
+---
+
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+
+
+################################################################################
+Sources for developing approaches in meta-analysis: 
+
+https://wviechtb.github.io/metafor/reference/rma.mv.html 
+https://www.taylorfrancis.com/chapters/edit/10.1201/9780429061240-8/multivariate-meta-analysis-ding-geng-din-chen-karl-peace 
+https://training.cochrane.org/handbook/current/chapter-06 
+https://training.cochrane.org/handbook/current/chapter-10
+
+
+It is not uncommon for studies to have multiple outcome measures which lead to statistical multivariate analysis. The results of studies with multiple outcomes and/or endpoints are typically synthesized via conventional univariate meta-analysis (UMA) on each outcome separately, ignoring the correlations between the outcomes. The impact of ignoring the within-study correlation has been explored extensively in the statistical literature, with issues including overestimated variance of the pooled eﬀect size and biased estimates, which in turn may inﬂuence statistical inferences. In this case, multivariate meta-analysis should be used to synthesize multiple outcomes while taking into account their correlations, often resulting in superior parameter estimation. With study-level moderators or predictors, multivariate meta-regression can also be developed in parallel with multivariate regression techniques.
+
+Meta-Analysis with R Package metafor. Rearrange the Data Format. In order to use the metafor package for multivariate meta-analysis, meta-data
+should be rearranged accordingly. With this rearranged data format, we then construct a list of the variance-covariance matrices of the observed outcomes for the ﬁve studies to create a block diagonal matrix, V, for metafor.
+With the rearranged data and variance-covariance matrix, V, we now ﬁt the ﬁxed-eﬀects meta-analysis model using metafor with the option of
+method="FE". To ﬁt the random-eﬀects multivariate meta-analysis model using the metafor package, we simply change the option to method="REML". We note that this reproduces the results, with this random-effects model, we can also test the difference between
+
+#####################################################
+
+Response Variables are measured on a continuous scale, where each individual outcome is a measurement of a numerical quantity
+Chosen Effect Size:  
+
+Formulae to estimate effects (and their standard errors)?
+
+
+
+
+
+
+#############
+# STEP 0
+##########################################################################################################################################
+PREPARING SCRIPT AND READ IN THE DATA
+##########################################################################################################################################
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# Clean workspace
+rm(list = ls())
+```
+
+
+## Loading required packages and libraries
+
+```{r Loading other needed packages, warning=FALSE}
+# Suppress warnings to avoid clutter in the console output
+suppressWarnings({
+
+  # Load multiple add-on packages using pacman::p_load for efficiency
+  pacman::p_load(
+    conflicted,       # an Alternative Conflict Resolution Strategy
+    here,             # Easy file referencing by using the top-level directory of a file project
+    tidyverse,        # Comprehensive collection of R packages for data science
+    readxl,           # To read Excel files
+    vroom,            # Fast reading of large datasets from local disk
+    janitor,          # For cleaning and renaming data columns
+    styler,           # For code formatting and styling
+    tidygeocoder,     # For geocoding addresses to latitude/longitude
+    rnaturalearth,    # For accessing Natural Earth map data
+    rnaturalearthdata,# Companion package to rnaturalearth providing the data
+    raster,           # For spatial data analysis, especially BioClim variables from WorldClim
+    missForest,       # Random Forest method for imputing missing data
+    sp,               # For spatial data classes and methods
+    sf,               # For simple features in R, handling vector data
+    soilDB,           # For downloading soil data from ISRIC SoilGrids
+    aqp,              # For soil profile visualization and analysis
+    metafor,          # For conducting meta-analysis, effect sizes, and response ratios
+    mice              # A package for to deal with missing data, by creating multiple imputations (replacement values) for multivariate missing data
+  )
+  
+  # If encountering issues with raster::getData(), consider using geodata::worldclim_global() from the geodata package
+})
+
+# Set preferences for conflicting functions
+conflict_prefer("filter", "dplyr")
+conflict_prefer("group_by", "dplyr")
+conflict_prefer("summarise", "dplyr")
+conflict_prefer("mutate", "dplyr")
+conflict_prefer("arrange", "dplyr")
+conflict_prefer("locale", "readr")
+```
+
+
+## Loading the dataset (main database)
+
+```{r Loading database, warning=FALSE, message=FALSE}
+# Set the working directory
+#setwd("~/Library/Mobile Documents/com~apple~CloudDocs/SAF_Meta_analysis/META_ANALYSIS/R/Temperate_SAF_meta_analysis")
+# here::here("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temperate_SAF_meta_analysis/DATA/META_ANALYSIS/Final_database_2024_05_17.xlsx")
+
+# Suppress warnings to avoid clutter in the console output
+suppressWarnings({
+  database <- read_excel(here::here("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temperate_SAF_meta_analysis/DATA/META_ANALYSIS/Final_database_2024_05_17.xlsx"), 
+                           sheet = "Quantatitive data") 
+  #%>%
+  #  filter(INCLUDED == TRUE) # include only data entries that have been assesed and deemed included
+})
+```
+
+**Glimpse (taking a look at the data)**
+```{r Glimpse the dataset, eval=FALSE}
+database %>% dplyr::glimpse() 
+```
+
+```{r}
+database %>% summary() 
+```
+
+
+#############
+# STEP 1
+##########################################################################################################################################
+DATA PREPROCESSING
+##########################################################################################################################################
+
+```{r}
+# Function to safely convert to numeric, replacing non-numeric values with NA
+safe_as_numeric <- function(x) {
+  suppressWarnings(as.numeric(x))
+}
+
+# Convert standard errors to numeric and handle non-numeric values
+database_clean <- database %>%
+  # Streamlining and cleaning variable column names
+  janitor::clean_names() %>% 
+  # Converting to numerical data type
+  mutate(
+    silvo_se = safe_as_numeric(silvo_se),
+    control_se = safe_as_numeric(control_se)
+  ) %>%
+  # Ensure no infinite or NaN values are present in any variable columns
+  mutate_all(~ifelse(is.infinite(.), NA, .)) %>%
+  mutate_all(~ifelse(is.nan(.), NA, .)) %>%
+  # Relocating variable columns to better get an overview of the data
+  relocate(
+    id_article, response_variable, measured_metrics, measured_unit, 
+    silvo_mean, silvo_se, silvo_sd, silvo_n,
+    control_mean, control_se, control_sd, control_n
+  )
+
+database_clean
+```
+
+```{r}
+database_clean %>% glimpse()
+
+database_clean %>% summary()
+```
+
+#############
+VIEWING DATA
+#############
+
+```{r}
+database_clean %>% 
+  group_by(response_variable) %>%
+  summarise(n_silvo = sum(silvo_n),
+            n_control = sum(control_n),
+            mean_silvo = mean(silvo_mean),
+            mean_control = mean(control_mean))
+```
+
+
+##########################################
+Perform imputation using "mice" (Multivariate Imputation by Chained Equations)
+##########################################
+
+```{r}
+####################################################################################
+# Extract relevant columns for imputation
+col_for_impute <- database_clean %>%
+  dplyr::select(silvo_se, control_se) 
+
+####################################################################################
+# Set seed for reproducibility
+set.seed(123)
+
+# Perform imputation using mice
+# - col_for_impute: the data frame containing the columns to be imputed
+# - m = 5: number of multiple imputations to perform
+# - maxit = 50: maximum number of iterations to perform for each imputation
+# - method = 'pmm': method to use for imputation, 'pmm' stands for predictive mean matching
+# - seed = 500: random seed for reproducibility of the imputations
+
+imputed_data <- mice(col_for_impute, m = 5, maxit = 50, method = 'pmm', seed = 500)
+
+####################################################################################
+
+# Check the summary of imputed data
+summary(imputed_data)
+
+####################################################################################
+# Choose one of the multiple imputations (e.g., the first imputation)
+imputed_col_data <- complete(imputed_data, 1)
+summary(imputed_col_data)
+
+####################################################################################
+# Update the original data with imputed values
+imputed_database_clean <- database_clean %>%
+  mutate(
+    silvo_se = imputed_col_data$silvo_se,
+    control_se = imputed_col_data$control_se
+  ) %>% 
+  filter(silvo_se > 0, 
+         control_se > 0)
+
+imputed_database_clean
+```
+```{r}
+imputed_database_clean %>% summary()
+```
+
+```{r}
+meta_data <- imputed_database_clean
+```
+
+
+#############
+# STEP 2
+##########################################################################################################################################
+CALCULATING EFFECT SIZE MEASURE, CHOOSING RESPONSE VARIABLES, AND PERFORM SENSITIVITY ANALYSIS ON MISSING OUTCOME DATA
+##########################################################################################################################################
+
+
+################################
+A) The standardized mean difference: It is necessary to standardize the results of the studies to a uniform scale before they can be combined. For     effect measure in our case we can use Ratio of Means (RoM) as the ratio of means can be used in either situation, but is appropriate only when      outcome measurements are strictly greater than zero.
+
+log-transformed response ratio (lnRR)
+```{r}
+# Calculate Effect Sizes (lnRR) and Variances for Multiple Parameters
+meta_data_lnRR <- meta_data %>%
+  # Filter out rows with missing values in key columns
+  filter(
+    !is.na(silvo_mean) & !is.na(control_mean) & !is.na(silvo_n) & 
+    !is.na(control_n) & !is.na(silvo_se) & !is.na(control_se)
+  ) %>%
+  # Calculate log response ratio (lnRR) and its variance (var_lnRR)
+  mutate(
+    lnRR = log(silvo_mean / control_mean),  # Compute log response ratio
+    var_lnRR = (silvo_se^2 / (silvo_n * silvo_mean^2)) +  # Variance of lnRR for silvo
+               (control_se^2 / (control_n * control_mean^2)),  # Variance of lnRR for control
+    slab = paste(id_article, ", ", study_year_start)  # Create label for plotting
+  ) %>%
+  # Group by id_article and response_variable to summarize data
+  group_by(id_article, response_variable) %>%
+  # Summarize to get one lnRR and var_lnRR per group
+  summarize(
+    silvo_mean = mean(silvo_mean),
+    control_mean = mean(control_mean),
+    lnRR = mean(lnRR),
+    var_lnRR = mean(var_lnRR),
+    .groups = 'drop'
+  ) %>%
+  # Filter out rows with NaN, infinite, or non-positive variance values
+  filter(
+    !is.nan(lnRR) & !is.infinite(lnRR) & 
+    !is.nan(var_lnRR) & !is.infinite(var_lnRR) & 
+    var_lnRR > 0
+  ) %>%
+  # Reorder columns for better readability and organization
+  relocate(id_article, response_variable, silvo_mean, control_mean, lnRR, var_lnRR) %>%
+  arrange(response_variable)
+
+meta_data_lnRR
+```
+
+
+##########################################################################################################################################
+Using the build-inn metafor function "escalc" to calculate ROM" for the log transformed ratio of means
+##########################################################################################################################################
+
+```{r}
+###################################################################
+# Ensure standard deviations are valid for escalc
+meta_data <- meta_data %>%
+   # Ensure standard deviations are valid for escalc
+    filter(silvo_se > 0 & control_se > 0) 
+    # Ensure means are greater than 0 to avoid infinite values
+    #filter(silvo_mean > 0 & control_mean > 0) 
+
+###################################################################
+# Use the escalc function to compute effect sizes and variances
+meta_data_es <- metafor::escalc(
+  # "ROM" for the log transformed ratio of means
+  measure = "ROM", 
+  m1i = silvo_mean, m2i = control_mean, 
+  sd1i = silvo_se, sd2i = control_se, 
+  n1i = silvo_n, n2i = control_n, 
+  data = meta_data, 
+  slab = paste(id_article, response_variable, sep = ", ")) %>% 
+  # Reorder columns for better readability and organization
+  relocate(id_article, response_variable, silvo_mean, control_mean, yi, vi)
+
+###################################################################
+# Summarize effect sizes and variances per study and response variable
+summary_meta_es <- meta_data_es %>%
+  group_by(id_article, response_variable) %>%
+  summarize(
+    mean_yi = mean(yi, na.rm = TRUE),  # Average effect size
+    mean_vi = mean(vi, na.rm = TRUE),  # Average variance
+    n = n()  # Number of observations
+  ) %>%
+  dplyr::ungroup()
+###################################################################
+# Join the summarized data back to the original data
+meta_data_es <- meta_data_es %>%
+  left_join(summary_meta_es, by = c("id_article", "response_variable"))
+
+###################################################################
+# View the computed effect sizes and variances
+meta_data_es %>% glimpse()
+```
+
+##############################################################################
+Building generic function to derive ROM, to be used for each response variable 
+##########################################################################################################################################
+
+
+```{r}
+# Define a generic function to compute effect sizes and variances
+compute_effect_sizes <- function(data, response_var) {
+  # Filter data for the specified response variable
+  filtered_data <- data %>%
+    filter(response_variable == response_var)
+  
+  # Ensure standard deviations are valid for escalc
+  filtered_data <- filtered_data %>%
+    # Ensure standard deviations are valid for escalc
+    filter(silvo_se > 0 & control_se > 0) 
+    # Ensure means are greater than 0 to avoid infinite values
+    #filter(silvo_mean > 0 & control_mean > 0) 
+  
+  # Use the escalc function to compute effect sizes and variances
+  effect_sizes <- metafor::escalc(
+    # "ROM" specifies the log-transformed ratio of means as the effect size measure
+    measure = "ROM",  
+    # Mean of the silvoarable treatment
+    m1i = silvo_mean,  
+    # Mean of the control treatment
+    m2i = control_mean,  
+    # Standard error of the silvoarable treatment
+    sd1i = silvo_se,  
+    # Standard error of the control treatment
+    sd2i = control_se,  
+    # Sample size of the silvoarable treatment
+    n1i = silvo_n,  
+    # Sample size of the control treatment
+    n2i = control_n,  
+     # Data frame containing the relevant columns
+    data = filtered_data, 
+    # Create a label combining id_article and response_variable
+    slab = paste(id_article, response_variable, sep = ", ")  
+  ) %>% 
+  # Reorder columns for better readability and organization
+  relocate(id_article, response_variable, silvo_mean, control_mean, yi, vi)
+  
+  # Summarize effect sizes and variances per study and response variable
+  summarized_effect_sizes <- effect_sizes %>%
+    group_by(id_article, response_variable) %>%
+    summarize(
+      mean_yi = mean(yi, na.rm = TRUE),  # Average effect size
+      mean_vi = mean(vi, na.rm = TRUE),  # Average variance
+      n = n()  # Number of observations
+    ) %>%
+    ungroup()
+  
+  # Join summarized data back to the original data
+  combined_data <- effect_sizes %>%
+    left_join(summarized_effect_sizes, by = c("id_article", "response_variable"))
+  
+  # Return the combined data with summarized effect sizes and variances
+  return(combined_data)
+}
+```
+
+```{r}
+# Define the list of response variables
+response_variables <- c(
+  "Biodiversity",
+  "Crop yield",
+  "Greenhouse gas emission",
+  "Pest and Disease",
+  "Product quality",
+  "Soil quality",
+  "Soil water content",
+  "Water quality"
+)
+
+# Initialize an empty list to store results
+results <- list()
+
+# Loop through each response variable and compute effect sizes
+for (response_var in response_variables) {
+  cat("Computing effect sizes for:", response_var, "\n")
+  results[[response_var]] <- compute_effect_sizes(meta_data, response_var)
+}
+
+# Combine all results into a single data frame for easier analysis and visualization
+combined_results <- bind_rows(results)
+# Warnings: Some 'yi' and/or 'vi' values equal to +-Inf. Recoded to NAs --> happens when either control_mean or solvi_mean is 0
+# Computing effect sizes for: Biodiversity 
+# Advarsel: Some 'yi' and/or 'vi' values equal to +-Inf. Recoded to NAs.
+# Computing effect sizes for: Crop yield 
+# Computing effect sizes for: Greenhouse gas emission 
+# Computing effect sizes for: Pest and Disease 
+# Advarsel: Some 'yi' and/or 'vi' values equal to +-Inf. Recoded to NAs.
+# Computing effect sizes for: Product quality 
+# Computing effect sizes for: Soil quality 
+# Computing effect sizes for: Soil water content 
+# Computing effect sizes for: Water quality 
+# Advarsel: Some 'yi' and/or 'vi' values equal to +-Inf. Recoded to NAs.
+
+combined_results %>% glimpse()
+```
+```{r}
+# Access the computed effect sizes for a specific response variable
+# Convert results for a specific response variable to tibble and view
+biodiversity_results <- as_tibble(results[["Biodiversity"]]) %>% 
+  # Reorder columns for better readability and organization
+  relocate(id_article, response_variable, silvo_mean, control_mean, mean_yi, mean_vi)
+
+biodiversity_results
+```
+
+
+
+################################
+B) Sensitivity Analyses to assess the potential impact of missing outcome data.
+
+```{r}
+
+```
+
+
+#############
+# STEP 4
+##########################################################################################################################################
+PERFORMING META-ANALYSIS USING THE GENERAL FUNCTION rma IN metafor
+##########################################################################################################################################
+
+Linear (Mixed-Effects) Models
+
+```{r}
+# Remove duplicates to keep one row per combination of id_article and response_variable
+biodiversity_results_forrest <- biodiversity_results %>%
+  distinct(id_article, response_variable, 
+           .keep_all = TRUE)
+```
+
+```{r}
+# Biodiversity
+
+res_meta_biodiversity <- rma(mean_yi, mean_vi, 
+                             data = biodiversity_results_forrest) 
+
+
+```
+```{r}
+# Create a forest plot for the meta-analysis of Biodiversity
+forest(res_meta_biodiversity, 
+       xlab = "Log Response Ratio (lnRR)",  # Label for the x-axis
+       slab = biodiversity_results_forrest$id_article,  # Study labels
+       main = "Forest Plot for Biodiversity",  # Title of the plot
+       cex = 0.8,  # Size of the text
+       cex.lab = 1.2)  # Size of the axis labels
+
+# Create a funnel plot for the meta-analysis of Biodiversity
+funnel(res_meta_biodiversity, 
+  main = "Funnel Plot for Biodiversity")  # Title of the plot
+```
+
+
+
+
+
+
+
+
+
+
+
+#############
+# STEP 5
+##########################################################################################################################################
+ASSESS THE META-ANALYSIS RESULTS
+##########################################################################################################################################
+
+
+
+
+#############
+# STEP 6
+##########################################################################################################################################
+VISUALISE THE META-ANALYSIS RESULTS
+##########################################################################################################################################

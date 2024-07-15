@@ -1,0 +1,107 @@
+---
+title: "old_code_notes_to be_saved_but_not_used"
+output: html_document
+date: "2024-07-15"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+#############
+# STEP 2
+##########################################################################################################################################
+CALCULATING INITIAL EFFECT SIZES AND EVALUATING NUMBER OF STUDIES TO INCLUDE (SENSITIVITY ANALYSIS)
+##########################################################################################################################################
+
+continuous data, where each individual’s outcome is a measurement of a numerical quantity;
+
+```{r}
+## Calculate Effect Sizes and Variances for Multiple Parameters
+# Log-transformed response ratios (lnRR) and corresponding variances
+data_lnRR <- database_clean %>%
+  filter(
+    !is.na(silvo_mean) & !is.na(control_mean) & !is.na(silvo_n) & 
+    !is.na(control_n) & !is.na(silvo_se) & !is.na(control_se)
+  ) %>%
+  mutate(
+    lnRR = log(silvo_mean / control_mean),
+    var_lnRR = (silvo_se^2 / (silvo_n * silvo_mean^2)) + 
+               (control_se^2 / (control_n * control_mean^2)),
+    slab = paste(Id_article, ", ", Study_Year_Start)
+  ) %>%
+  filter(
+    !is.nan(lnRR) & !is.infinite(lnRR) & 
+    !is.nan(var_lnRR) & !is.infinite(var_lnRR) & 
+    var_lnRR > 0
+  ) %>%
+  relocate(Id_article, Response_variable, Sub_response_variable, silvo_mean, silvo_se, control_mean, control_se, lnRR, var_lnRR)
+
+# Check the structure of the meta_data
+glimpse(meta_data)
+```
+
+```{r}
+meta_data %>% dplyr::glimpse() 
+meta_data %>% View()
+```
+
+
+```{r}
+## Meta-Analysis for Each Response Variable
+results <- list()  # List to store results for each response variable
+response_vars <- unique(meta_data$Response_variable)  # Get unique response variables
+
+# Loop through each response variable
+for (response in response_vars) {
+  # Filter data for the current response variable and remove rows with non-positive or missing variances
+  data_response <- filter(meta_data, Response_variable == response & var_lnRR > 0 & !is.na(var_lnRR))
+  
+  # Check if there's enough data to perform meta-analysis
+  if (nrow(data_response) > 1) {
+    # Fit random-effects model using log-transformed response ratios and variances
+    res <- rma(yi = lnRR, vi = var_lnRR, data = data_response, method = "REML")
+    
+    # Store the results in the list
+    results[[response]] <- res
+    
+    # Print summary of the meta-analysis
+    cat("\nResponse Variable:", response, "\n")
+    print(summary(res))
+    
+    # Print predicted pooled effect size and corresponding CI/PI
+    print(predict(res, transf = exp, digits = 2))
+    
+    # Generate forest plot
+    forest(res, xlab = "Log Response Ratio (lnRR)", slab = data_response$slab, main = response, cex = 0.8, cex.lab = 1.2)
+    
+    # Generate funnel plot to check for publication bias
+    funnel(res)
+  } else {
+    cat("\nResponse Variable:", response, "\n")
+    cat("Not enough data to perform meta-analysis.\n")
+  }
+}
+
+## Sensitivity Analysis for Each Response Variable
+# Loop through each response variable to perform influence diagnostics
+for (response in response_vars) {
+  res <- results[[response]]  # Get results for the current response variable
+  
+  if (!is.null(res)) {
+    # Perform influence diagnostics
+    inf <- influence(res)
+    
+    # Plot influence diagnostics
+    plot(inf, main = paste("Influence Diagnostics for", response))
+    
+    # Print summary statistics for interpretation
+    cat("\nResponse Variable:", response, "\n")
+    cat("Overall Effect Size (lnRR):", res$b, "\n")
+    cat("95% Confidence Interval:", confint(res)$ci.lb, "to", confint(res)$ci.ub, "\n")
+    cat("Heterogeneity (Q):", res$QE, "\n")
+    cat("I^2:", res$I2, "%\n")
+  }
+}
+```
