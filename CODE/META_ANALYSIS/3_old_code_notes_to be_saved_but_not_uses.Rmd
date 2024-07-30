@@ -105,3 +105,537 @@ for (response in response_vars) {
   }
 }
 ```
+
+
+
+
+
+
+
+################################
+MANUAL CALCULATION OF EFFECT SIZE MEASURE
+################################
+
+log-transformed response ratio (lnRR)
+```{r}
+# Calculate Effect Sizes (lnRR) and Variances for Multiple Parameters
+meta_data_lnRR <- meta_data |> 
+  # Group by article ID and response variable
+  group_by(id_article, response_variable) |> 
+  # Summarise to get means per group and include study_year_start
+  summarise(
+    silvo_mean = mean(silvo_mean, na.rm = TRUE),   # Mean of silvo_mean per group
+    control_mean = mean(control_mean, na.rm = TRUE), # Mean of control_mean per group
+    silvo_se = mean(silvo_se, na.rm = TRUE),         # Mean of silvo_se per group
+    control_se = mean(control_se, na.rm = TRUE),     # Mean of control_se per group
+    silvo_n = mean(silvo_n, na.rm = TRUE),           # Mean of silvo_n per group
+    control_n = mean(control_n, na.rm = TRUE),       # Mean of control_n per group
+    study_year_start = first(study_year_start),      # Include study_year_start
+    .groups = 'drop'
+  ) |> 
+  # Calculate log response ratio (lnRR) and its variance (var_lnRR)
+  mutate(
+    # Compute log response ratio
+    lnRR = log(silvo_mean / control_mean), 
+    # Variance of lnRR combining silvo and control variances
+    var_lnRR = (silvo_se^2 / (silvo_n * silvo_mean^2)) +  
+               (control_se^2 / (control_n * control_mean^2)),  
+    # Create label for plotting
+    slab = paste(id_article, ", ", study_year_start)  
+  ) |> 
+  # Filter out rows with NaN, infinite, or non-positive variance values
+  filter(
+    !is.nan(lnRR) & !is.infinite(lnRR) & 
+    !is.nan(var_lnRR) & !is.infinite(var_lnRR) & 
+    var_lnRR > 0
+  ) |> 
+  # Reorder columns for better readability and organization
+  relocate(id_article, response_variable, silvo_mean, control_mean, lnRR, var_lnRR, slab)
+```
+
+```{r}
+# Display a glimpse of the final dataset for verification
+meta_data_lnRR |> glimpse()
+```
+
+
+Step 1: Inspect the Variances
+
+```{r}
+# Remove rows with missing values in filtered_meta_data_ROM
+filtered_meta_data_ROM_clean <- filtered_meta_data_ROM[complete.cases(filtered_meta_data_ROM), ]
+
+# Check for missing values again to confirm
+missing_values_updated <- sapply(filtered_meta_data_ROM_clean, function(x) sum(is.na(x)))
+print("Missing Values in updated filtered_meta_data_ROM:")
+print(missing_values_updated)
+
+filtered_meta_data_ROM_clean
+```
+
+
+```{r}
+# Check for missing values
+meta_data_RR |> as.data.frame() |> summary()
+
+# Check for extreme values in variances
+hist(meta_data_RR$vi, breaks = 10, main = "Histogram of Variances", xlab = "Variance of yi")
+```
+```{r}
+# Simplify the model by removing the multilevel structure
+simple_res <- rma.mv(yi = yi, 
+                     V = V_matrix, 
+                     random = ~ 1 | id_article, 
+                     data = meta_data_RR)
+```
+
+
+```{r}
+# List of optimizers to try
+optimizers <- c("nlminb", "optim", "Nelder-Mead", "BFGS", "CG", "L-BFGS-B", "SANN", "Brent")
+
+# Function to fit the random-effects model with different optimizers
+fit_model <- function() {
+  for (opt in optimizers) {
+    res <- tryCatch({
+      message(paste("Trying optimizer:", opt))
+      rma.mv(yi = yi, 
+             V = V_matrix, 
+             random = ~ 1 | id_article/response_variable, 
+             data = meta_data_RR,
+             verbose = TRUE,
+             control = list(iter.max = 1000, rel.tol = 1e-8, optimizer = opt))
+    }, error = function(e) {
+      message(paste("Optimizer", opt, "failed with error:", e$message))
+      NULL
+    })
+    if (!is.null(res)) {
+      if (res$convergence == 0) {
+        message(paste("Optimizer", opt, "converged successfully."))
+        return(res)
+      }
+    }
+  }
+  stop("None of the optimizers converged.")
+}
+
+```
+
+
+```{r}
+# Fit the random-effects model using the filtered data
+res_filtered <- rma.mv(yi = yi, 
+                       V = V_matrix, 
+                       random = ~ 1 | id_article/response_variable, 
+                       data = filtered_meta_data_ROM,
+                       verbose = TRUE,
+                       control = list(iter.max = 1000, rel.tol = 1e-8))
+
+
+```
+
+
+
+```{r}
+# Plot Cook's Distance
+plot(cooks_d, type="h", ylab="Cook's Distance", xlab="Observed Outcome",
+     main="Cook's Distance Plot")
+abline(h=4/(nrow(filtered_meta_data_ROM_clean)-length(coef(res))), lty=2, col="red")
+
+# Plot Studentized Residuals
+plot(student_resid$resid, type="h", ylim=c(-3, 3),
+     ylab="Studentized Residuals", xlab="Observed Outcome",
+     main="Studentized Residuals Plot")
+abline(h=c(-2, 2), lty=2, col="red")
+
+# Plot DFBETAS for each coefficient
+dfbetas_df <- as.data.frame(dfbetas_vals)
+for (i in 1:ncol(dfbetas_df)) {
+  plot(dfbetas_df[, i], type="h", ylab=paste("DFBETAS for Coef", i), xlab="Observed Outcome",
+       main=paste("DFBETAS for Coefficient", i))
+  abline(h=c(-2, 2), lty=2, col="red")
+}
+
+# Plot Hat Values
+plot(hat_vals, type="h", ylab="Hat Values", xlab="Observed Outcome",
+     main="Hat Values Plot")
+abline(h=2*mean(hat_vals), lty=2, col="red")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+# Step 1: Inspect the Variances
+# Inspect the distribution of var_lnRR
+summary(meta_data_lnRR$var_lnRR)
+hist(meta_data_lnRR$var_lnRR, 
+     breaks = 30, 
+     main = "Histogram of Variances", 
+     xlab = "Variance of lnRR")
+```
+```{r}
+# Create the density plot for var_lnRR
+ggplot(meta_data_lnRR, aes(x = var_lnRR)) +
+  geom_density(fill = "blue", alpha = 0.5) +
+  labs(title = "Density Plot of Variances", 
+       x = "Variance of lnRR", 
+       y = "Density") +
+  theme_minimal()
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+##########################################################################################################################################
+Using the build-inn metafor function "escalc" to calculate RoM" for the log transformed ratio of means
+##########################################################################################################################################
+
+```{r}
+###################################################################
+# Ensure standard deviations are valid for escalc
+meta_data <- meta_data %>%
+   # Ensure standard deviations are valid for escalc
+    filter(silvo_se > 0 & control_se > 0) 
+    # Ensure means are greater than 0 to avoid infinite values
+    #filter(silvo_mean > 0 & control_mean > 0) 
+
+###################################################################
+# Use the escalc function to compute effect sizes and variances
+meta_data_es <- metafor::escalc(
+  # "ROM" for the log transformed ratio of means
+  measure = "ROM", 
+  m1i = silvo_mean, m2i = control_mean, 
+  sd1i = silvo_se, sd2i = control_se, 
+  n1i = silvo_n, n2i = control_n, 
+  data = meta_data, 
+  slab = paste(id_article, response_variable, sep = ", ")) %>% 
+  # Reorder columns for better readability and organization
+  relocate(id_article, response_variable, silvo_mean, control_mean, yi, vi)
+
+###################################################################
+# Summarize effect sizes and variances per study and response variable
+summary_meta_es <- meta_data_es %>%
+  group_by(id_article, response_variable) %>%
+  summarize(
+    mean_yi = mean(yi, na.rm = TRUE),  # Average effect size
+    mean_vi = mean(vi, na.rm = TRUE),  # Average variance
+    n = n()  # Number of observations
+  ) %>%
+  dplyr::ungroup()
+###################################################################
+# Join the summarized data back to the original data
+meta_data_es <- meta_data_es %>%
+  left_join(summary_meta_es, by = c("id_article", "response_variable"))
+
+###################################################################
+# View the computed effect sizes and variances
+meta_data_es %>% glimpse()
+```
+
+##############################################################################
+Building generic function to derive ROM, to be used for each response variable 
+##########################################################################################################################################
+
+
+```{r}
+# Define a generic function to compute effect sizes and variances
+compute_effect_sizes <- function(data, response_var) {
+  # Filter data for the specified response variable
+  filtered_data <- data %>%
+    filter(response_variable == response_var)
+  
+  # Ensure standard deviations are valid for escalc
+  filtered_data <- filtered_data %>%
+    # Ensure standard deviations are valid for escalc
+    filter(silvo_se > 0 & control_se > 0) 
+    # Ensure means are greater than 0 to avoid infinite values
+    #filter(silvo_mean > 0 & control_mean > 0) 
+  
+  # Use the escalc function to compute effect sizes and variances
+  effect_sizes <- metafor::escalc(
+    # "ROM" specifies the log-transformed ratio of means as the effect size measure
+    measure = "ROM",  
+    # Mean of the silvoarable treatment
+    m1i = silvo_mean,  
+    # Mean of the control treatment
+    m2i = control_mean,  
+    # Standard error of the silvoarable treatment
+    sd1i = silvo_se,  
+    # Standard error of the control treatment
+    sd2i = control_se,  
+    # Sample size of the silvoarable treatment
+    n1i = silvo_n,  
+    # Sample size of the control treatment
+    n2i = control_n,  
+     # Data frame containing the relevant columns
+    data = filtered_data, 
+    # Create a label combining id_article and response_variable
+    slab = paste(id_article, response_variable, sep = ", ")  
+  ) %>% 
+  # Reorder columns for better readability and organization
+  relocate(id_article, response_variable, silvo_mean, control_mean, yi, vi)
+  
+  # Summarize effect sizes and variances per study and response variable
+  summarized_effect_sizes <- effect_sizes %>%
+    group_by(id_article, response_variable) %>%
+    summarize(
+      mean_yi = mean(yi, na.rm = TRUE),  # Average effect size
+      mean_vi = mean(vi, na.rm = TRUE),  # Average variance
+      n = n()  # Number of observations
+    ) %>%
+    ungroup()
+  
+  # Join summarized data back to the original data
+  combined_data <- effect_sizes %>%
+    left_join(summarized_effect_sizes, by = c("id_article", "response_variable"))
+  
+  # Return the combined data with summarized effect sizes and variances
+  return(combined_data)
+}
+```
+
+```{r}
+# Define the list of response variables
+response_variables <- c(
+  "Biodiversity",
+  "Crop yield",
+  "Greenhouse gas emission",
+  "Pest and Disease",
+  "Product quality",
+  "Soil quality",
+  "Soil water content",
+  "Water quality"
+)
+
+# Initialize an empty list to store results
+results <- list()
+
+# Loop through each response variable and compute effect sizes
+for (response_var in response_variables) {
+  cat("Computing effect sizes for:", response_var, "\n")
+  results[[response_var]] <- compute_effect_sizes(meta_data, response_var)
+}
+
+# Combine all results into a single data frame for easier analysis and visualization
+combined_results <- bind_rows(results)
+# Warnings: Some 'yi' and/or 'vi' values equal to +-Inf. Recoded to NAs --> happens when either control_mean or solvi_mean is 0
+# Computing effect sizes for: Biodiversity 
+# Advarsel: Some 'yi' and/or 'vi' values equal to +-Inf. Recoded to NAs.
+# Computing effect sizes for: Crop yield 
+# Computing effect sizes for: Greenhouse gas emission 
+# Computing effect sizes for: Pest and Disease 
+# Advarsel: Some 'yi' and/or 'vi' values equal to +-Inf. Recoded to NAs.
+# Computing effect sizes for: Product quality 
+# Computing effect sizes for: Soil quality 
+# Computing effect sizes for: Soil water content 
+# Computing effect sizes for: Water quality 
+# Advarsel: Some 'yi' and/or 'vi' values equal to +-Inf. Recoded to NAs.
+
+combined_results %>% glimpse()
+```
+
+```{r}
+# Access the computed effect sizes for a specific response variable
+# Convert results for a specific response variable to tibble and view
+biodiversity_results <- as_tibble(results[["Biodiversity"]]) %>% 
+  # Reorder columns for better readability and organization
+  relocate(id_article, response_variable, silvo_mean, control_mean, mean_yi, mean_vi)
+
+biodiversity_results
+```
+
+
+
+################################
+B) Sensitivity Analyses to assess the potential impact of missing outcome data.
+
+```{r}
+
+```
+
+
+#############
+# STEP 4
+##########################################################################################################################################
+PERFORMING META-ANALYSIS USING THE GENERAL FUNCTION rma IN metafor
+##########################################################################################################################################
+
+Linear (Mixed-Effects) Models
+
+```{r}
+# Remove duplicates to keep one row per combination of id_article and response_variable
+biodiversity_results_forrest <- biodiversity_results %>%
+  distinct(id_article, response_variable, 
+           .keep_all = TRUE)
+```
+
+```{r}
+# Biodiversity
+
+res_meta_biodiversity <- rma(mean_yi, mean_vi, 
+                             data = biodiversity_results_forrest) 
+
+
+```
+```{r}
+# Create a forest plot for the meta-analysis of Biodiversity
+forest(res_meta_biodiversity, 
+       xlab = "Log Response Ratio (lnRR)",  # Label for the x-axis
+       slab = biodiversity_results_forrest$id_article,  # Study labels
+       main = "Forest Plot for Biodiversity",  # Title of the plot
+       cex = 0.8,  # Size of the text
+       cex.lab = 1.2)  # Size of the axis labels
+
+# Create a funnel plot for the meta-analysis of Biodiversity
+funnel(res_meta_biodiversity, 
+  main = "Funnel Plot for Biodiversity")  # Title of the plot
+```
+
+```{r}
+positive_definite_check <- is_positive_definite(V_matrix)
+print(paste("V_matrix is positive definite:", positive_definite_check))
+
+# Error
+# The error encountered, "uendelig eller manglende værdier i 'x'" (infinite or missing values in 'x'), indicates that V_matrix contains infinite or missing values, which can cause issues with positive definiteness checks and model fitting. To address this, we need to clean V_matrix by handling these infinite or missing values.
+
+# But I will do this on the original filtered_meta_data_ROM data!
+```
+
+
+
+```{r}
+# Check for missing values in specified columns and remove those rows
+filtered_meta_data_ROM_clean <- filtered_meta_data_ROM %>%
+  filter(!is.na(silvo_mean) & !is.na(silvo_se) & !is.na(silvo_sd) &
+         !is.na(control_mean) & !is.na(control_se) & !is.na(control_sd) &
+         !is.na(yi) & !is.na(vi))
+```
+
+Proportion of excluded studies:
+
+```{r}
+filtered_meta_data_ROM_clean vs filtered_meta_data_ROM
+```
+
+
+
+##########################################################################
+UPDATING THE V_matrix
+##########################################################################
+
+```{r}
+# Create a new V_matrix corresponding to the updated filtered_meta_data_ROM aka. filtered_meta_data_ROM_clean
+# Assuming the original V_matrix has row and column names that match id_obs or another unique identifier
+# of filtered_meta_data_ROM
+
+# Create a list to store variance-covariance matrices for each study
+V_list <- list()
+
+# Loop through each unique study ID in the dataset
+for (study in unique(filtered_meta_data_ROM_clean$id_article)) {
+  # Subset the data for the current study
+  study_data <- filtered_meta_data_ROM_clean[filtered_meta_data_ROM_clean$id_article == study, ]
+  
+  # Check if the current study has more than one outcome
+  if (nrow(study_data) > 1) {
+    # Create a diagonal matrix with the variances (vi) of the outcomes
+    V <- diag(study_data$vi)
+    
+    # Assume a constant correlation of 0.5 between outcomes within the same study
+    corr <- 0.5
+    
+    # Loop through the rows of the matrix to set the off-diagonal elements
+    for (i in 1:nrow(V)) {
+      for (j in 1:nrow(V)) {
+        # Set the off-diagonal elements to the product of the correlation and the square root of the product of the corresponding variances
+        if (i != j) {
+          V[i, j] <- corr * sqrt(V[i, i] * V[j, j])
+        }
+      }
+    }
+    # Add the variance-covariance matrix to the list for the current study
+    V_list[[as.character(study)]] <- V
+  } else {
+    # If there is only one outcome, the variance is just the variance of the single outcome
+    V_list[[as.character(study)]] <- study_data$vi
+  }
+}
+
+# Combine the matrices into a block-diagonal matrix
+V_matrix_clean <- bldiag(V_list)
+```
+
+```{r}
+# Ensure the V_matrix_clean is still valid and clean
+positive_definite_check <- is_positive_definite(V_matrix_clean)
+print(paste("V_matrix_clean is positive definite:", positive_definite_check))
+```
+
+
+
