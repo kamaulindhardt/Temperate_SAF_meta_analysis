@@ -637,5 +637,572 @@ positive_definite_check <- is_positive_definite(V_matrix_clean)
 print(paste("V_matrix_clean is positive definite:", positive_definite_check))
 ```
 
+```{r}
+# Prepare the data
+# Separate the data for silvo_ and control_
+silvo_data <- meta_data_ROM %>%
+  select(id_article, response_variable, yi, vi, silvo_mean, silvo_se, silvo_sd, silvo_n) %>%
+  rename(mean = silvo_mean, se = silvo_se, sd = silvo_sd, n = silvo_n) %>%
+  mutate(group = "silvo_")|> 
+  as.data.frame()
 
+control_data <- meta_data_ROM %>%
+  select(id_article, response_variable, yi, vi, control_mean, control_se, control_sd, control_n) %>%
+  rename(mean = control_mean, se = control_se, sd = control_sd, n = control_n) %>%
+  mutate(group = "control_") |> 
+  as.data.frame()
+
+#####################################
+
+silvo_data <- meta_data_ROM %>%
+  mutate(yi = log(silvo_mean / control_mean),
+         vi = (silvo_se^2 / silvo_mean^2) + (control_se^2 / control_mean^2)) %>%
+  select(id_article, response_variable, yi, vi, silvo_mean, silvo_se, silvo_sd, silvo_n) %>%
+  rename(mean = silvo_mean, se = silvo_se, sd = silvo_sd, n = silvo_n) %>%
+  mutate(group = "silvo_")
+
+control_data <- meta_data_ROM %>%
+  mutate(yi = log(control_mean / silvo_mean),
+         vi = (control_se^2 / control_mean^2) + (silvo_se^2 / silvo_mean^2)) %>%
+  select(id_article, response_variable, yi, vi, control_mean, control_se, control_sd, control_n) %>%
+  rename(mean = control_mean, se = control_se, sd = control_sd, n = control_n) %>%
+  mutate(group = "control_")
+
+
+
+# Combine the data
+combined_data <- bind_rows(silvo_data, 
+                           control_data)
+
+# Prepare data for plotting
+combined_long_data <- combined_data %>%
+  pivot_longer(cols = c(yi, vi), names_to = "measure", values_to = "value")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+silvo_data_manual <- meta_data_ROM %>%
+  mutate(yi = log(silvo_mean / control_mean),
+         vi = (silvo_se^2 / silvo_mean^2) + (control_se^2 / control_mean^2)) %>%
+  select(id_article, response_variable, yi, vi, silvo_mean, silvo_se, silvo_sd, silvo_n) %>%
+  rename(mean = silvo_mean, se = silvo_se, sd = silvo_sd, n = silvo_n) %>%
+  mutate(group = "silvo_")
+
+control_data_manual <- meta_data_ROM %>%
+  mutate(yi = log(control_mean / silvo_mean),
+         vi = (control_se^2 / control_mean^2) + (silvo_se^2 / silvo_mean^2)) %>%
+  select(id_article, response_variable, yi, vi, control_mean, control_se, control_sd, control_n) %>%
+  rename(mean = control_mean, se = control_se, sd = control_sd, n = control_n) %>%
+  mutate(group = "control_")
+
+# Merge silvo_data and silvo_data_manual
+silvo_comparison <- silvo_data %>%
+  select(id_article, response_variable, yi, vi) %>%
+  rename(yi_escalc = yi, vi_escalc = vi) %>%
+  inner_join(
+    silvo_data_manual %>%
+      select(id_article, response_variable, yi, vi) %>%
+      rename(yi_manual = yi, vi_manual = vi),
+    by = c("id_article", "response_variable")
+  )
+
+# Calculate differences
+silvo_comparison <- silvo_comparison %>%
+  mutate(
+    yi_diff = yi_escalc - yi_manual,
+    vi_diff = vi_escalc - vi_manual
+  )
+
+# View differences
+print(silvo_comparison)
+
+```
+
+```{r}
+silvo_data <- meta_data_ROM %>%
+  dplyr::select(id_article, response_variable, yi, vi, silvo_mean, silvo_se, silvo_sd, silvo_n) %>%
+  dplyr::rename(mean = silvo_mean, se = silvo_se, sd = silvo_sd, n = silvo_n) %>%
+  dplyr::mutate(group = "silvo_")|>
+  as.data.frame()
+
+control_data <- meta_data_ROM %>%
+  dplyr::select(id_article, response_variable, yi, vi, control_mean, control_se, control_sd, control_n) %>%
+  dplyr::rename(mean = control_mean, se = control_se, sd = control_sd, n = control_n) %>%
+  dplyr::mutate(group = "control_") |>
+  as.data.frame()
+
+
+combined_data <- bind_rows(silvo_data, control_data)
+
+# Prepare data for plotting
+combined_long_data <- combined_data %>%
+  pivot_longer(cols = c(yi, vi), names_to = "measure", values_to = "value")
+
+# Check the prepared data
+glimpse(combined_long_data)
+
+# Create the density plot
+combined_long_data |> 
+  ggplot(aes(x = value, fill = group, color = group)) +
+  geom_density(alpha = 0.5) +
+  facet_wrap(~ response_variable + measure, scales = "free") +
+  labs(
+    title = "Density Plot of Effect Sizes (yi) and Variances (vi) by Group",
+    x = "Value",
+    y = "Density",
+    fill = "Group",
+    color = "Group"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+# New dataset to be used for mata-analysis
+meta_data <- imputed_database_clean |> 
+  # Filtering so that only data with outcome measurements that are greater than zero will be included
+  filter(silvo_se > 0,
+         control_se > 0) |>
+  # Adjust the signs for specific response variables where lower values for silvo_ vs. control_ is actually better
+  # Manually changing the signs for greenhouse gas emissions, pests and diseases and water quality, as lower values in the silvo_ treatment group are 
+  # considered better. This ensures consistency in the interpretation of effect sizes measures across all outcomes. 
+  mutate(
+    silvo_mean = ifelse(response_variable %in% c("Greenhouse gas emissions", "Pests and Diseases", "Water quality"), 
+                        -silvo_mean, silvo_mean),
+    control_mean = ifelse(response_variable %in% c("Greenhouse gas emissions", "Pests and Diseases", "Water quality"), 
+                          -control_mean, control_mean)
+  ) |> 
+  # Exclude the variable soil water content due to inconsistent data from only a single measurement
+  filter(response_variable != "Soil water content") |> 
+  # To be 100 % sure. Filter out rows with missing values in key columns
+  filter(
+    !is.na(silvo_mean) & !is.na(control_mean) & !is.na(silvo_n) & 
+    !is.na(control_n) & !is.na(silvo_se) & !is.na(control_se)
+  ) |> 
+  # Calculate standard deviations from standard errors and sample sizes
+  mutate(
+    # Calculate standard deviation for silvo group
+    silvo_sd = silvo_se * sqrt(silvo_n),
+    # Calculate standard deviation for control group
+    control_sd = control_se * sqrt(control_n)
+  ) |> 
+  # Reorder columns for better readability and organization
+  relocate(id_article, response_variable, measured_metrics, measured_unit, 
+           silvo_mean, silvo_se, silvo_sd, silvo_n, control_mean, control_se, control_sd, control_n) |> 
+  arrange(id_article, response_variable) 
+
+  # The calculation of effect size requires all values to be positive, 
+  # I apply here a transformation to ensure that all standard deviation values are positive. 
+  mutate(
+    shift_value = min(silvo_mean, control_mean, na.rm = TRUE) - 1,  # Shift to ensure positivity
+    silvo_mean_transformed = log(silvo_mean - shift_value),
+    control_mean_transformed = log(control_mean - shift_value)) |> 
+  # ) |> 
+  # mutate(
+  #   silvo_sd = abs(silvo_sd),
+  #   control_sd = abs(control_sd)
+  # ) |>
+
+    
+    
+     # Shift all values to the positive range if necessary by adding a constant
+  mutate(
+    # Find the minimum value across silvo_mean and control_mean and shift it to the positive range
+    min_value_shift = abs(min(c(silvo_mean, control_mean), na.rm = TRUE)) + 1,
+    # Adjust silvo_mean by adding the shift value if it's negative
+    silvo_mean = ifelse(silvo_mean < 0, silvo_mean + min_value_shift, silvo_mean),
+    # Adjust control_mean by adding the shift value if it's negative
+    control_mean = ifelse(control_mean < 0, control_mean + min_value_shift, control_mean)
+  ) |> 
+  # Calculate standard deviations from standard errors and sample sizes for both groups
+  mutate(
+    # Use absolute values for standard errors to prevent negative standard deviations
+    silvo_sd = abs(silvo_se * sqrt(silvo_n)),
+    control_sd = abs(control_se * sqrt(control_n))
+  ) |> 
+```
+
+```{r}
+# Preparing the data for plotting
+
+# Create a dataset for the silvo_ group (directly using the calculated effect sizes)
+silvo_data <- meta_data_ROM %>%
+  dplyr::select(id_article, response_variable, yi, vi, silvo_mean, silvo_se, silvo_sd, silvo_n) %>%
+  dplyr::rename(mean = silvo_mean, se = silvo_se, sd = silvo_sd, n = silvo_n) %>%
+  dplyr::mutate(group = "silvo_")
+
+# Create a dataset for the control_ group
+# Note: For control, reverse the effect size (yi) and use the same variance (vi)
+control_data <- meta_data_ROM %>%
+  dplyr::select(id_article, response_variable, yi, vi, control_mean, control_se, control_sd, control_n) %>%
+  # Reverse the effect size for the control group
+  dplyr::mutate(yi = -yi) %>%  
+  dplyr::rename(mean = control_mean, se = control_se, sd = control_sd, n = control_n) %>%
+  dplyr::mutate(group = "control_")
+
+# Combine the data
+combined_data <- bind_rows(silvo_data, control_data)
+
+# Prepare data for plotting
+combined_long_data <- combined_data %>%
+  pivot_longer(cols = c(yi, vi), names_to = "measure", values_to = "value")
+
+# Check the prepared data
+glimpse(combined_long_data)
+
+# Create the density plot
+combined_long_data |> 
+  ggplot(aes(x = value, fill = group, color = group)) +
+  geom_density(alpha = 0.5) +
+  facet_wrap(~ response_variable + measure, scales = "free") +
+  labs(
+    title = "Density Plot of Effect Sizes (yi) and Variances (vi) by Group",
+    x = "Value",
+    y = "Density",
+    fill = "Group",
+    color = "Group"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+```{r}
+# Fit a random-effects model using rma.mv
+# By setting "verbose = TRUE", we can obtain information on the progress of the optimization algorithm:
+
+##########################################################################
+# Set up the parallel processing plan
+plan(multisession, workers = parallel::detectCores() - 1)
+##################################################
+
+# Start time tracking
+start.time <- Sys.time()
+
+##################################################
+##################################################
+
+# Adjust the model to include study-level variance and within-study correlation
+
+#######################################################################################################################################
+# Fit the original multivariate random-effects meta-analysis model using the 'rma.mv' function
+# This model accounts for study-level variance and within-study correlation
+
+original_model <- rma.mv(
+  # Effect size estimates (dependent variable)
+  yi = yi,             
+  # Variance-covariance matrix of the effect sizes (providing information on within-study sampling variances and covariances)
+  V = V_matrix,                                      
+  random = list(
+    # Random intercept for each article to model between-study variability
+    ~ 1 | id_article,                   
+    # Random intercept for each response variable within each article to model within-study correlation
+    ~ 1 | id_article/response_variable               
+  ),
+  # Data frame containing the meta-analysis data, including effect sizes and their variances
+  data = filtered_meta_data_ROM,    
+  # Enable verbose output to print progress and convergence information
+  verbose = TRUE,                                    
+  control = list(
+    # Optimizer to be used for fitting the model; 'nlminb' is robust for constrained optimization problems
+    optimizer = "nlminb",   
+     # Maximum number of iterations for the optimizer; increase if the model is complex or if convergence is slow
+    iter.max = 1000,              
+    # Relative convergence tolerance; lower values indicate stricter convergence criteria
+    rel.tol = 1e-8                                   
+  ),
+  # Use Maximum Likelihood (ML) estimation for fitting the model (alternatively, REML could be used for restricted maximum likelihood)
+  # Justification for using Maximum Likelihood (ML) over REML:
+  # - ML allows for straightforward model comparisons, making it suitable for hypothesis testing 
+  #   and model selection based on different fixed effects (e.g., adding or removing moderators).
+  # - ML provides consistent estimates of fixed effects, which is essential for accurately assessing 
+  #   overall effect sizes and moderator impacts in the meta-analysis.
+  # - For complex models with multiple levels of random effects, ML can be more computationally 
+  #   efficient and is more versatile, making it a practical choice for this analysis.
+  # - Although ML might slightly underestimate variance components in small sample sizes, the primary 
+  #   focus here is on hypothesis testing and the fixed effects, for which ML is well-suited.
+  method = "ML"                                      
+)
+
+# Notes on the model:
+# - 'yi': Represents the vector of observed effect sizes, calculated previously using escalc() function.
+# - 'V': The variance-covariance matrix representing the sampling variances of effect sizes and covariances, allowing for dependencies within studies.
+# - 'random': Specifies the random-effects structure. 
+#     - '~ 1 | id_article': Random effect at the study level to capture between-study variance.
+#     - '~ 1 | id_article/response_variable': Nested random effects to account for within-study variability across different response variables.
+# - 'data': Specifies the dataset being used, which has been preprocessed to include only relevant and cleaned data points.
+# - 'verbose': Provides output on the optimization process, helpful for diagnosing convergence issues.
+# - 'control': Contains settings for the optimization process, including the choice of optimizer, maximum iterations, and convergence tolerance.
+# - 'method': Specifies the estimation method; ML is chosen here to estimate the fixed and random effects.
+
+# Running this model will provide insight into both the fixed effect sizes and the random effects that account for variability within and between studies.
+# It will also help in understanding how much of the total variability is due to differences between studies and how much is due to within-study correlation among response variables.
+#######################################################################################################################################
+##################################################
+##################################################
+
+# End time tracking
+end.time <- Sys.time()
+
+##############################################################
+# Calculate time taken
+time.taken <- end.time - start.time
+time.taken
+
+# Time difference of 4.314359 mins - too simple! And still failing :-(
+# Time difference of 1.77205 hours - with all model optimizes! And still failing :-(
+# Time difference of 29.00199 secs - very simplified - but works :-)
+# Time difference of 39.1189 secs
+
+# Iteration 100   ll = -5966.3000   sigma2 = 0.0067  0.0067  0.0237  
+# Iteration 101   ll = -5966.3000   sigma2 = 0.0067  0.0067  0.0237  
+# Iteration 102   ll = -5966.3000   sigma2 = 0.0067  0.0067  0.0237  
+# Iteration 103   ll = -5966.3000   sigma2 = 0.0067  0.0067  0.0237  
+# Iteration 104   ll = -5966.3000   sigma2 = 0.0067  0.0067  0.0237  
+# Iteration 105   ll = -5966.3000   sigma2 = 0.0067  0.0067  0.0237  
+# Iteration 106   ll = -5966.3000   sigma2 = 0.0067  0.0067  0.0237  
+# Iteration 107   ll = -5966.3000   sigma2 = 0.0067  0.0067  0.0237  
+# 
+# Time difference of 52.40915 secs
+# Time difference of 27.06277 secs
+
+```
+
+```{r}
+I get the error:
+
+Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.
+
+Variance Components in Model:
+
+
+Iteration 0     ll = -16196.0178   sigma2 = 0.0106  0.0106  0.0106  
+Iteration 1     ll = -16196.0178   sigma2 = 0.0106  0.0106  0.0106  
+Iteration 2     ll = -16196.0178   sigma2 = 0.0106  0.0106  0.0106  
+..  
+Iteration 66    ll = -16196.0178   sigma2 = 0.0106  0.0106  0.0106  
+Iteration 67    ll = -16196.0178   sigma2 = 0.0106  0.0106  0.0106  
+Fejl: Optimizer (nlminb) did not achieve convergence (convergence = 1).
+
+3.
+stop(mstyle$stop(paste0("Optimizer (", optimizer, ") did not achieve convergence (convergence = ",
+opt.res$convergence, ").")), call. = FALSE)
+
+2.
+.chkconv(optimizer = optimizer, opt.res = opt.res, optcontrol = optcontrol,
+fun = "rma.mv", verbose = verbose)
+
+1.
+rma.mv(yi = yi, V = V_matrix, random = list(~1 | id_article,
+~1 | id_article/response_variable), data = filtered_meta_data_ROM,
+verbose = TRUE, control = list(iter.max = 1000, rel.tol = 1e-06))
+
+
+
+```
+
+##########################################################################
+IDENTIFY OBSERVATIONS WITH EXTREME VARIACE AND EXCLUDE
+##########################################################################
+
+
+```{r}
+# Identify observations with extreme variances
+extreme_variances <- filtered_meta_data_ROM %>%
+  filter(vi == max(vi) | vi == min(vi))
+
+extreme_variances
+
+# Optionally, remove observations with extremely high or low variances
+filtered_meta_data_ROM_less_extreme_vi <- filtered_meta_data_ROM %>%
+  filter(vi < quantile(vi, 0.99) & vi > quantile(vi, 0.01))  # Adjust the quantiles as needed
+
+```
+
+TAKING A LOOK AT THE FITTED MODEL
+
+```{r}
+# Inspect the model summary to get more details
+summary(original_model)
+
+# Multivariate Meta-Analysis Model (k = 1007; method: REML)
+# 
+#      logLik     Deviance          AIC          BIC         AICc   
+# -16564.4318   33128.8636   33136.8636   33156.5186   33136.9036   
+# 
+# Variance Components:
+# 
+#             estim    sqrt  nlvls  fixed                        factor 
+# sigma^2.1  0.0006  0.0245     37     no                    id_article 
+# sigma^2.2  0.0047  0.0683     37     no                    id_article 
+# sigma^2.3  0.0280  0.1674     48     no  id_article/response_variable 
+# 
+# Test for Heterogeneity:
+# Q(df = 1006) = 98341.7572, p-val < .0001
+# 
+# Model Results:
+# 
+# estimate      se     zval    pval    ci.lb   ci.ub    
+#  -0.0227  0.0303  -0.7489  0.4539  -0.0821  0.0367    
+# 
+# ---
+# Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+```
+
+
+Older intepretation:
+
+INTERPRETATION OF MODEL SUMMARY
+
+The multivariate meta-analysis model includes 1032 effect sizes from various studies and is implemented using the restricted maximum likelihood (REML) method. The log-likelihood value is -5966.3000, indicating the fit of the model to the data. The model's fit statistics, such as the AIC (11940.6000), BIC (11960.3531), and AICc (11940.6390), provide measures of the model's goodness of fit, with lower values indicating a better fit. These values help in comparing different models and selecting the best one.
+
+The model accounts for variability at different levels using random effects. The variance components for the id_article level are 0.0067 (with a standard deviation of 0.0820) for both sigma^2.1 and sigma^2.2, indicating the variance attributed to individual articles. Additionally, the variance component for the id_article/response_variable level is 0.0237 (with a standard deviation of 0.1539), capturing the variance attributed to different response variables within each article. These variance components highlight the hierarchical structure of the data and the importance of considering both article-level and response variable-level variability.
+
+The Q-test for heterogeneity reveals significant variability among the effect sizes, with a Q-value of 112909.0493 and a p-value of less than 0.0001. This significant heterogeneity indicates that the effect sizes differ more than would be expected by chance alone, suggesting that there are underlying differences between the studies that need to be accounted for in the analysis. The presence of such heterogeneity underscores the necessity of using a random-effects model to capture the between-study variability.
+
+Despite the significant heterogeneity, the overall effect size estimate is 0.0046, with a standard error of 0.0321. However, this estimate is not statistically significant, as indicated by a p-value of 0.8865. The 95% confidence interval for the effect size ranges from -0.0583 to 0.0674, encompassing zero and further indicating the lack of a significant effect. This suggests that the effect sizes across the studies do not show a consistent trend or significant overall effect, highlighting the complexity and variability inherent in the data.
+
+
+
+With the updated model and summary intepretation:
+
+EXTENDED INTERPRETATION AND NEXT STEPS IN META-ANALYSIS
+
+Overview of Data and Model Results
+This multivariate meta-analysis model incorporates 1007 effect sizes derived from various studies, implementing a maximum likelihood (ML) method to estimate the parameters. The significant values from the model include:
+
+Log-Likelihood: -16178.1646
+AIC (Akaike Information Criterion): 32364.3291
+BIC (Bayesian Information Criterion): 32383.9881
+AICc (Corrected Akaike Information Criterion): 32364.3691
+These metrics are crucial for evaluating model fit, with lower values indicating a better fit. In this context, while the model provides a statistical framework for integrating the different studies, its effectiveness in capturing the true underlying relationships is guided by these fit statistics.
+
+Understanding the Variance Components
+The model accounts for random effects at different levels:
+
+sigma^2.1 (id_article level): This small variance component (0.0006, SD = 0.0253) suggests limited variability attributable to individual articles, indicating that the majority of variability is not due to differences between articles.
+
+sigma^2.2 (id_article level): The value is zero (0.0000, SD = 0.0000), implying negligible or no detectable variance at this level, suggesting that there might not be additional article-level factors influencing the outcomes.
+
+sigma^2.3 (id_article/response_variable level): The higher variance component (0.0041, SD = 0.0637) highlights that variability exists between different response variables within each article. This suggests that the specific metrics or outcomes measured might influence the variability more than article-level factors alone.
+
+Significant Heterogeneity
+The Q-test for heterogeneity is a critical component of this analysis, revealing significant variability among the effect sizes (Q = 264771.5488, p < 0.0001). This result indicates that the differences between the studies are not solely due to random sampling variability but may also be influenced by other factors such as study design, population characteristics, measurement methods, or other contextual variables. The presence of substantial heterogeneity justifies the use of a random-effects model to account for this variability, underscoring the model's appropriateness in handling the complex structure of the data.
+
+Non-Significant Overall Effect Size
+The overall effect size estimate of -0.0098, with a p-value of 0.3682, indicates that the combined studies do not show a consistent, statistically significant effect. The confidence interval (-0.0311 to 0.0115) encompasses zero, suggesting that the effect sizes across the studies vary without a clear direction or magnitude. This non-significance might reflect a true lack of effect or could be due to variability introduced by study differences.
+
+Implications for Data Validity and Meta-Analysis
+Model Validity: The significant heterogeneity and variance components observed in this model suggest that while the random-effects model is appropriate, it might still not capture all sources of variability. This impacts the validity of the meta-analysis, as unaccounted variability can lead to biased or less reliable estimates. Careful interpretation is required, recognizing that the results might be influenced by unobserved moderators or confounding variables.
+
+Data Quality and Consistency: The substantial heterogeneity indicates that studies included in the meta-analysis vary considerably in their findings. This variation can stem from differences in study design, population demographics, measurement techniques, or other contextual factors. Ensuring consistency in data quality, such as using standardized measurement techniques and harmonizing study protocols, could enhance the reliability of future analyses.
+
+Exploring Sources of Heterogeneity: To improve the understanding of the observed heterogeneity, further analyses could investigate potential moderators. Meta-regression can be employed to examine how study-level covariates (e.g., study design, geographic location, sample size) influence effect sizes. Identifying significant moderators can help explain the variability and guide the refinement of future studies.
+
+Subgroup Analyses: Performing subgroup analyses can further elucidate the effects within more homogeneous groups, potentially revealing trends or significant effects masked in the overall analysis. Subgroups could be based on study characteristics such as year, location, population type, or specific response variables measured.
+
+Sensitivity Analyses: Conducting sensitivity analyses to test the robustness of the results is critical. By systematically removing studies with extreme effect sizes or high variances, the stability of the overall conclusions can be evaluated. This process helps to identify influential studies or outliers that may disproportionately affect the results.
+
+Publication Bias Assessment: Considering the possibility of publication bias is essential, as it could skew the meta-analysis results. Using tools like funnel plots or statistical tests such as Egger's test can help detect asymmetry, indicating potential publication bias.
+
+Use of REML: Although ML was used in this analysis, considering REML (Restricted Maximum Likelihood) could be beneficial in future iterations. REML is generally preferred in random-effects meta-analyses as it provides unbiased estimates of variance components by accounting for the degrees of freedom used in estimating fixed effects. However, ML is often used for comparing nested models and is useful for hypothesis testing, as was necessary in this analysis. The choice between ML and REML should be guided by the specific goals of the analysis, with ML being suitable for hypothesis testing and REML offering better variance estimation properties.
+
+Conclusion
+The results of this meta-analysis model reveal significant heterogeneity among the included studies, necessitating a careful and nuanced interpretation of the findings. The absence of a statistically significant overall effect size does not diminish the value of the analysis but highlights the complexity of integrating diverse studies. Future research should focus on identifying sources of heterogeneity, refining inclusion criteria, and standardizing study methodologies to enhance the robustness and validity of meta-analytic conclusions. By addressing these areas, the reliability and applicability of meta-analysis as a tool for evidence synthesis can be significantly improved.
+
+
+
+1. Sensitivity Analysis
+* Objective: To determine how robust the meta-analysis results are to the inclusion or exclusion of specific studies.
+* Approach: 
+  - Influence Diagnostics: Use leave-one-out analysis to see how the removal of each study individually affects the overall effect size estimate and
+    heterogeneity measures.
+  - Outlier Detection: Identify studies with extreme effect sizes or variances. These outliers can disproportionately influence the overall results. Removing
+    these studies can provide insights into their impact.
+  - Impact of Large Sample Sizes: Check if studies with large sample sizes dominate the overall findings. You can perform analyses with and without these        studies to assess their influence.
+
+2. Moderator Analysis
+* Objective: To explore and account for the sources of heterogeneity observed in your model.
+* Approach: 
+  - Meta-Regression: Include study-level covariates (e.g., year of study, geographic location, sample size, measurement methods) as moderators in the model      to see if they explain some of the variance.
+  - Categorical Moderators: Group studies based on categorical variables (e.g., region, population type) and assess whether these groups show different          effect sizes.
+  - Continuous Moderators: Investigate continuous variables (e.g., year of publication, age of subjects) to see if they correlate with the effect sizes.
+
+3. Visualization
+* Objective: To provide a visual representation of the data and model outcomes for better interpretation and communication.
+* Approach:
+  - Forest Plots: Create forest plots to show the effect sizes and confidence intervals for each study. This will help visualize the variation across studies     and the overall effect size.
+  - Bubble Plots: Use bubble plots to illustrate the relationship between effect sizes and study characteristics, with bubble size representing sample size      or variance.
+  - Effect Size Distribution: Plot the distribution of effect sizes to see the spread and central tendency, which can help in identifying any skewness or        extreme values.
+
+
+4. Diagnostic Plots
+* Objective: To assess model assumptions and detect potential biases.
+* Approach:
+  - Funnel Plots: Generate funnel plots to visualize potential publication bias. Asymmetry in the plot could indicate bias, which can be further tested using     Egger's test or trim-and-fill methods.
+  - Residual Plots: Plot residuals to check if the assumptions of normality and homoscedasticity are met. Patterns in residuals might indicate model             misspecification or the presence of influential studies.
+
+5. Reconsider the Use of REML
+* Objective: To obtain more accurate variance component estimates.
+* Approach:
+  - Consider running the analysis using REML, especially for the final model, to compare the results with those obtained using ML. REML can provide more         reliable estimates of variance components by accounting for the uncertainty in estimating fixed effects.
+  - Use ML for initial model fitting and hypothesis testing (e.g., comparing nested models) and REML for the final variance estimation to ensure robustness.
+
+6. Further Data Quality and Consistency Checks
+* Objective: To ensure the reliability of the data used in the meta-analysis.
+* Approach:
+  - Standardization: Ensure that all included studies use standardized measurement techniques. If not, consider transforming or harmonizing data to reduce       variability.
+  - Protocol Harmonization: Evaluate the consistency of study protocols. Large deviations can introduce heterogeneity that may not be accounted for by           statistical methods alone.
+
+7. Explore Potential Unobserved Moderators
+* Objective: To identify any potential factors influencing the results that were not initially considered.
+* Approach:
+  - Qualitative Review: Review the studies to identify any commonalities or differences that might serve as unobserved moderators.
+  - Collaboration with Experts: Consult domain experts to hypothesize potential unobserved moderators that could explain some of the heterogeneity.
+
+
+
+
+
+Strategies to Address Non-Convergence
+Check and Adjust Initial Values: Using different starting values for the model parameters can sometimes help the optimizer find a solution. In the rma.mv function, you can specify control parameters to set initial values.
+
+Simplify the Model: Try fitting a simpler model (e.g., reducing the number of random effects) when excluding certain studies to see if this leads to convergence.
+
+Use a Different Optimizer: In some cases, using a different optimizer may help. The rma.mv function allows you to specify alternative optimizers like "optim" instead of the default "nlminb".
+
+Diagnostics and Robust Estimation: Before fitting the sensitivity models, check which studies have a high influence using diagnostics like Cook's distance or leverage statistics. Consider robust variance estimation methods that are less sensitive to influential points.
+
+Handling Convergence Failures in Loop: Modify the loop to handle non-convergence gracefully, for instance, by skipping the study that leads to non-convergence or trying a different optimization method for that iteration.
+
+
+
+
+The warning message you’re encountering, “Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results,” highlights a significant issue with the variances associated with your study estimates in the meta-analysis. In meta-analysis, each study's effect size estimate comes with a sampling variance, which is crucial for determining how much weight that study should carry in the overall analysis. When the ratio between the largest and smallest variances is extremely high, it suggests a substantial disparity in the uncertainty of the estimates across studies.
+
+This large variance ratio can lead to instability in your meta-analysis results. Studies with higher sampling variances might disproportionately influence the pooled effect size, potentially skewing the results and making them less reliable. Essentially, when some studies have much higher uncertainty compared to others, it can undermine the stability of the meta-analysis.
+
+In your sensitivity analysis, where you iteratively exclude each study to assess the robustness of your findings, this warning suggests that the results might be particularly sensitive to the inclusion or exclusion of studies with high variances. You should carefully examine the distribution of variances to understand which studies contribute most to this disparity and whether they are outliers or have special characteristics that could be influencing the analysis.
+
+To address this issue, you might need to explore methods to stabilize the results, such as using robust variance estimators or adjusting the weights based on the variances. Additionally, it is important to investigate the studies with extreme variances to determine if there are underlying reasons for their high uncertainty, which might inform whether they should be treated differently in your analysis.
+
+While the warning suggests caution, continuing with your sensitivity analysis is appropriate. It will help you gauge how the exclusion of each study affects the overall results and provide insights into the robustness of your meta-analysis. If the results remain unstable or if you're unsure about the implications of the warning, consulting with a statistician can offer further guidance and ensure that your analysis is conducted appropriately.
+
+
+
+Differences Between the Original Model and the Sensitivity Analysis Model
+In the sensitivity analysis, there were modifications made to the model settings compared to the original model. These changes were necessary to address convergence issues and ensure that the model could fit successfully for each subset of the data when specific studies were excluded. Below are the key differences between the original model and the sensitivity analysis model:
+
+Justification for Modifying Model Settings
+The adjustments were necessary due to warnings about the large ratio of the largest to smallest sampling variances, which indicated potential instability in the results. By relaxing the convergence criteria and providing initial estimates, the sensitivity analysis was able to proceed without errors, thus allowing a thorough investigation into the influence of individual studies. This approach, while introducing some compromise on precision, ensures that the sensitivity analysis remains informative and can highlight potential issues or influential studies within the meta-analysis dataset.
 

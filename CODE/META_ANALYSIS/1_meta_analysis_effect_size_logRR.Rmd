@@ -66,6 +66,7 @@ suppressWarnings({
     tidyverse,        # Comprehensive collection of R packages for data science
     readr,            # Read and write csv 
     dlookr,           # Diagnose, explore, and transform data with dlookr
+    skimr,            # Provides easy summary statistics about variables in data frames, tibbles, data tables and vectors
     janitor,          # For cleaning and renaming data columns
     readxl,           # To read Excel files
     vroom,            # Fast reading of large datasets from local disk
@@ -128,7 +129,7 @@ Loading the dataset (main database)
 
 # Suppress warnings to avoid clutter in the console output
 suppressWarnings({
-  database <- read_excel(here::here("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temperate_SAF_meta_analysis/DATA/META_ANALYSIS/Final_database_2024_05_17.xlsx"), 
+  database <- read_excel(here::here("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temperate_SAF_meta_analysis/DATA/META_ANALYSIS/ANALYSIS_READY/Final_database_2024_05_17.xlsx"), 
                            sheet = "Quantatitive data") 
   #%>%
   #  filter(INCLUDED == TRUE) # include only data entries that have been assesed and deemed included
@@ -141,6 +142,9 @@ database %>% dplyr::glimpse()
 ```
 ```{r}
 database %>% summary() 
+```
+```{r}
+database |> skim()
 ```
 
 
@@ -504,42 +508,66 @@ silvo_se_impute_original_plot + control_se_impute_original_plot
 CALCULATING EFFECT SIZE MEASURE AND GENERATING AND BUILDING RANDOM-EFFECTS MODEL
 ##########################################################################################################################################
 
+SOME PREPROCESSING OF THE META-DATA BEFORE CALCULATING EFFECT SIZE MEASURE
 
 ################################
 A) The standardized mean difference: It is necessary to standardize the results of the studies to a uniform scale before they can be combined. For effect measure in our case we can use Ratio of Means (RoM) as the ratio of means can be used in either situation, but is appropriate only when outcome measurements are strictly greater than zero.
 
 ```{r}
-# New dataset to be used for mata-analysis
-meta_data <- imputed_database_clean |> 
+# Create a new dataset for meta-analysis with shifted values for interpretation
+meta_data <- imputed_database_clean |>
   # Filtering so that only data with outcome measurements that are greater than zero will be included
-  filter(silvo_se > 0, 
-         control_se > 0) |>
-  # Adjust the signs for specific response variables where lower values for silvo_ vs. control_ is actually better
-  # Manually changing the signs for greenhouse gas emissions and pests and diseases, as lower values in the silvo_ treatment group are considered
-  # better. This ensures consistency in the interpretation of effect sizes across all outcomes. 
+  # Including only data with positive standard errors ensures that the subsequent calculations (e.g., variances, effect sizes) are statistically valid and 
+  # interpretable. It helps avoid mathematical errors such as division by zero or taking the square root of a negative number.
+  # By excluding studies or observations with zero or negative standard errors, you might be systematically excluding certain types of data. For instance,
+  # studies with less variability might be excluded, potentially skewing the overall results.
+    filter(silvo_se > 0,
+           control_se > 0) |>
+  # Adjust the signs for specific response variables where lower values for silvo_ vs. control_ is considered 'better'
   mutate(
-    silvo_mean = ifelse(response_variable %in% c("Greenhouse gas emissions", "Pests and Diseases"), -silvo_mean, silvo_mean),
-    control_mean = ifelse(response_variable %in% c("Greenhouse gas emissions", "Pests and Diseases"), -control_mean, control_mean)
+    silvo_mean = ifelse(response_variable %in% c("Greenhouse gas emissions", "Pests and Diseases", "Water quality"), 
+                        -silvo_mean, silvo_mean),
+    control_mean = ifelse(response_variable %in% c("Greenhouse gas emissions", "Pests and Diseases", "Water quality"), 
+                          -control_mean, control_mean)
   ) |> 
-  # To be 100 % sure. Filter out rows with missing values in key columns
+  # Exclude the variable soil water content due to inconsistent data from only a single measurement
+  filter(response_variable != "Soil water content") |> 
+  # Filter out rows with missing values in key columns to ensure data completeness
   filter(
     !is.na(silvo_mean) & !is.na(control_mean) & !is.na(silvo_n) & 
     !is.na(control_n) & !is.na(silvo_se) & !is.na(control_se)
   ) |> 
-  # Calculate standard deviations from standard errors and sample sizes
+ # Calculate standard deviations from standard errors and sample sizes
   mutate(
     # Calculate standard deviation for silvo group
     silvo_sd = silvo_se * sqrt(silvo_n),
     # Calculate standard deviation for control group
     control_sd = control_se * sqrt(control_n)
   ) |> 
-  # Reorder columns for better readability and organization
+  # Shift values to be positive
+  # Shifting values to be positive is a necessary step when using transformations that require positive inputs, like the log-transformed ratio of means. 
+  # It enables the inclusion of all studies, avoids mathematical errors, and standardizes data across studies, ensuring the validity and reliability of the
+  # meta-analysis. Not performing this step could lead to errors, exclusion of data, and potential biases in the results. However, it's important to
+  # interpret the results in the context of the shift and acknowledge that absolute values have been adjusted.
+  mutate(
+    min_value_shift = abs(min(c(silvo_mean, control_mean), na.rm = TRUE)) + 1,
+    silvo_mean = silvo_mean + min_value_shift,
+    control_mean = control_mean + min_value_shift
+  ) |>
+  # Reorder columns for better readability and organization in the output
   relocate(id_article, response_variable, measured_metrics, measured_unit, 
            silvo_mean, silvo_se, silvo_sd, silvo_n, control_mean, control_se, control_sd, control_n) |> 
-  arrange(id_article, response_variable) 
+  arrange(id_article, response_variable)
 
 
 meta_data |> glimpse()
+```
+
+
+When shifting values or flipping the sign of the means, it does indeed alter the interpretation of the data and the units they represent. This process can make the original units less meaningful, and it can introduce challenges in interpreting the results. 
+
+```{r}
+meta_data |> filter(response_variable == "Water quality") |> skim()
 ```
 
 
@@ -577,8 +605,14 @@ meta_data_ROM <- escalc(measure = "ROM",
 # Check if the meta_data_ROM object exists and display its structure
 str(meta_data_ROM)
 
+# After shifting the mean values, I don't see this warning below
 # Advarsel: Some 'yi' and/or 'vi' values equal to +-Inf. Recoded to NAs
 ```
+
+
+The warning message "Some 'yi' and/or 'vi' values equal to +-Inf. Recoded to NAs." means that some of the calculated effect sizes or their variances are turning into infinite values during the computation. This usually happens when the data for the experimental or control groups contain zeros or when there's a big difference between the means and standard deviations that can't be properly captured using the "ROM" (log-transformed ratio of means) effect size measure. To avoid the analysis from failing, the escalc() function replaces these infinite values with NA. Having NA values can be problematic because it means those observations will be excluded from the analysis, which might reduce the study's statistical power. If many observations are affected, it could suggest that the dataset isn't suitable for the "ROM" measure or that there are data quality issues that need addressing. If only a few data points are affected, the impact is less severe, but it's still important to understand why these values are occurring.
+
+
 ```{r}
 # Identify rows where 'yi' or 'vi' are NA
 problematic_data <- meta_data_ROM %>%
@@ -592,14 +626,32 @@ problematic_data |>
            silvo_mean, silvo_se, silvo_sd, silvo_n, 
            control_mean, control_se, control_sd, control_n) |> 
   arrange(id_article, response_variable)
+
+# Before shifting the mean values, I got these:
+# id_article	response_variable	measured_metrics	measured_unit	yi	vi	silvo_mean	silvo_se	silvo_sd	silvo_n
+# <int>	<chr>	<chr>	<chr>	<dbl>	<dbl>	<dbl>	<dbl>	<dbl>	<dbl>
+# 5	Water quality	NO3- concentration	ppm	NA	NA	0.0	0.006	0.03841875	41
+# 6	Pest and Disease	Disease	µg/kg dry barley grain	NA	NA	0.0	3.470	25.96710226	56
+# 9	Biodiversity	Plants	Species richness	NA	NA	0.5	0.900	18.70614872	432
+# 9	Biodiversity	Plants	Species richness	NA	NA	1.8	0.850	8.32826513	96
+# 30	Biodiversity	Airborne arthropods	Abundance	NA	NA	1.0	1.410	8.91762300	40
+# 30	Biodiversity	Airborne arthropods	Abundance	NA	NA	1.0	7.300	46.16925384	40
+# 30	Biodiversity	Airborne arthropods	Abundance	NA	NA	1.0	11.230	71.02475625	40
+# 30	Biodiversity	Airborne arthropods	Abundance	NA	NA	0.0	138.920	878.60722510	40
+# 30	Biodiversity	Airborne arthropods	Abundance	NA	NA	4.0	1.290	8.15867636	40
+# 30	Pest and Disease	Abunadance of pest insects	Abundance	NA	NA	0.0	1.410	8.91762300	40
+
+# After shifting the mean values I dont get that
+# Description:df [0 × 25]
 ```
+
 The yi and vi values can become NA (or infinite before being recoded to NA) for several reasons when using the escalc() function to calculate effect sizes and variances. Here are some common causes:
 
 Zero or Negative Values in Control or Experimental Group: If the means, standard deviations, or sample sizes in the control or experimental group are zero or negative, it can lead to undefined or infinite values when calculating the log-transformed ratio of means (ROM).
 
 
 
-To handle problematic data points by assigning them a small value instead of excluding them, you can follow these steps:
+To handle problematic data points by assigning them a small value instead of excluding them, it is possible by following these steps:
 
 1) Identify Problematic Data Points: Identify the data points where yi or vi are NA.
 2) Assign Small Values: Replace the problematic values with a small value.
@@ -613,7 +665,7 @@ RE-CALCULATION OF EFFECT SIZE MEASURE USING escalc() function
 
 ```{r}
 # Assign a small value to zero or negative values in the original data
-small_value <- 0.0001
+small_value <- 0.001
 
 # Create a new dataset with small values assigned to problematic data points
 adjusted_meta_data <- meta_data %>%
@@ -646,79 +698,135 @@ str(meta_data_ROM_adjusted)
 
 
 ```{r}
+# Storing the now adjusted dataset with calculated effect sizes as the old name'meta_data_ROM' (before adjustment)
+
 meta_data_ROM <- meta_data_ROM_adjusted
 ```
 
 
-
-
-
-
-
 ```{r}
 # Display the data with re-calculated effect size measure 
-as.data.frame(meta_data_ROM) |> 
+meta_data_ROM <- as.data.frame(meta_data_ROM) |> 
   # Reorder columns for better readability
   relocate(id_article, response_variable, measured_metrics, measured_unit, 
            yi, vi,
            silvo_mean, silvo_se, silvo_sd, silvo_n, 
            control_mean, control_se, control_sd, control_n) |> 
   arrange(id_article, response_variable)
+
+meta_data_ROM
 ```
-```{r}
-# Display the data with re-calculated effect size measure 
-as.data.frame(meta_data_ROM) |> 
-  # Reorder columns for better readability
-  relocate(id_article, response_variable, measured_metrics, measured_unit, 
-           yi, vi,
-           silvo_mean, silvo_se, silvo_sd, silvo_n, 
-           control_mean, control_se, control_sd, control_n) |> 
-  arrange(id_article, response_variable) |> 
-  glimpse()
-```
+
+
 ################################################################################################
 VISUAL ASSESSMENT
 ################################################################################################
 
 Visual assessment of yi (effect sizes) and vi (variances) for both the silvo_ and control_ groups, faceted by each response_variable
-
 ```{r}
-# Prepare the data
-# Separate the data for silvo_ and control_
-silvo_data <- meta_data_ROM %>%
-  select(id_article, response_variable, yi, vi, silvo_mean, silvo_se, silvo_sd, silvo_n) %>%
-  rename(mean = silvo_mean, se = silvo_se, sd = silvo_sd, n = silvo_n) %>%
-  mutate(group = "silvo_")|> 
-  as.data.frame()
-
-control_data <- meta_data_ROM %>%
-  select(id_article, response_variable, yi, vi, control_mean, control_se, control_sd, control_n) %>%
-  rename(mean = control_mean, se = control_se, sd = control_sd, n = control_n) %>%
-  mutate(group = "control_") |> 
-  as.data.frame()
-
-# Combine the data
-combined_data <- bind_rows(silvo_data, control_data)
-
-# Prepare data for plotting
+# Prepare the data for visualization without reversing effect size
 combined_long_data <- combined_data %>%
   pivot_longer(cols = c(yi, vi), names_to = "measure", values_to = "value")
 
-# Check the prepared data
-glimpse(combined_long_data)
-
 # Create the density plot
 combined_long_data |> 
-ggplot(aes(x = value, fill = group), linetype = 2) +
+  ggplot(aes(x = value, fill = group, color = group)) +
   geom_density(alpha = 0.5) +
   facet_wrap(~ response_variable + measure, scales = "free") +
-  labs(title = "Density Plot of Effect Sizes and Variances by Group",
-       x = "Value",
+  labs(
+    title = "Density Plot of Effect Sizes (yi) and Variances (vi) by Group",
+    x = "Value",
+    y = "Density",
+    fill = "Group",
+    color = "Group"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+```{r}
+combined_long_data |> summary()
+
+combined_long_data %>%
+  group_by(group, measure) %>%
+  summarise(min_value = min(value, na.rm = TRUE), max_value = max(value, na.rm = TRUE)) %>%
+  print()
+```
+```{r}
+# Inspect the data
+table(combined_long_data$group)
+summary(combined_long_data$value)
+```
+```{r}
+head(silvo_data)
+head(control_data)
+```
+```{r}
+summary(silvo_data$mean)
+summary(control_data$mean)
+```
+```{r}
+# Apply skim to your data
+silvo_data$mean |> skim()
+control_data$mean |> skim()
+```
+
+Visualiseing with log-transformed values
+
+```{r}
+# Create the density plot with log scale
+combined_long_data |> 
+  ggplot(aes(x = value, fill = group, color = group)) +
+  geom_density(alpha = 0.3) +
+  scale_x_log10() +  # Applying log scale to x-axis
+  facet_wrap(~ response_variable + measure, scales = "free") +
+  labs(title = "Density Plot of Effect Sizes and Variances by Group (Log Scale)",
+       x = "Value (Log Scale)",
        y = "Density",
        fill = "Group") +
   theme_minimal() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Advarsel i transformation$transform(x) : NaNs produced
+# Advarsel i scale_x_log10() :
+#   log-10 transformation introduced infinite values.
+# Advarsel: Removed 1080 rows containing non-finite outside the scale range (`stat_density()`).
 ```
+```{r}
+# Identify rows with non-positive values in 'value'
+problematic_values <- combined_long_data %>%
+  filter(value <= 0)
+```
+
+```{r}
+# Define a small constant for shifting values
+shift_constant <- abs(min(combined_long_data$value, na.rm = TRUE)) + 1
+
+# Shift values to be positive
+combined_long_data_shifted <- combined_long_data %>%
+  mutate(
+    value_shifted = value + shift_constant,
+    shift_info = "Values shifted by a constant for log-transformed visualization"
+  )
+
+# Create the density plot with log scale using shifted values
+combined_long_data_shifted |> 
+  ggplot(aes(x = value_shifted, fill = group, color = group)) +
+  geom_density(alpha = 0.3) +
+  scale_x_log10() +  # Applying log scale to x-axis
+  facet_wrap(~ response_variable + measure, scales = "free") +
+  labs(
+    title = "Density Plot of Effect Sizes and Variances by Group (Log Scale)",
+    x = "Value (Log Scale, Shifted for Visualization)",
+    y = "Density",
+    fill = "Group",
+    caption = "Note: Values shifted by a constant purely for visualization"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
 
 ```{r}
 # Create the density plot for silvo_ group
@@ -748,6 +856,11 @@ combined_long_data |>
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 ```{r}
+combined_long_data |> filter(response_variable == "Product quality")
+combined_long_data |> filter(response_variable == "Water quality")
+```
+
+```{r}
 # Get the unique response variables
 response_variables <- unique(combined_long_data$response_variable)
 
@@ -762,8 +875,8 @@ for (rv in response_variables) {
   vi_range <- range(data_rv %>% filter(measure == "vi") %>% pull(value), na.rm = TRUE)
   
   # Plot for yi
-  p_yi <- ggplot(data_rv %>% filter(measure == "yi"), aes(x = value, fill = group)) +
-    geom_density(alpha = 0.5, linetype = "dotted") +
+  p_yi <- ggplot(data_rv %>% filter(measure == "yi"), aes(x = value, colour = group)) +
+    geom_density(alpha = 0.5, linetype = "dotted", linewidth = 0.8) +
     scale_x_continuous(limits = yi_range) +
     labs(title = paste("Density Plot of Effect Sizes (yi) for", rv),
          x = "Effect Size (yi)",
@@ -773,8 +886,8 @@ for (rv in response_variables) {
     theme(axis.text.x = element_text(angle = 45, hjust = 1))
   
   # Plot for vi
-  p_vi <- ggplot(data_rv %>% filter(measure == "vi"), aes(x = value, fill = group)) +
-    geom_density(alpha = 0.5, linetype = "dotted") +
+  p_vi <- ggplot(data_rv %>% filter(measure == "vi"), aes(x = value, colour = group)) +
+    geom_density(alpha = 0.5, linetype = "dotted", linewidth = 0.8) +
     scale_x_continuous(limits = vi_range) +
     labs(title = paste("Density Plot of Variances (vi) for", rv),
          x = "Variance (vi)",
@@ -797,7 +910,20 @@ for (rv in names(plots)) {
 ```
 
 
-Interpretation of the yi and vi plots
+Interpretation of the yi and vi density plots
+
+The visual assessment from the density plots indicates that there are very high variances (vi) in several response variables, particularly in product quality, water quality, crop yield, pest and diseases, and soil quality. This high spread in variances can significantly influence the results of your meta-analysis, leading to potential biases and less reliable estimates. Dealing with extreme variances (vi) in a meta-analysis is crucial because these 'outliers' can disproportionately influence the results, leading to unreliable conclusions. 
+
+1. Identify Observations with Extreme Variances
+
+To identify observations with extreme variances, it is possible to use the following approach:
+  a) Calculate summary statistics for the vi values to understand their distribution.
+  b) Identify outliers based on these statistics, typically using a threshold like the top 1% of vi values or using statistical measures like IQR
+  (Interquartile Range).
+
+
+
+
 
 
 These density plots illustrate the distributions of the effect sizes (yi) and their variances (vi) across different response variables for two groups: the silvo group and the control group. Here's a detailed interpretation:
@@ -869,7 +995,7 @@ meta_data_ROM |>
 # Identify rows with high variances
 
 high_variance_obs <- meta_data_ROM |> 
-  filter(vi > quantile(vi, 0.995)) |> 
+  filter(vi > quantile(vi, 0.950)) |> # 0.995
   # Reorder columns for better readability
   relocate(id_article, response_variable, measured_metrics, measured_unit, 
            yi, vi,
@@ -877,7 +1003,7 @@ high_variance_obs <- meta_data_ROM |>
            control_mean, control_se, control_sd, control_n) |> 
   arrange(id_article, response_variable)
 
-high_variance_obs
+skim(high_variance_obs)
 ```
 
 ```{r}
@@ -890,14 +1016,17 @@ meta_data_ROM <- meta_data_ROM |>
 
 # Identify rows with high variances
 high_variance_obs <- meta_data_ROM |> 
-  filter(vi > quantile(vi, 0.95, # 0.995
+  filter(vi > quantile(vi, 0.950, # 0.995 # 0.950
                        na.rm = TRUE))
+##################################################################################################################
 
 # Exclude high variance observations from the dataset
 filtered_meta_data_ROM <- meta_data_ROM |> 
   filter(!row_id %in% high_variance_obs$row_id)
 
 filtered_meta_data_ROM
+filtered_meta_data_ROM |> glimpse()
+filtered_meta_data_ROM |> skim()
 ```
 
 ##########################################################################################################################################
@@ -968,7 +1097,8 @@ print(missing_values)
 ```
 ```{r}
 # Distribution of vi
-ggplot(filtered_meta_data_ROM, aes(x = vi)) +
+filtered_meta_data_ROM |> 
+  ggplot(aes(x = vi)) +
   geom_histogram(binwidth = 0.1) +
   ggtitle("Distribution of Sampling Variances (vi)") +
   scale_x_log10() +
@@ -1007,6 +1137,12 @@ Positive definiteness is a desirable property for variance-covariance matrices, 
 Ensuring the positive definiteness of the variance-covariance matrix is crucial for the integrity of statistical models, including those used in meta-analysis. A positive definite matrix guarantees that the matrix is invertible, a necessary condition for various statistical calculations, such as estimating model parameters. This property also ensures numerical stability during computations, reducing the likelihood of errors and ensuring accurate results, which is fundamental for the reliability of the model fitting process and subsequent statistical inference.
 
 Excluding missing values from the dataset is essential to maintain data integrity and model accuracy. Missing values can lead to biased estimates and incorrect inferences if not handled appropriately. By removing rows with missing values in critical columns, we ensure that all observations used in the analysis are complete and reliable. This process simplifies the dataset, making it easier to apply statistical methods and interpret the results accurately.
+
+
+
+
+
+
 
 ##########################################################################
 EXCLUDIDNG MISSING VALUES FROM THE DATASET - in case of any missing values. However, in this case there is no missing values
@@ -1055,7 +1191,14 @@ TEST
 ```
 
 
+
+
+
+
+
+#######################################################################################################################################
 ACTUAL MODEL FITTING
+#######################################################################################################################################
 
 ```{r, eval = FALSE}
 # Fit a random-effects model using rma.mv
@@ -1076,17 +1219,60 @@ start.time <- Sys.time()
 
 #######################################################################################################################################
 # Fit the original multivariate random-effects meta-analysis model using the 'rma.mv' function
+# This model accounts for study-level variance and within-study correlation
 
-original_model <- rma.mv(yi = yi,                                           # Effect size estimates
-                         V = V_matrix,                                      # Variance-covariance matrix of the effect sizes
-                         random = list(~ 1 | id_article,                    # Random intercept for each article
-                                       ~ 1 | id_article/response_variable), # Random intercept for each response variable within each article
-                         data = filtered_meta_data_ROM,                     # Data frame containing the meta-analysis data with effects sizes
-                         verbose = TRUE,                                    # Print progress and convergence information
-                         control = list(iter.max = 1000,                    # Maximum number of iterations for the optimizer
-                                        rel.tol = 1e-6                      # Relative convergence tolerance for the optimizer
-                                        )
-                         )
+original_model <- rma.mv(
+  # Effect size estimates (dependent variable)
+  yi = yi,             
+  # Variance-covariance matrix of the effect sizes (providing information on within-study sampling variances and covariances)
+  V = V_matrix,                                      
+  random = list(
+    # Random intercept for each article to model between-study variability
+    ~ 1 | id_article,                   
+    # Random intercept for each response variable within each article to model within-study correlation
+    ~ 1 | id_article/response_variable               
+  ),
+  # Data frame containing the meta-analysis data, including effect sizes and their variances 
+  # The filtered data (using the filter(vi > quantile(vi, 0.950) has rows/obs: 1,007)
+  data = filtered_meta_data_ROM,    
+  # Enable verbose output to print progress and convergence information
+  verbose = TRUE,                                    
+  control = list(
+    # Optimizer to be used for fitting the model; 'nlminb' is robust for constrained optimization problems
+    optimizer = "nlminb",   
+     # Maximum number of iterations for the optimizer; increase if the model is complex or if convergence is slow
+    iter.max = 1000,              
+    # Relative convergence tolerance; lower values indicate stricter convergence criteria
+    rel.tol = 1e-8                                   
+  ),
+  # Use Maximum Likelihood (ML) estimation for fitting the model (alternatively, REML could be used for restricted maximum likelihood)
+  # Justification for using Maximum Likelihood (ML) over REML:
+  # - ML allows for straightforward model comparisons, making it suitable for hypothesis testing 
+  #   and model selection based on different fixed effects (e.g., adding or removing moderators).
+  # - ML provides consistent estimates of fixed effects, which is essential for accurately assessing 
+  #   overall effect sizes and moderator impacts in the meta-analysis.
+  # - For complex models with multiple levels of random effects, ML can be more computationally 
+  #   efficient and is more versatile, making it a practical choice for this analysis.
+  # - Although ML might slightly underestimate variance components in small sample sizes, the primary 
+  #   focus here is on hypothesis testing and the fixed effects, for which ML is well-suited.
+  method = "ML"                                      
+)
+
+# Notes on the model:
+# - 'yi': Represents the vector of observed effect sizes, calculated previously using escalc() function.
+# - 'V': The variance-covariance matrix representing the sampling variances of effect sizes and covariances, allowing for dependencies within studies.
+# - 'random': Specifies the random-effects structure. 
+#     - '~ 1 | id_article': Random effect at the study level to capture between-study variance.
+#     - '~ 1 | id_article/response_variable': Nested random effects to account for within-study variability across different response variables.
+# - 'data': Specifies the dataset being used, which has been preprocessed to include only relevant and cleaned data points.
+# - 'verbose': Provides output on the optimization process, helpful for diagnosing convergence issues.
+# - 'control': Contains settings for the optimization process, including the choice of optimizer, maximum iterations, and convergence tolerance.
+# - 'method': Specifies the estimation method; ML is chosen here to estimate the fixed and random effects.
+#             The choice between ML and REML should be guided by the specific goals of the analysis, with ML being suitable for hypothesis testing and REML
+#             offering better variance estimation properties. 
+
+# Running this model will provide insight into both the fixed effect sizes and the random effects that account for variability within and between studies.
+# It will also help in understanding how much of the total variability is due to differences between studies and how much is due to within-study correlation among response variables.
 #######################################################################################################################################
 ##################################################
 ##################################################
@@ -1099,41 +1285,115 @@ end.time <- Sys.time()
 time.taken <- end.time - start.time
 time.taken
 
-# Time difference of 4.314359 mins - too simple! And still failing :-(
-# Time difference of 1.77205 hours - with all model optimizes! And still failing :-(
-# Time difference of 29.00199 secs - very simplified - but works :-)
-# Time difference of 39.1189 secs
+##############################################################
+# Last go: (25/08-24)
 
-# Iteration 100   ll = -5966.3000   sigma2 = 0.0067  0.0067  0.0237  
-# Iteration 101   ll = -5966.3000   sigma2 = 0.0067  0.0067  0.0237  
-# Iteration 102   ll = -5966.3000   sigma2 = 0.0067  0.0067  0.0237  
-# Iteration 103   ll = -5966.3000   sigma2 = 0.0067  0.0067  0.0237  
-# Iteration 104   ll = -5966.3000   sigma2 = 0.0067  0.0067  0.0237  
-# Iteration 105   ll = -5966.3000   sigma2 = 0.0067  0.0067  0.0237  
-# Iteration 106   ll = -5966.3000   sigma2 = 0.0067  0.0067  0.0237  
-# Iteration 107   ll = -5966.3000   sigma2 = 0.0067  0.0067  0.0237  
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.
+# Variance Components in Model:
 # 
-# Time difference of 52.40915 secs
+# Iteration 0     ll = -16196.8585   sigma2 = 0.0106  0.0106  0.0106  
+# Iteration 1     ll = -16196.8585   sigma2 = 0.0106  0.0106  0.0106  
+# Iteration 2     ll = -16196.8585   sigma2 = 0.0106  0.0106  0.0106
+# ...
+# Iteration 212   ll = -16178.1646   sigma2 = 0.0006  0.0000  0.0041  
+# Iteration 213   ll = -16178.1648   sigma2 = 0.0006  0.0000  0.0041  
+# Iteration 214   ll = -16178.1646   sigma2 = 0.0006  0.0000  0.0041
+
+# Time difference of 1.47106 mins
+
+
 ```
-
-
 
 TAKING A LOOK AT THE FITTED MODEL
 
 ```{r}
 # Inspect the model summary to get more details
 summary(original_model)
+
+# Multivariate Meta-Analysis Model (k = 1007; method: REML)
+# 
+#      logLik     Deviance          AIC          BIC         AICc   
+# -16564.4318   33128.8636   33136.8636   33156.5186   33136.9036   
+# 
+# Variance Components:
+# 
+#             estim    sqrt  nlvls  fixed                        factor 
+# sigma^2.1  0.0006  0.0245     37     no                    id_article 
+# sigma^2.2  0.0047  0.0683     37     no                    id_article 
+# sigma^2.3  0.0280  0.1674     48     no  id_article/response_variable 
+# 
+# Test for Heterogeneity:
+# Q(df = 1006) = 98341.7572, p-val < .0001
+# 
+# Model Results:
+# 
+# estimate      se     zval    pval    ci.lb   ci.ub    
+#  -0.0227  0.0303  -0.7489  0.4539  -0.0821  0.0367    
+# 
+# ---
+# Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+#################################################################################
+# Last go: (25/08-24)
+
+# Multivariate Meta-Analysis Model (k = 1007; method: ML)
+# 
+#      logLik     Deviance          AIC          BIC         AICc   
+# -16178.1646   37227.3676   32364.3291   32383.9881   32364.3691   
+# 
+# Variance Components:
+# 
+#             estim    sqrt  nlvls  fixed                        factor 
+# sigma^2.1  0.0006  0.0253     37     no                    id_article 
+# sigma^2.2  0.0000  0.0000     37     no                    id_article 
+# sigma^2.3  0.0041  0.0637     48     no  id_article/response_variable 
+# 
+# Test for Heterogeneity:
+# Q(df = 1006) = 264771.5488, p-val < .0001
+# 
+# Model Results:
+# 
+# estimate      se     zval    pval    ci.lb   ci.ub    
+#  -0.0098  0.0109  -0.8998  0.3682  -0.0311  0.0115    
+# 
+# ---
+# Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
 ```
+
+
 INTERPRETATION OF MODEL SUMMARY
 
-The multivariate meta-analysis model includes 1032 effect sizes from various studies and is implemented using the restricted maximum likelihood (REML) method. The log-likelihood value is -5966.3000, indicating the fit of the model to the data. The model's fit statistics, such as the AIC (11940.6000), BIC (11960.3531), and AICc (11940.6390), provide measures of the model's goodness of fit, with lower values indicating a better fit. These values help in comparing different models and selecting the best one.
+The multivariate meta-analysis model includes 1007 effect sizes from various studies and is implemented using the maximum likelihood (ML) method. The log-likelihood value is -16178.1646, which indicates how well the model fits the data. The model's fit statistics, including the AIC (32364.3291), BIC (32383.9881), and AICc (32364.3691), are measures of the model's goodness of fit, with lower values suggesting a better fit. These values are essential for comparing different models and selecting the most appropriate one.
 
-The model accounts for variability at different levels using random effects. The variance components for the id_article level are 0.0067 (with a standard deviation of 0.0820) for both sigma^2.1 and sigma^2.2, indicating the variance attributed to individual articles. Additionally, the variance component for the id_article/response_variable level is 0.0237 (with a standard deviation of 0.1539), capturing the variance attributed to different response variables within each article. These variance components highlight the hierarchical structure of the data and the importance of considering both article-level and response variable-level variability.
+The model accounts for variability at different levels using random effects. The variance components for the id_article level are as follows:
 
-The Q-test for heterogeneity reveals significant variability among the effect sizes, with a Q-value of 112909.0493 and a p-value of less than 0.0001. This significant heterogeneity indicates that the effect sizes differ more than would be expected by chance alone, suggesting that there are underlying differences between the studies that need to be accounted for in the analysis. The presence of such heterogeneity underscores the necessity of using a random-effects model to capture the between-study variability.
+* sigma^2.1: 0.0006 (with a standard deviation of 0.0253), indicating the variance attributed to individual articles.
+* sigma^2.2: 0.0000 (with a standard deviation of 0.0000), suggesting negligible or no variance at this level.
+* sigma^2.3: 0.0041 (with a standard deviation of 0.0637), representing the variance attributed to different response variables within each article.
 
-Despite the significant heterogeneity, the overall effect size estimate is 0.0046, with a standard error of 0.0321. However, this estimate is not statistically significant, as indicated by a p-value of 0.8865. The 95% confidence interval for the effect size ranges from -0.0583 to 0.0674, encompassing zero and further indicating the lack of a significant effect. This suggests that the effect sizes across the studies do not show a consistent trend or significant overall effect, highlighting the complexity and variability inherent in the data.
+These variance components reflect the hierarchical structure of the data, emphasizing the importance of considering both article-level and response variable-level variability.
 
+The Q-test for heterogeneity shows significant variability among the effect sizes, with a Q-value of 264771.5488 and a p-value of less than 0.0001. This significant heterogeneity implies that the effect sizes vary more than would be expected by chance alone, indicating underlying differences between the studies that must be accounted for in the analysis. The presence of such substantial heterogeneity justifies the use of a random-effects model to capture the between-study variability.
+
+Despite the significant heterogeneity, the overall effect size estimate is -0.0098, with a standard error of 0.0109. This estimate is not statistically significant, as indicated by a p-value of 0.3682. The 95% confidence interval for the effect size ranges from -0.0311 to 0.0115, which includes zero, further indicating the lack of a significant overall effect. This suggests that the effect sizes across the studies do not show a consistent trend or significant overall impact, highlighting the complexity and variability inherent in the data.
+
+################################################
+SUMMARISED:
+
+Understanding the Variance Components
+The model accounts for variability at multiple levels:
+
+* sigma^2.1 (id_article level): A small variance (0.0006) indicates limited variability between articles, suggesting that article-level differences are not a major source of variability.
+
+* sigma^2.2 (id_article level): No variance (0.0000) at this level suggests negligible additional article-level influences on the outcomes.
+
+* sigma^2.3 (id_article/response_variable level): A higher variance (0.0041) indicates more variability due to differences in response variables within each article, highlighting the influence of specific metrics or outcomes.
+
+Significant Heterogeneity
+The Q-test shows substantial heterogeneity among the effect sizes (Q = 264771.5488, p < 0.0001), indicating that the observed differences are not due to chance alone but are likely influenced by factors such as study design and measurement methods. This significant variability supports the use of a random-effects model to appropriately account for the complexity of the data.
+
+Non-Significant Overall Effect Size
+The overall effect size (-0.0098) is not statistically significant (p = 0.3682), with the confidence interval (-0.0311 to 0.0115) crossing zero. This suggests that the combined studies do not show a consistent trend or significant effect, which may be due to inherent variability across studies or a genuine lack of a consistent overall effect.
 
 ```{r}
 # Extract variance-covariance components
@@ -1154,22 +1414,50 @@ cat("phi:", phi_value, "\n")
 ```
 
 
-Next Steps:
-1. Sensitivity Analysis:
-    - Evaluate the influence of individual studies on the overall results.
-    - Check if the results change when certain studies are removed.
+################################################################################################
+FORMULATING THE NEXT STEPS IN THE MEAT-ANALYSIS
+################################################
 
+Next Steps:
+
+1. Sensitivity Analysis:
+    - Assess robustness of results by checking influence of individual studies.
+      Evaluate the influence of individual studies on the overall results.
+    - Check if the results change when certain studies are removed.
+      Use leave-one-out analysis, detect outliers, and examine impact of large sample sizes.
+    
 2. Moderator Analysis:
     - Investigate if certain study characteristics (moderators) explain the heterogeneity.
+      Identify sources of heterogeneity.
     - Include moderators in the model to see if they account for some of the variability.
+      Conduct meta-regression using study-level covariates, analyze categorical and continuous moderators.
 
 3. Visualization:
     - Create forest plots to visualize the effect sizes and their confidence intervals across studies.
+      Enhance interpretation through visual representation.
     - Use bubble plots to show the relationship between effect sizes and study characteristics.
+      Create forest plots for effect sizes, bubble plots for study characteristics, and distribution plots for effect sizes.
 
 4. Diagnostic Plots:
     - Examine funnel plots to assess publication bias.
+      Check for model assumptions and biases.
     - Use residual plots to check model assumptions.
+      Use funnel plots for publication bias and residual plots for model assumptions.
+
+Alternatives:
+  Reconsider the Use of REML
+    - Improve variance component estimation.
+      Use REML for final variance estimation, compare with ML results to ensure robustness.
+  
+  Data Quality and Consistency Checks
+    - Maintain reliability of data.
+      Standardize measurement techniques and harmonize study protocols to reduce variability.
+  
+  Explore Potential Unobserved Moderators
+    - Identify other factors affecting results.
+      Perform qualitative review of studies and consult experts to hypothesize potential moderators.
+
+
 
 #############
 # STEP 4
@@ -1177,14 +1465,23 @@ Next Steps:
 INFLUENCE DIAGNOSTICS AND SENSITIVITY ANALYSIS ON DATA (E.G.: MISSING OUTCOME DATA)
 ##########################################################################################################################################
 
+original_model <- rma.mv(
+  yi = yi,             
+  V = V_matrix,                                      
+  random = list(
+    ~ 1 | id_article,                   
+    ~ 1 | id_article/response_variable               
+  ),
+  data = filtered_meta_data_ROM,    
+  verbose = TRUE,                                    
+  control = list(
+    optimizer = "nlminb",   
+    iter.max = 1000,              
+    rel.tol = 1e-8),  
+    method = "ML"                                      
+)
+
 ```{r, eval = FALSE}
-
-# Initialize a list to store the results
-sensitivity_results <- list()
-
-# Get the list of unique study IDs
-unique_studies <- unique(filtered_meta_data_ROM$id_article)
-
 ##########################################################################
 # Set up the parallel processing plan
 plan(multisession, workers = parallel::detectCores() - 1)
@@ -1195,18 +1492,44 @@ start.time <- Sys.time()
 
 ##################################################
 ##################################################
+# Initialize a list to store the results
+sensitivity_results <- list()
+
+# Get the list of unique study IDs
+unique_studies <- unique(filtered_meta_data_ROM$id_article)
 
 # Loop through each study and fit the model excluding that study
 for (study in unique_studies) {
   # Exclude the current study
   data_excluded <- filtered_meta_data_ROM[filtered_meta_data_ROM$id_article != study, ]
   
-  # Fit the model
-  model <- rma.mv(yi = yi, 
-                  V = V_matrix[filtered_meta_data_ROM$id_article != study, filtered_meta_data_ROM$id_article != study], 
-                  random = ~ 1 | id_article/response_variable, 
-                  data = data_excluded,
-                  method = "REML")
+  # Exclude corresponding rows and columns from the variance-covariance matrix
+  V_matrix_excluded <- V_matrix[filtered_meta_data_ROM$id_article != study, filtered_meta_data_ROM$id_article != study]
+  
+  # Fit the model using the same settings as the original model
+  model <- rma.mv(
+    yi = yi, 
+    V = V_matrix_excluded, 
+    random = list(
+      ~ 1 | id_article,
+      ~ 1 | id_article/response_variable
+    ), 
+    data = data_excluded,
+    method = "ML",  # Consistent with the original model's method
+    control = list(
+      # Try using the "BFGS" optimizer instead of "nlminb"
+      optimizer = "nlminb",      
+      # Increase the maximum number of iterations
+      iter.max = 5000,
+      # Relax the relative tolerance for convergence
+      rel.tol = 1e-2,             
+      # Adjust step size for the optimizer
+      step.max = 100,              
+      # Provide initial estimates for variance components
+      sigma2.init = c(0.001, 0.001, 0.005)  
+      ),
+    verbose = FALSE  # Set to FALSE to avoid excessive output during loop
+  )
   
   # Store the results
   sensitivity_results[[as.character(study)]] <- list(
@@ -1227,6 +1550,7 @@ sensitivity_df <- do.call(rbind, lapply(sensitivity_results, function(x) data.fr
 
 sensitivity_df$id_article <- unique_studies
 
+sensitivity_df
 ##################################################
 ##################################################
 
@@ -1240,6 +1564,7 @@ time.taken
 
 ##################################################
 
+# (first run)
 # Time difference of 17.05628 mins
 
 # Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.
@@ -1248,13 +1573,85 @@ time.taken
 # Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.
 # Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.
 # Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.
+
+# (second run)
+# Time difference of 36.92614 mins
+# 
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.
+
+#################################################################################
+# Last go: (25/08-24)
+
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.
+# Time difference of 7.94416 mins
 ```
+```{r, eval = FALSE}
+sensitivity_df
+```
+
+Discussion of Model Setup and Trade-offs in this Meta-Analysis
+
+Addressing Non-Convergence and Model Adaptations
+
+Handling non-convergence is crucial in meta-analysis to ensure reliable results. A series of strategies can be employed to mitigate these issues, including adjusting initial values for model parameters, simplifying the model by reducing the number of random effects, and using different optimizers such as "optim" instead of the default "nlminb" in the rma.mv function. Diagnostic measures like Cook's distance or leverage statistics can help identify studies with high influence, allowing for robust variance estimation methods that are less sensitive to these influential points. Additionally, modifying the analysis loop to handle non-convergence gracefully—by skipping problematic studies or trying alternative optimization methods—ensures the robustness of the findings.
+
+The warning about the “Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results” highlights significant disparities in the variances among study estimates. This disparity can lead to instability, as studies with larger variances may disproportionately influence the pooled effect size, potentially skewing results. Addressing this requires a thorough examination of variance distribution to understand and mitigate the impact of outliers. Using robust variance estimators or adjusting study weights based on variance can help stabilize results. Continuing with sensitivity analysis is essential to assess the robustness of findings, and persistent instability may warrant consulting with a statistician to ensure the integrity of the analysis.
+
+Modifications in Sensitivity Analysis Compared to the Original Model
+
+The sensitivity analysis involved key modifications to the original model settings to handle convergence issues effectively. While the original model used the optimizer nlminb with a maximum of 1000 iterations and a strict relative tolerance of 1e-8 for high precision, the sensitivity analysis increased the maximum iterations to 5000, relaxed the relative tolerance to 1e-2, set the step size to 100, and introduced initial estimates for variance components (sigma2.init = c(0.001, 0.001, 0.005)). These adjustments were necessary to enhance the model’s ability to find stable solutions, particularly when excluding specific studies.
+
+The relaxation of convergence criteria in the sensitivity analysis highlights a trade-off: it prioritizes consistent convergence over precision, which is essential for handling data variability. While the original model’s strict settings were geared towards obtaining precise solutions, they were more prone to convergence failures, especially during iterative fitting across different subsets. Introducing initial variance component estimates helped guide the optimizer towards reasonable starting points, improving the chances of convergence in complex models.
+
+Impact and Interpretation of Model Adjustments
+
+The relaxed settings in the sensitivity analysis model, though essential for achieving convergence across multiple iterations, may lead to slightly less stable and precise estimates. This could result in increased variability in the results, potentially masking subtle effects that the original model detected. Therefore, findings from the sensitivity analysis should be interpreted with caution and seen as a measure of robustness rather than definitive conclusions.
+
+These adjustments underscore the complexity of the meta-analysis model and the need for further refinement to ensure reliable results. Exploring alternative modeling strategies or data transformation methods may be required to reduce variability in sampling variance and improve the stability of estimates. Ultimately, while sensitivity analyses are crucial for understanding the robustness of findings, they also highlight the importance of continually refining analytical methods to enhance the validity and reliability of meta-analytic conclusions.
+
+
+
+
+
+
+
+SAVING THE SENSITIVITY MATRIX
+
+```{r, eval = FALSE}
+write_csv(sensitivity_df, "sensitivity_df_original_model_2.csv")
+```
+
+READING THE SAVED SENSITIVITY MATRIX
+
+```{r}
+sensitivity_df <- readr::read_csv("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temperate_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/sensitivity_df_original_model_2.csv")
+
+sensitivity_df
+```
+
+
+
+
+
+
+
+
 
 ##########################################################################
 Use the original model fitting
 ##########################################################################
 ```{r}
-# Original model results
+# Extract the original model results
+# - 'original_estimate' is the original effect size estimate from the model
+# - 'original_ci.lb' is the lower bound of the confidence interval for the original estimate
+# - 'original_ci.ub' is the upper bound of the confidence interval for the original estimate
+
 original_estimate <- original_model$b
 original_ci.lb <- original_model$ci.lb
 original_ci.ub <- original_model$ci.ub
@@ -1268,7 +1665,12 @@ Visualize the changes
 Create a plot to visualize the influence of excluding each study
 
 ```{r}
-# Add the original model results to the data frame
+# Add the original model results to the sensitivity data frame before plotting
+# - 'sensitivity_df' is a data frame containing the results of the sensitivity analysis
+# - 'original_estimate' is added to each row of the data frame
+# - 'original_ci.lb' is added to each row of the data frame
+# - 'original_ci.ub' is added to each row of the data frame
+
 sensitivity_df <- sensitivity_df %>%
   mutate(original_estimate = original_estimate,
          original_ci.lb = original_ci.lb,
@@ -1290,6 +1692,41 @@ sensitivity_df |>
   scale_x_continuous(breaks = seq(1, 40, 1))
 
 ```
+
+Interpretation of the Sensitivity Analysis Plot
+The sensitivity analysis plot shows the effect size estimates (points) and their 95% confidence intervals (error bars) for each study in your meta-analysis. The red dashed line represents the overall effect size estimate from the original model, while the blue dotted lines represent the upper and lower bounds of the 95% confidence interval for the overall estimate. Each point corresponds to the effect size estimate when the respective study is excluded from the analysis.
+
+Consistency of Estimates: Most of the points are centered around the red dashed line (the original estimate), indicating that excluding any single study does not substantially alter the overall effect size estimate.
+Confidence Intervals: The confidence intervals are relatively wide, which might suggest variability in the individual study estimates or small sample sizes within the studies.
+
+Influential Studies: If any points lie significantly away from the red dashed line or their confidence intervals do not overlap with the original confidence interval (blue dotted lines), these studies might be considered influential. In this plot, it appears that none of the studies drastically change the overall estimate when excluded.
+Suggestions for Further Insights
+Leave-One-Out Meta-Analysis: Perform a leave-one-out meta-analysis to quantify the influence of each study on the overall effect size and heterogeneity measures. This involves refitting the model after excluding each study one at a time and comparing the overall results.
+
+Cumulative Meta-Analysis: Conduct a cumulative meta-analysis where studies are added one at a time in a chronological order (or by study size or quality) to observe how the overall effect size estimate evolves as more data is included.
+
+Influence Diagnostics: Calculate and plot various influence diagnostics such as:
+
+Cook's Distance: To measure the influence of each study on the fitted model.
+DFBETAS: To assess the influence of each study on individual regression coefficients.
+Hat Values: To identify studies with high leverage.
+Covariance Ratios: To understand the influence of each study on the precision of the parameter estimates.
+Subgroup Analysis: Perform subgroup analyses to explore if certain subsets of studies (e.g., by study design, population characteristics, or intervention type) have a different impact on the overall effect size.
+
+Meta-Regression: Use meta-regression to investigate the relationship between study-level covariates and the effect sizes, which can help identify factors contributing to heterogeneity.
+
+Robustness Checks: Conduct robustness checks by varying the assumptions of the model, such as using different methods for estimating the between-study variance or using alternative effect size measures.
+
+
+
+
+
+
+
+##########################################################################
+OTHER DIAGNOSTICS TO GET FURTHER INSIGHTS INTO MODEL STUDY SENSITIVITY
+##########################################################################
+
 
 Studentized Residuals:
 
@@ -1357,10 +1794,15 @@ time.taken
 #   |==================================================| 100% elapsed=02h 26m 29s
 # Time difference of 7.757072 hours
 
+#################################################################################
+# Last go: (25/08-24)
+
 ```
 
 
 Saving the data of the influence diagnostics
+
+SAVING THE DIAGNOSTICS DATA
 
 ```{r, eval = FALSE}
 ##############################################################
@@ -1400,26 +1842,36 @@ write.csv(student_resid_data, "studentized_residuals.csv", row.names = FALSE)
 ```
 
 
+READING THE DIAGNOSTICS DATA
+
+```{r}
+# Load Cook's Distance data
+cooks_data <- read_csv("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temperate_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/cooks_distance.csv")
+
+# Load DFBETAS data
+dfbetas_data <- read_csv("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temperate_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/dfbetas.csv")
+
+# Load Studentized Residuals data
+student_resid_data <- read_csv("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temperate_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/studentized_residuals.csv")
+```
+
 
 ##########################################################################################################################################  
 PLOTTING INFLUENCE DIAGNOSTICS
 ##########################################################################################################################################
 
 ```{r}
-cooks_data <- read_csv("DATA/META_ANALYSIS/FROM_R/cooks_distance.csv")
-```
-
-```{r}
 # Plot Studentized Residuals
 
 # Create a data frame for ggplot2
 residuals_data <- data.frame(
-  Observed_Outcome = seq_along(student_resid$resid),
-  Studentized_Residuals = student_resid$resid
+  Observed_Outcome = seq_along(student_resid_data$Observed_Outcome),
+  Studentized_Residuals = student_resid_data$Residuals
 )
 
 # Create the ggplot2 plot
-ggplot(residuals_data, aes(x = Observed_Outcome, y = Studentized_Residuals)) +
+residuals_data |> 
+ggplot(aes(x = Observed_Outcome, y = Studentized_Residuals)) +
   geom_hline(yintercept = c(-2, 2), linetype = "dashed", color = "red") +
   geom_segment(aes(xend = Observed_Outcome, yend = 0), linetype = "solid") +
   geom_point() +
@@ -1435,12 +1887,11 @@ ggplot(residuals_data, aes(x = Observed_Outcome, y = Studentized_Residuals)) +
 
 # Create a data frame for ggplot2
 cooks_data <- data.frame(
-  Observed_Outcome = seq_along(cooks_d),
-  Cooks_Distance = cooks_d
-)
+  Observed_Outcome = seq_along(cooks_data),
+  Cooks_Distance = cooks_data)
 
 # Calculate the threshold for Cook's Distance
-threshold <- 4 / (nrow(filtered_meta_data_ROM_clean) - length(coef(res)))
+threshold <- 4 / (nrow(filtered_meta_data_ROM) - length(coef(res)))
 
 # Create the ggplot2 plot
 ggplot(cooks_data, aes(x = Observed_Outcome, y = Cooks_Distance)) +
@@ -1552,7 +2003,6 @@ time.taken <- end.time - start.time
 time.taken
 
 ##################################################
-
 ```
 
 ```{r}
@@ -1579,21 +2029,171 @@ ggplot(aes(x = Observed_Outcome, y = Covariance_Ratios)) +
 
 
 
+
 #############
 # STEP 5
+##########################################################################################################################################
+ANALYSING MODERATORS
+##########################################################################################################################################
+
+
+```{r}
+imputed_database_clean |> glimpse()
+
+# Moderators to be investigated:
+# 
+# Soil_texture/soil type
+# Tree_crop_combination_T
+# Season
+# Tree_row _orientation
+# No_tree_per_m
+# Alley_width
+# Tree_height
+# Tillage
+# Organic
+```
+
+Performing a moderator analysis using the metafor package in R, can be done by following these steps. Moderator analysis helps to understand how different study characteristics (moderators) influence the effect sizes and whether these moderators can explain some of the heterogeneity observed in the overall meta-analysis. The moderators listed will be included in the moderatroer assessment of the meta-analysis model to investigate their impact.
+
+Step-by-Step Moderator Analysis
+  1. Data Preparation: Ensure that the variables of interest are used as moderators are correctly formatted and coded in the dataset. 
+     Convert categorical variables to factors if they are not already.
+
+  2. Model Fitting with Moderators: Use the rma.mv() function to fit a random-effects meta-analysis model, including the moderators as fixed effects.       This will allow to see the influence of each moderator on the effect size.
+
+  3. Interpretation of Results: Assess the coefficients for each moderator to determine their impact on the outcome. Significant moderators can provide      insights into factors that influence the effect sizes.
+
+```{r}
+# View the structure of the cleaned and imputed dataset
+imputed_database_clean |> glimpse()
+
+# List of moderators to investigate
+moderators <- c("Soil_texture", "Tree_crop_combination_T", "Season", 
+                "Tree_row_orientation", "No_tree_per_m", "Alley_width", 
+                "Tree_height", "Tillage", "Organic")
+```
+
+REML enhances the validity and reliability of meta-analysis findings by providing unbiased variance estimates, reducing overfitting, and ensuring robust hypothesis testing. These features are crucial for understanding how various moderators affect the outcomes and for making informed, generalizable conclusions.
+
+```{r}
+##########################################################################
+# Set up the parallel processing plan
+plan(multisession, workers = parallel::detectCores() - 1)
+##################################################
+
+# Start time tracking
+start.time <- Sys.time()
+
+##################################################
+##################################################
+
+
+# Create a formula for the moderators
+moderator_formula <- as.formula(paste("~", paste(moderators, collapse = " + ")))
+
+# Fit a multivariate meta-analysis model including moderators
+moderator_model <- rma.mv(
+  # Effect size estimates
+  yi = yi,                     
+  # Variance-covariance matrix of the effect sizes
+  V = V_matrix,                
+  # Moderator variables
+  mods = moderator_formula,    
+  random = list(
+  # Random intercept for each article
+    ~ 1 | id_article,          
+  # Random intercept for each response variable within each article
+    ~ 1 | id_article/response_variable  
+  ),
+  # Data frame containing the meta-analysis data with effect sizes
+  data = filtered_meta_data_ROM,  
+  # Use REML for estimation with moderators
+  method = "REML",             
+  control = list(
+    optimizer = "nlminb",
+    iter.max = 5000,
+    rel.tol = 1e-5
+  ),
+  # Print progress and convergence information
+  verbose = TRUE               
+)
+
+# Notes:
+# Using Restricted Maximum Likelihood (REML) for estimating models with moderators in a meta-analysis is beneficial due to its more accurate handling of variance components. Unlike Maximum Likelihood (ML), which can underestimate these components, REML focuses on estimating random effects first, reducing bias and leading to more reliable estimates. This is particularly important when the number of studies is small or when the data structure is complex, involving nested or hierarchical relationships. By adjusting for the degrees of freedom lost in estimating fixed effects, REML provides a better fit for models with random effects, ensuring the residual variance is accurately represented.
+
+# REML is also less prone to overfitting compared to ML. Overfitting can occur when a model is too tailored to the specific dataset, particularly with many parameters relative to observations. REML's more conservative estimation approach mitigates this risk, enhancing the generalizability of the findings. This robustness is crucial in meta-analyses, where the goal is to draw broader conclusions across multiple studies, not just fit the model to the peculiarities of the sample data.
+
+# Furthermore, REML is preferable for hypothesis testing involving random effects because it provides more accurate p-values and confidence intervals. This accuracy is vital when examining the influence of moderators, as it ensures the significance and strength of these moderators are assessed reliably. In meta-analysis contexts, using REML helps maintain consistency across studies, accurately reflecting true between-study variability and improving the validity of conclusions about how moderators impact outcomes.
+
+# In summary, REML enhances the validity and reliability of meta-analysis findings by providing unbiased variance estimates, reducing overfitting, and ensuring robust hypothesis testing. These features are crucial for understanding how various moderators affect the outcomes and for making informed, generalizable conclusions.
+
+# Display the moderator model
+moderator_model
+
+##################################################
+##################################################
+
+# End time tracking
+end.time <- Sys.time()
+
+##############################################################
+# Calculate time taken
+time.taken <- end.time - start.time
+time.taken
+
+##################################################
+```
+
+```{r}
+summary(moderator_model)
+```
+
+```{r}
+# Examine the influence of each moderator
+anova(moderator_model)
+```
+
+```{r}
+# Forest plot to visualize the results
+forest(moderator_model, slab = paste(id_article, response_variable, sep = ", "), cex = 0.6)
+
+# Bubble plot for visualizing relationship between effect sizes and selected moderator
+bubble_plot <- function(data, moderator) {
+  data %>%
+    ggplot(aes_string(x = moderator, y = "yi", size = "vi")) +
+    geom_point(alpha = 0.5) +
+    labs(x = moderator, y = "Effect Size (yi)", size = "Variance (vi)") +
+    theme_minimal()
+}
+```
+
+```{r}
+# Example bubble plot for one moderator
+bubble_plot(filtered_meta_data_ROM, "Alley_width")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#############
+# STEP 6
 ##########################################################################################################################################
 SENSITIVITY ANALYSIS ON DATA (E.G.: MISSING OUTCOME DATA)
 ##########################################################################################################################################
 
 
+
 CHOOSING RESPONSE VARIABLES AND PERFORM 
-
-
-
-
-
-
-
 
 
 
