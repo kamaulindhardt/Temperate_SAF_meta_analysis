@@ -132,7 +132,7 @@ suppressWarnings({
   database <- read_excel(here::here("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temperate_SAF_meta_analysis/DATA/META_ANALYSIS/ANALYSIS_READY/Final_database_2024_05_17.xlsx"), 
                            sheet = "Quantatitive data") 
   #%>%
-  #  filter(INCLUDED == TRUE) # include only data entries that have been assesed and deemed included
+  #  filter(INCLUDED == TRUE) # include only data entries that have been assessed and deemed included
 })
 ```
 
@@ -697,28 +697,12 @@ str(meta_data_ROM_adjusted)
 ```
 
 
-```{r, eval = FALSE}
-# Saving the metadata as csv
-
+```{r}
 # Storing the now adjusted dataset with calculated effect sizes as the old name'meta_data_ROM' (before adjustment)
 
 meta_data_ROM <- meta_data_ROM_adjusted
-
-##############################################################
-# Save to CSV
-readr::write_csv(meta_data_ROM, "meta_data_ROM.csv")
 ```
 
-
-
-
-############################################################################################################################
-READING THE METADATA CSV
-############################################################################################################################
-
-```{r}
-meta_data_ROM <- readr::read_csv("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temperate_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/meta_data_ROM.csv")
-```
 
 ```{r}
 # Display the data with re-calculated effect size measure 
@@ -738,48 +722,10 @@ meta_data_ROM
 VISUAL ASSESSMENT
 ################################################################################################
 
-```{r}
-# Prepare the data
-# Separate the data for silvo_ and control_
-silvo_data <- meta_data_ROM %>%
-  select(id_article, response_variable, yi, vi, silvo_mean, silvo_se, silvo_sd, silvo_n) %>%
-  rename(mean = silvo_mean, se = silvo_se, sd = silvo_sd, n = silvo_n) %>%
-  mutate(group = "silvo_")|> 
-  as.data.frame()
-
-control_data <- meta_data_ROM %>%
-  select(id_article, response_variable, yi, vi, control_mean, control_se, control_sd, control_n) %>%
-  rename(mean = control_mean, se = control_se, sd = control_sd, n = control_n) %>%
-  mutate(group = "control_") |> 
-  as.data.frame()
-
-#####################################
-
-silvo_data <- meta_data_ROM %>%
-  mutate(yi = log(silvo_mean / control_mean),
-         vi = (silvo_se^2 / silvo_mean^2) + (control_se^2 / control_mean^2)) %>%
-  select(id_article, response_variable, yi, vi, silvo_mean, silvo_se, silvo_sd, silvo_n) %>%
-  rename(mean = silvo_mean, se = silvo_se, sd = silvo_sd, n = silvo_n) %>%
-  mutate(group = "silvo_")
-
-control_data <- meta_data_ROM %>%
-  mutate(yi = log(control_mean / silvo_mean),
-         vi = (control_se^2 / control_mean^2) + (silvo_se^2 / silvo_mean^2)) %>%
-  select(id_article, response_variable, yi, vi, control_mean, control_se, control_sd, control_n) %>%
-  rename(mean = control_mean, se = control_se, sd = control_sd, n = control_n) %>%
-  mutate(group = "control_")
-
-
-
-# Combine the data
-combined_data <- bind_rows(silvo_data, 
-                           control_data)
-```
-
 Visual assessment of yi (effect sizes) and vi (variances) for both the silvo_ and control_ groups, faceted by each response_variable
 ```{r}
 # Prepare the data for visualization without reversing effect size
-combined_long_data <- combined_data %>% # meta_data_ROM
+combined_long_data <- combined_data %>%
   pivot_longer(cols = c(yi, vi), names_to = "measure", values_to = "value")
 
 # Create the density plot
@@ -1081,26 +1027,6 @@ filtered_meta_data_ROM <- meta_data_ROM |>
 filtered_meta_data_ROM
 filtered_meta_data_ROM |> glimpse()
 filtered_meta_data_ROM |> skim()
-
-###############################################################################
-```
-```{r, eval = FALSE}
-##############################################################
-# Save to CSV
-readr::write_csv(filtered_meta_data_ROM, "filtered_meta_data_ROM.csv")
-```
-
-
-
-
-############################################################################################################################
-READING THE FILTERED METADATA CSV
-############################################################################################################################
-
-```{r}
-filtered_meta_data_ROM <- readr::read_csv("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temperate_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/filtered_meta_data_ROM.csv")
-
-filtered_meta_data_ROM
 ```
 
 ##########################################################################################################################################
@@ -1378,12 +1304,9 @@ time.taken
 
 ```
 
-
-
-
 TAKING A LOOK AT THE FITTED MODEL
 
-```{r, eval = FALSE}
+```{r}
 # Inspect the model summary to get more details
 summary(original_model)
 
@@ -1472,7 +1395,7 @@ The Q-test shows substantial heterogeneity among the effect sizes (Q = 264771.54
 Non-Significant Overall Effect Size
 The overall effect size (-0.0098) is not statistically significant (p = 0.3682), with the confidence interval (-0.0311 to 0.0115) crossing zero. This suggests that the combined studies do not show a consistent trend or significant effect, which may be due to inherent variability across studies or a genuine lack of a consistent overall effect.
 
-```{r, eval = FALSE}
+```{r}
 # Extract variance-covariance components
 vcov_matrix <- vcov(original_model)
 vcov_matrix
@@ -1627,7 +1550,7 @@ sensitivity_df <- do.call(rbind, lapply(sensitivity_results, function(x) data.fr
 
 sensitivity_df$id_article <- unique_studies
 
-# sensitivity_df
+sensitivity_df
 ##################################################
 ##################################################
 
@@ -1667,22 +1590,10 @@ time.taken
 
 # Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.
 # Time difference of 7.94416 mins
-
-# Last go: (03/09-24)
-# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.
-# Time difference of 4.106577 mins
 ```
-
 ```{r, eval = FALSE}
 sensitivity_df
 ```
-
-SAVING THE SENSITIVITY MATRIX
-
-```{r, eval = FALSE}
-readr::write_csv(sensitivity_df, "sensitivity_df_original_model_2.csv")
-```
-
 
 Discussion of Model Setup and Trade-offs in this Meta-Analysis
 
@@ -1710,6 +1621,11 @@ These adjustments underscore the complexity of the meta-analysis model and the n
 
 
 
+SAVING THE SENSITIVITY MATRIX
+
+```{r, eval = FALSE}
+write_csv(sensitivity_df, "sensitivity_df_original_model_2.csv")
+```
 
 READING THE SAVED SENSITIVITY MATRIX
 
@@ -1873,19 +1789,13 @@ time.taken
 
 # Time difference of 3 hours!
 
-# <!-- #   |==================================================| 100% elapsed=01h 53m 02s -->
-# <!-- #   |==================================================| 100% elapsed=03h 25m 55s -->
-# <!-- #   |==================================================| 100% elapsed=02h 26m 29s -->
+#   |==================================================| 100% elapsed=01h 53m 02s
+#   |==================================================| 100% elapsed=03h 25m 55s
+#   |==================================================| 100% elapsed=02h 26m 29s
 # Time difference of 7.757072 hours
 
 #################################################################################
-# Last go: (26/08-24)
-
-# Time difference of 23.78939 hours
-# 
-# > #   |==================================================| 100% elapsed=08h 10m 24s
-# > #   |==================================================| 100% elapsed=07h 56m 07s
-# > #   |==================================================| 100% elapsed=07h 40m 51s
+# Last go: (25/08-24)
 
 ```
 
@@ -1905,7 +1815,7 @@ cooks_data <- data.frame(
 )
 
 # Save to CSV
-readr::write_csv(cooks_data, "cooks_distance_2.csv")
+write.csv(cooks_data, "cooks_distance.csv", row.names = FALSE)
 
 ##############################################################
 # DFBETAS
@@ -1914,7 +1824,7 @@ readr::write_csv(cooks_data, "cooks_distance_2.csv")
 dfbetas_data <- as.data.frame(dfbetas_vals)
 
 # Save to CSV
-readr::write_csv(dfbetas_data, "dfbetas_2.csv")
+write.csv(dfbetas_data, "dfbetas.csv", row.names = FALSE)
 
 ##############################################################
 # Studentized Residuals
@@ -1928,23 +1838,21 @@ student_resid_data <- data.frame(
 )
 
 # Save to CSV
-readr::write_csv(student_resid_data, "studentized_residuals_2.csv")
+write.csv(student_resid_data, "studentized_residuals.csv", row.names = FALSE)
 ```
-
- | 17% ~07h 34m 36s 
 
 
 READING THE DIAGNOSTICS DATA
 
 ```{r}
 # Load Cook's Distance data
-cooks_data <- read_csv("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temperate_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/cooks_distance_2.csv")
+cooks_data <- read_csv("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temperate_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/cooks_distance.csv")
 
 # Load DFBETAS data
-dfbetas_data <- read_csv("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temperate_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/dfbetas_2.csv")
+dfbetas_data <- read_csv("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temperate_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/dfbetas.csv")
 
 # Load Studentized Residuals data
-student_resid_data <- read_csv("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temperate_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/studentized_residuals_2.csv")
+student_resid_data <- read_csv("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temperate_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/studentized_residuals.csv")
 ```
 
 
@@ -1977,27 +1885,24 @@ ggplot(aes(x = Observed_Outcome, y = Studentized_Residuals)) +
 ```{r}
 # Plot Cook's Distance
 
-# Create a data frame for ggplot2 with appropriate lengths
-cooks_data_df <- data.frame(
-  Observed_Outcome = seq_along(cooks_data$Cooks_Distance),
-  Cooks_Distance = cooks_data$Cooks_Distance
-)
+# Create a data frame for ggplot2
+cooks_data <- data.frame(
+  Observed_Outcome = seq_along(cooks_data),
+  Cooks_Distance = cooks_data)
 
-# Plot Cook's Distance
+# Calculate the threshold for Cook's Distance
+threshold <- 4 / (nrow(filtered_meta_data_ROM) - length(coef(res)))
 
-ggplot(cooks_data_df, aes(x = Observed_Outcome, y = Cooks_Distance)) +
+# Create the ggplot2 plot
+ggplot(cooks_data, aes(x = Observed_Outcome, y = Cooks_Distance)) +
+  geom_hline(yintercept = threshold, linetype = "dashed", color = "red") +
+  geom_segment(aes(xend = Observed_Outcome, yend = 0), linetype = "solid") +
   geom_point() +
-  geom_hline(yintercept = 4 / nrow(cooks_data_df), linetype = "dashed", color = "red") + 
-  labs(
-    title = "Cook's Distance Plot",
-    x = "Observed Outcome",
-    y = "Cook's Distance"
-  ) +
+  labs(title = "Cook's Distance Plot", 
+       x = "Observed Outcome", 
+       y = "Cook's Distance") +
   theme_minimal()
 ```
-A Cook's Distance plot helps identify influential observations in a regression analysis, indicating which data points substantially affect the model's predictions. Observations with high Cook's Distance values suggest that their exclusion would significantly change the model's results. This is crucial in our sensitivity analysis, where we systematically exclude each study to assess the robustness of our findings. By comparing Cook's Distance results with other sensitivity analyses outcomes, we can pinpoint studies or data points that disproportionately influence the meta-analysis. If certain observations are flagged as influential in both analyses, they may require further investigation to check for data entry errors, outliers, or unique characteristics that justify their influence. Based on these insights, we can decide whether to exclude, adjust, or treat these influential observations differently to enhance model reliability. Documenting and addressing these influential points ensures the robustness and credibility of our meta-analysis, providing transparency and enhancing the overall validity of your findings.
-
-In our Cook's Distance plot, each point represents an observation's Cook's Distance, a measure of how much a single observation influences the overall regression analysis. Higher Cook's Distance values indicate that the observation has a more significant impact on the model's predictions, potentially skewing our model results. The red dashed line represents a commonly used threshold, calculated as 4/number of observations, which helps to identify influential observations. Points above this line are considered to have a substantial influence on the model, and we should further investigate their  impact. In our plot, most of the observations have Cook's Distance values near zero, suggesting limited individual influence on the model. However, a few points exceed the threshold, indicating that these observations might be outliers or have unique characteristics that disproportionately affect our model's estimates. These high-influence points needs closer examination to assess whether they should be included, adjusted, or excluded to ensure the robustness and reliability of our meta-analysis regression model.
 
 ```{r}
 # Plot Hat Values
@@ -2019,9 +1924,6 @@ ggplot(hat_values_data, aes(x = Observed_Outcome, y = Hat_Values)) +
   theme_minimal()
 
 ```
-A Hat Value plot is a diagnostic tool used in regression analysis to evaluate the influence or leverage of each data point on the fitted model. In this plot, each point represents a hat value, which is derived from the diagonal elements of the hat matrix used in the regression calculation. Hat values measure how far an observation's predictor values are from the mean of all predictor values, indicating its influence on the model's predictions. High hat values suggest that the corresponding observation has substantial leverage, meaning it can significantly affect the regression line or model fit.
-
-In the our plotted results, each blue line represents the hat value for a corresponding observed outcome, with a red dashed line indicating a threshold set at twice the average hat value (2 * mean(hat_vals)). Observations with hat values above this threshold are considered to have high leverage and we should examine these more closely, as they can disproportionately influence the results of our model. Identifying these high-leverage points is crucial for assessing the robustness and reliability of the model, guiding potential adjustments, or making decisions about excluding these points to improve model accuracy and validity.
 
 ```{r}
 # Plot weights of model fitting - the weights given to the observed effect sizes or outcomes during the model fitting
@@ -2043,9 +1945,8 @@ ggplot(weights_data, aes(x = Observed_Outcome, y = Weights)) +
   theme(panel.grid.major = element_line(colour = "grey90"),
         panel.grid.minor = element_blank())
 ```
-The weights plot for model fitting visually represents how much influence each observed outcome has on the overall meta-analysis model. In this context, weights are inversely related to the variance of the observations: smaller variances, indicating more precise estimates, are given higher weights. The plot shows each bar representing an observed outcome, with its height indicating the weight assigned to that outcome. From the provided plot, we can see that a few observations have exceptionally high weights, suggesting they have a significant impact on the model's fit. This disproportionate influence implies that these particular data points are much more precise (or have smaller variances) than others. It will be important to examine these high-weight observations to understand why they are so influential, which might involve checking the underlying study designs or measurement methods. Identifying such influential data points is crucial for ensuring the robustness of our meta-analysis results, potentially leading to adjustments or exclusions for maintaining validity.
 
-```{r, eval = FALSE}
+```{r}
 # Preparing data for Covariance Ratios plot
 
 #################################################################################
@@ -2091,11 +1992,6 @@ cov_r_data <- data.frame(
 )
 
 ##################################################
-##################################################
-
-##################################################
-# Save to CSV
-readr::write_csv(cov_r_data, "cov_r_data_2.csv")
 ##################################################
 
 # End time tracking
@@ -2179,8 +2075,6 @@ moderators <- c("Soil_texture", "Tree_crop_combination_T", "Season",
 
 REML enhances the validity and reliability of meta-analysis findings by providing unbiased variance estimates, reducing overfitting, and ensuring robust hypothesis testing. These features are crucial for understanding how various moderators affect the outcomes and for making informed, generalizable conclusions.
 
-*OBS! Time for running this code below is 3-4 days!*
-
 ```{r}
 ##########################################################################
 # Set up the parallel processing plan
@@ -2232,11 +2126,6 @@ moderator_model <- rma.mv(
 # Furthermore, REML is preferable for hypothesis testing involving random effects because it provides more accurate p-values and confidence intervals. This accuracy is vital when examining the influence of moderators, as it ensures the significance and strength of these moderators are assessed reliably. In meta-analysis contexts, using REML helps maintain consistency across studies, accurately reflecting true between-study variability and improving the validity of conclusions about how moderators impact outcomes.
 
 # In summary, REML enhances the validity and reliability of meta-analysis findings by providing unbiased variance estimates, reducing overfitting, and ensuring robust hypothesis testing. These features are crucial for understanding how various moderators affect the outcomes and for making informed, generalizable conclusions.
-
-##############################################################
-# Save to CSV
-readr::write_csv(moderator_model, "moderator_model.csv")
-##############################################################
 
 # Display the moderator model
 moderator_model
