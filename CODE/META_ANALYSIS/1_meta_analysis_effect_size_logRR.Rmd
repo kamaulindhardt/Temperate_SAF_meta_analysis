@@ -124,13 +124,14 @@ Loading the dataset (main database)
 
 ```{r Loading database, warning=FALSE, message=FALSE}
 # Set the working directory
-#setwd("~/Library/Mobile Documents/com~apple~CloudDocs/SAF_Meta_analysis/META_ANALYSIS/R/Temperate_SAF_meta_analysis")
-# here::here("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temperate_SAF_meta_analysis/DATA/META_ANALYSIS/Final_database_2024_05_17.xlsx")
+# here::here("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temp_SAF_meta_analysis/DATA/META_ANALYSIS/Final_database_2024_05_17.xlsx")
+setwd("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temp_SAF_meta_analysis/CODE/META_ANALYSIS")
+
 
 # Suppress warnings to avoid clutter in the console output
 suppressWarnings({
-  database <- read_excel(here::here("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temperate_SAF_meta_analysis/DATA/META_ANALYSIS/ANALYSIS_READY/Final_database_2024_05_17.xlsx"), 
-                           sheet = "Quantatitive data") 
+  database <- read_excel(here::here("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temp_SAF_meta_analysis/DATA/META_ANALYSIS/Final_database_2024_05_17.xlsx"),
+                         sheet = "Quantatitive data") 
   #%>%
   #  filter(INCLUDED == TRUE) # include only data entries that have been assesed and deemed included
 })
@@ -286,6 +287,7 @@ missing_val_se_plot |>
   theme_minimal() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
+
 Firstly, the Crop yield category stands out with the highest number of missing values for both silvo_se and control_se. This is followed by the Pest and Disease and Soil quality categories, which also show significant numbers of missing values, though they are much fewer compared to Crop yield. This indicates a particular problem with data completeness in the Crop yield category.
 
 Secondly, within each response_variable category, the number of missing values for silvo_se and control_se appears to be comparable. This suggests a pattern where if a value is missing in one, it is likely missing in the other. For instance, both silvo_se and control_se have similar heights in the Crop yield and Pest and Disease categories, indicating consistent missing data patterns across these variables.
@@ -459,6 +461,7 @@ imputed_database_clean |> glimpse()
 ```{r, eval=FALSE}
 imputed_database_clean %>% summary()
 ```
+
 Visualising the distribution of imputed values for silvo_se and control_se together with the original data
 
 ```{r}
@@ -706,7 +709,8 @@ meta_data_ROM <- meta_data_ROM_adjusted
 
 ##############################################################
 # Save to CSV
-readr::write_csv(meta_data_ROM, "meta_data_ROM.csv")
+readr::write_csv(meta_data_ROM, 
+                 here::here("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temp_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/meta_data_ROM.csv"))
 ```
 
 
@@ -717,7 +721,7 @@ READING THE METADATA CSV
 ############################################################################################################################
 
 ```{r}
-meta_data_ROM <- readr::read_csv("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temperate_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/meta_data_ROM.csv")
+meta_data_ROM <- readr::read_csv("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temp_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/meta_data_ROM.csv")
 ```
 
 ```{r}
@@ -1087,7 +1091,8 @@ filtered_meta_data_ROM |> skim()
 ```{r, eval = FALSE}
 ##############################################################
 # Save to CSV
-readr::write_csv(filtered_meta_data_ROM, "filtered_meta_data_ROM.csv")
+readr::write_csv(filtered_meta_data_ROM, 
+                 here::here("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temp_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/filtered_meta_data_ROM.csv"))
 ```
 
 
@@ -1098,7 +1103,7 @@ READING THE FILTERED METADATA CSV
 ############################################################################################################################
 
 ```{r}
-filtered_meta_data_ROM <- readr::read_csv("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temperate_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/filtered_meta_data_ROM.csv")
+filtered_meta_data_ROM <- readr::read_csv("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temp_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/filtered_meta_data_ROM.csv")
 
 filtered_meta_data_ROM
 ```
@@ -1375,7 +1380,16 @@ time.taken
 
 # Time difference of 1.47106 mins
 
+##############################################################
+# Last go: (04/09-24)
 
+# Iteration 68    ll = -3044.1332   sigma2 = 0.0014  0.0014  0.0011  
+# Iteration 69    ll = -3044.1332   sigma2 = 0.0014  0.0014  0.0011  
+# Iteration 70    ll = -3044.1332   sigma2 = 0.0014  0.0014  0.0011  
+# Iteration 71    ll = -3044.1332   sigma2 = 0.0014  0.0014  0.0011  
+# Iteration 72    ll = -3044.1332   sigma2 = 0.0014  0.0014  0.0011  
+# 
+# Time difference of 54.30005 secs
 ```
 
 
@@ -1432,6 +1446,32 @@ summary(original_model)
 # 
 # estimate      se     zval    pval    ci.lb   ci.ub    
 #  -0.0098  0.0109  -0.8998  0.3682  -0.0311  0.0115    
+# 
+# ---
+# Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+##############################################################
+# Last go: (04/09-24)
+
+# Multivariate Meta-Analysis Model (k = 1017; method: ML)
+# 
+#     logLik    Deviance         AIC         BIC        AICc   
+# -3044.1332  10969.9452   6096.2665   6115.9649   6096.3060   
+# 
+# Variance Components:
+# 
+#             estim    sqrt  nlvls  fixed                        factor 
+# sigma^2.1  0.0014  0.0380     37     no                    id_article 
+# sigma^2.2  0.0014  0.0380     37     no                    id_article 
+# sigma^2.3  0.0011  0.0334     48     no  id_article/response_variable 
+# 
+# Test for Heterogeneity:
+# Q(df = 1016) = 1919085.9233, p-val < .0001
+# 
+# Model Results:
+# 
+# estimate      se     zval    pval    ci.lb   ci.ub    
+#  -0.0065  0.0107  -0.6103  0.5417  -0.0276  0.0145    
 # 
 # ---
 # Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
@@ -1668,9 +1708,17 @@ time.taken
 # Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.
 # Time difference of 7.94416 mins
 
+#################################################################################
 # Last go: (03/09-24)
 # Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.
 # Time difference of 4.106577 mins
+
+#################################################################################
+# Last go: (04/09-24)
+
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.
+# Time difference of 7.815606 mins
 ```
 
 ```{r, eval = FALSE}
@@ -1680,7 +1728,8 @@ sensitivity_df
 SAVING THE SENSITIVITY MATRIX
 
 ```{r, eval = FALSE}
-readr::write_csv(sensitivity_df, "sensitivity_df_original_model_2.csv")
+readr::write_csv(sensitivity_df,
+                 here::here("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temp_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/sensitivity_df_original_model_2.csv"))
 ```
 
 
@@ -1887,6 +1936,9 @@ time.taken
 # > #   |==================================================| 100% elapsed=07h 56m 07s
 # > #   |==================================================| 100% elapsed=07h 40m 51s
 
+#################################################################################
+# Last go: (04/09-24)
+
 ```
 
 
@@ -1905,7 +1957,8 @@ cooks_data <- data.frame(
 )
 
 # Save to CSV
-readr::write_csv(cooks_data, "cooks_distance_2.csv")
+readr::write_csv(cooks_data, 
+                 here::here("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temp_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/cooks_distance_2.csv"))
 
 ##############################################################
 # DFBETAS
@@ -1914,7 +1967,8 @@ readr::write_csv(cooks_data, "cooks_distance_2.csv")
 dfbetas_data <- as.data.frame(dfbetas_vals)
 
 # Save to CSV
-readr::write_csv(dfbetas_data, "dfbetas_2.csv")
+readr::write_csv(dfbetas_data, 
+                 here::here("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temp_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/dfbetas_2.csv"))
 
 ##############################################################
 # Studentized Residuals
@@ -1928,7 +1982,8 @@ student_resid_data <- data.frame(
 )
 
 # Save to CSV
-readr::write_csv(student_resid_data, "studentized_residuals_2.csv")
+readr::write_csv(student_resid_data, 
+                 here::here("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temp_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/studentized_residuals_2.csv"))
 ```
 
  | 17% ~07h 34m 36s 
@@ -1995,6 +2050,7 @@ ggplot(cooks_data_df, aes(x = Observed_Outcome, y = Cooks_Distance)) +
   ) +
   theme_minimal()
 ```
+
 A Cook's Distance plot helps identify influential observations in a regression analysis, indicating which data points substantially affect the model's predictions. Observations with high Cook's Distance values suggest that their exclusion would significantly change the model's results. This is crucial in our sensitivity analysis, where we systematically exclude each study to assess the robustness of our findings. By comparing Cook's Distance results with other sensitivity analyses outcomes, we can pinpoint studies or data points that disproportionately influence the meta-analysis. If certain observations are flagged as influential in both analyses, they may require further investigation to check for data entry errors, outliers, or unique characteristics that justify their influence. Based on these insights, we can decide whether to exclude, adjust, or treat these influential observations differently to enhance model reliability. Documenting and addressing these influential points ensures the robustness and credibility of our meta-analysis, providing transparency and enhancing the overall validity of your findings.
 
 In our Cook's Distance plot, each point represents an observation's Cook's Distance, a measure of how much a single observation influences the overall regression analysis. Higher Cook's Distance values indicate that the observation has a more significant impact on the model's predictions, potentially skewing our model results. The red dashed line represents a commonly used threshold, calculated as 4/number of observations, which helps to identify influential observations. Points above this line are considered to have a substantial influence on the model, and we should further investigate their  impact. In our plot, most of the observations have Cook's Distance values near zero, suggesting limited individual influence on the model. However, a few points exceed the threshold, indicating that these observations might be outliers or have unique characteristics that disproportionately affect our model's estimates. These high-influence points needs closer examination to assess whether they should be included, adjusted, or excluded to ensure the robustness and reliability of our meta-analysis regression model.
@@ -2019,6 +2075,7 @@ ggplot(hat_values_data, aes(x = Observed_Outcome, y = Hat_Values)) +
   theme_minimal()
 
 ```
+
 A Hat Value plot is a diagnostic tool used in regression analysis to evaluate the influence or leverage of each data point on the fitted model. In this plot, each point represents a hat value, which is derived from the diagonal elements of the hat matrix used in the regression calculation. Hat values measure how far an observation's predictor values are from the mean of all predictor values, indicating its influence on the model's predictions. High hat values suggest that the corresponding observation has substantial leverage, meaning it can significantly affect the regression line or model fit.
 
 In the our plotted results, each blue line represents the hat value for a corresponding observed outcome, with a red dashed line indicating a threshold set at twice the average hat value (2 * mean(hat_vals)). Observations with hat values above this threshold are considered to have high leverage and we should examine these more closely, as they can disproportionately influence the results of our model. Identifying these high-leverage points is crucial for assessing the robustness and reliability of the model, guiding potential adjustments, or making decisions about excluding these points to improve model accuracy and validity.
@@ -2043,7 +2100,10 @@ ggplot(weights_data, aes(x = Observed_Outcome, y = Weights)) +
   theme(panel.grid.major = element_line(colour = "grey90"),
         panel.grid.minor = element_blank())
 ```
+
 The weights plot for model fitting visually represents how much influence each observed outcome has on the overall meta-analysis model. In this context, weights are inversely related to the variance of the observations: smaller variances, indicating more precise estimates, are given higher weights. The plot shows each bar representing an observed outcome, with its height indicating the weight assigned to that outcome. From the provided plot, we can see that a few observations have exceptionally high weights, suggesting they have a significant impact on the model's fit. This disproportionate influence implies that these particular data points are much more precise (or have smaller variances) than others. It will be important to examine these high-weight observations to understand why they are so influential, which might involve checking the underlying study designs or measurement methods. Identifying such influential data points is crucial for ensuring the robustness of our meta-analysis results, potentially leading to adjustments or exclusions for maintaining validity.
+
+*OBS! Time for running this code below is long*
 
 ```{r, eval = FALSE}
 # Preparing data for Covariance Ratios plot
@@ -2179,7 +2239,7 @@ moderators <- c("Soil_texture", "Tree_crop_combination_T", "Season",
 
 REML enhances the validity and reliability of meta-analysis findings by providing unbiased variance estimates, reducing overfitting, and ensuring robust hypothesis testing. These features are crucial for understanding how various moderators affect the outcomes and for making informed, generalizable conclusions.
 
-*OBS! Time for running this code below is 3-4 days!*
+*OBS! Time for running this code below is long!*
 
 ```{r}
 ##########################################################################
@@ -2235,7 +2295,9 @@ moderator_model <- rma.mv(
 
 ##############################################################
 # Save to CSV
-readr::write_csv(moderator_model, "moderator_model.csv")
+readr::write_csv(moderator_model, 
+                 here::here("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temp_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/moderator_model_2.csv"))
+
 ##############################################################
 
 # Display the moderator model
@@ -2277,6 +2339,7 @@ bubble_plot <- function(data, moderator) {
     theme_minimal()
 }
 ```
+
 
 ```{r}
 # Example bubble plot for one moderator
