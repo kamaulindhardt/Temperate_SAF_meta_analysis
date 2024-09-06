@@ -9,7 +9,7 @@ output: html_document
 
 
 ```{r setup, include=FALSE}
-# knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE)
 ```
 
 
@@ -55,10 +55,6 @@ rm(list = ls())
 
 
 ## Loading required packages and libraries
-```{r}
-install.packages("pacman")
-```
-
 
 ```{r Loading other needed packages, warning=FALSE}
 # Suppress warnings to avoid clutter in the console output
@@ -69,8 +65,6 @@ suppressWarnings({
     # Data Manipulation / Transformation
     tidyverse,        # Comprehensive collection of R packages for data science
     readr,            # Read and write csv 
-    readxl,           # Read Excel files
-    here,             # Refering to folder-files
     dlookr,           # Diagnose, explore, and transform data with dlookr
     skimr,            # Provides easy summary statistics about variables in data frames, tibbles, data tables and vectors
     janitor,          # For cleaning and renaming data columns
@@ -2267,13 +2261,15 @@ imputed_database_clean |> glimpse()
 
 Performing a moderator analysis using the metafor package in R, can be done by following these steps. Moderator analysis helps to understand how different study characteristics (moderators) influence the effect sizes and whether these moderators can explain some of the heterogeneity observed in the overall meta-analysis. The moderators listed will be included in the moderatroer assessment of the meta-analysis model to investigate their impact.
 
+The moderator analysis
+
 Step-by-Step Moderator Analysis
   1. Data Preparation: Ensure that the variables of interest are used as moderators are correctly formatted and coded in the dataset. 
-     Convert categorical variables to factors if they are not already.
+      Convert categorical variables to factors if they are not already.
 
   2. Model Fitting with Moderators: Use the rma.mv() function to fit a random-effects meta-analysis model, including the moderators as fixed effects.       This will allow to see the influence of each moderator on the effect size.
 
-  3. Interpretation of Results: Assess the coefficients for each moderator to determine their impact on the outcome. Significant moderators can provide      insights into factors that influence the effect sizes.
+  3. Interpretation of Results: Assess the coefficients for each moderator to determine their impact on the outcome. Significant moderators can             provide insights into factors that influence the effect sizes.
 
 ```{r}
 # View the structure of the cleaned and imputed dataset
