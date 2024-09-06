@@ -1475,6 +1475,32 @@ summary(original_model)
 # 
 # ---
 # Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+##############################################################
+# Last go: (05/09-24)
+
+# Multivariate Meta-Analysis Model (k = 1017; method: ML)
+# 
+#     logLik    Deviance         AIC         BIC        AICc   
+# -3044.1332  10969.9452   6096.2665   6115.9649   6096.3060   
+# 
+# Variance Components:
+# 
+#             estim    sqrt  nlvls  fixed                        factor 
+# sigma^2.1  0.0014  0.0380     37     no                    id_article 
+# sigma^2.2  0.0014  0.0380     37     no                    id_article 
+# sigma^2.3  0.0011  0.0334     48     no  id_article/response_variable 
+# 
+# Test for Heterogeneity:
+# Q(df = 1016) = 1919085.9233, p-val < .0001
+# 
+# Model Results:
+# 
+# estimate      se     zval    pval    ci.lb   ci.ub    
+#  -0.0065  0.0107  -0.6103  0.5417  -0.0276  0.0145    
+# 
+# ---
+# Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
 ```
 
 
@@ -1719,6 +1745,13 @@ time.taken
 # Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.
 # Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.
 # Time difference of 7.815606 mins
+
+#################################################################################
+# Last go: (05/09-24)
+
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.
+# Time difference of 5.464035 mins
 ```
 
 ```{r, eval = FALSE}
@@ -1890,21 +1923,69 @@ start.time <- Sys.time()
 ##################################################
 ##################################################
 
+##############################################################
+# Cook's Distance
+##############################################################
 # Compute Cook's Distance
 cooks_d <- cooks.distance(original_model, 
                           reestimate = TRUE,
                           progbar = TRUE)
 
+# Create a data frame for Cook's Distance
+cooks_data <- data.frame(
+  Observed_Outcome = seq_along(cooks_d),
+  Cooks_Distance = cooks_d
+)
+
+# Save to CSV
+readr::write_csv(cooks_data, 
+                 here::here("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temp_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/cooks_data_3.csv"))
+
+##############################################################
+# DFBETAS
+##############################################################
 # Compute DFBETAS
 dfbetas_vals <- dfbetas(original_model, 
                         progbar = TRUE)
 
-# Compute Hat Values
-hat_vals <- hatvalues(original_model)
+# Convert DFBETAS to a data frame
+dfbetas_data <- as.data.frame(dfbetas_vals)
 
+# Save to CSV
+readr::write_csv(dfbetas_data, 
+                 here::here("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temp_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/dfbetas_data_3.csv"))
+
+##############################################################
+# Studentized Residuals
+##############################################################
 # Compute Studentized Residuals
 student_resid <- rstudent(original_model, 
                           progbar = TRUE)
+
+# Convert Studentized Residuals to a data frame
+student_resid_data <- data.frame(
+  Observed_Outcome = seq_along(student_resid$resid),
+  Residuals = student_resid$resid,
+  Standard_Errors = student_resid$se,
+  Z_Values = student_resid$z
+)
+
+# Save to CSV
+readr::write_csv(student_resid_data, 
+                 here::here("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temp_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/studentized_residuals_data_3.csv"))
+
+##############################################################
+# Hat values
+##############################################################
+# Compute Hat Values
+hat_vals <- hatvalues(original_model)
+
+# Convert Hat values to a data frame
+hat_vals_data <- as.data.frame(hat_vals)
+
+# Save to CSV
+readr::write_csv(hat_vals_data, 
+                 here::here("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temp_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/hat_vals_data_3.csv"))
 
 
 ##################################################
@@ -1937,69 +2018,30 @@ time.taken
 # > #   |==================================================| 100% elapsed=07h 40m 51s
 
 #################################################################################
-# Last go: (04/09-24)
+# Last go: (05/09-24)
 
 ```
 
-
-Saving the data of the influence diagnostics
-
-SAVING THE DIAGNOSTICS DATA
-
-```{r, eval = FALSE}
-##############################################################
-# Cook's Distance
-##############################################################
-# Create a data frame for Cook's Distance
-cooks_data <- data.frame(
-  Observed_Outcome = seq_along(cooks_d),
-  Cooks_Distance = cooks_d
-)
-
-# Save to CSV
-readr::write_csv(cooks_data, 
-                 here::here("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temp_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/cooks_distance_2.csv"))
-
-##############################################################
-# DFBETAS
-##############################################################
-# Convert DFBETAS to a data frame
-dfbetas_data <- as.data.frame(dfbetas_vals)
-
-# Save to CSV
-readr::write_csv(dfbetas_data, 
-                 here::here("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temp_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/dfbetas_2.csv"))
-
-##############################################################
-# Studentized Residuals
-##############################################################
-# Convert Studentized Residuals to a data frame
-student_resid_data <- data.frame(
-  Observed_Outcome = seq_along(student_resid$resid),
-  Residuals = student_resid$resid,
-  Standard_Errors = student_resid$se,
-  Z_Values = student_resid$z
-)
-
-# Save to CSV
-readr::write_csv(student_resid_data, 
-                 here::here("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temp_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/studentized_residuals_2.csv"))
-```
-
- | 17% ~07h 34m 36s 
 
 
 READING THE DIAGNOSTICS DATA
 
 ```{r}
 # Load Cook's Distance data
-cooks_data <- read_csv("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temperate_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/cooks_distance_2.csv")
+cooks_data <- 
+  read_csv("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temperate_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/cooks_distance_3.csv")
 
 # Load DFBETAS data
-dfbetas_data <- read_csv("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temperate_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/dfbetas_2.csv")
+dfbetas_data <- 
+  read_csv("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temperate_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/dfbetas_3.csv")
 
 # Load Studentized Residuals data
-student_resid_data <- read_csv("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temperate_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/studentized_residuals_2.csv")
+student_resid_data <- 
+  read_csv("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temperate_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/studentized_residuals_3.csv")
+
+# Load Hat Values data
+hat_vals_data <- 
+  read_csv("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temperate_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/hat_vals_data_3.csv")
 ```
 
 
@@ -2155,7 +2197,7 @@ cov_r_data <- data.frame(
 
 ##################################################
 # Save to CSV
-readr::write_csv(cov_r_data, "cov_r_data_2.csv")
+readr::write_csv(cov_r_data, "cov_r_data_3.csv")
 ##################################################
 
 # End time tracking

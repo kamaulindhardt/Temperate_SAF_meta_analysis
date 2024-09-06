@@ -1206,3 +1206,49 @@ In the sensitivity analysis, there were modifications made to the model settings
 Justification for Modifying Model Settings
 The adjustments were necessary due to warnings about the large ratio of the largest to smallest sampling variances, which indicated potential instability in the results. By relaxing the convergence criteria and providing initial estimates, the sensitivity analysis was able to proceed without errors, thus allowing a thorough investigation into the influence of individual studies. This approach, while introducing some compromise on precision, ensures that the sensitivity analysis remains informative and can highlight potential issues or influential studies within the meta-analysis dataset.
 
+Saving the data of the influence diagnostics
+
+SAVING THE DIAGNOSTICS DATA
+
+```{r, eval = FALSE}
+##############################################################
+# Cook's Distance
+##############################################################
+# Create a data frame for Cook's Distance
+cooks_data <- data.frame(
+  Observed_Outcome = seq_along(cooks_d),
+  Cooks_Distance = cooks_d
+)
+
+# Save to CSV
+readr::write_csv(cooks_data, 
+                 here::here("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temp_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/cooks_distance_2.csv"))
+
+##############################################################
+# DFBETAS
+##############################################################
+# Convert DFBETAS to a data frame
+dfbetas_data <- as.data.frame(dfbetas_vals)
+
+# Save to CSV
+readr::write_csv(dfbetas_data, 
+                 here::here("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temp_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/dfbetas_2.csv"))
+
+##############################################################
+# Studentized Residuals
+##############################################################
+# Convert Studentized Residuals to a data frame
+student_resid_data <- data.frame(
+  Observed_Outcome = seq_along(student_resid$resid),
+  Residuals = student_resid$resid,
+  Standard_Errors = student_resid$se,
+  Z_Values = student_resid$z
+)
+
+# Save to CSV
+readr::write_csv(student_resid_data, 
+                 here::here("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temp_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/studentized_residuals_2.csv"))
+```
+
+ | 17% ~07h 34m 36s 
+
