@@ -2040,19 +2040,19 @@ READING THE DIAGNOSTICS DATA
 ```{r}
 # Load Cook's Distance data
 cooks_data <- 
-  read_csv("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temperate_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/cooks_distance_3.csv")
+  read_csv("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temp_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/cooks_distance_3.csv")
 
 # Load DFBETAS data
 dfbetas_data <- 
-  read_csv("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temperate_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/dfbetas_3.csv")
+  read_csv("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temp_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/dfbetas_3.csv")
 
 # Load Studentized Residuals data
 student_resid_data <- 
-  read_csv("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temperate_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/studentized_residuals_3.csv")
+  read_csv("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temp_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/studentized_residuals_3.csv")
 
 # Load Hat Values data
 hat_vals_data <- 
-  read_csv("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temperate_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/hat_vals_data_3.csv")
+  read_csv("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temp_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/hat_vals_data_3.csv")
 ```
 
 
@@ -2070,6 +2070,7 @@ residuals_data <- data.frame(
 )
 
 # Create the ggplot2 plot
+residuals_data_plot <- 
 residuals_data |> 
 ggplot(aes(x = Observed_Outcome, y = Studentized_Residuals)) +
   geom_hline(yintercept = c(-2, 2), linetype = "dashed", color = "red") +
@@ -2080,6 +2081,21 @@ ggplot(aes(x = Observed_Outcome, y = Studentized_Residuals)) +
        x = "Observed Outcome", 
        y = "Studentized Residuals") +
   theme_minimal()
+
+residuals_data_plot
+```
+
+```{r, eval = FALSE}
+# Saving the residuals data plot
+# Specify the folder path and file name
+folder_path <- "C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temp_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/FIGURES/"
+file_name <- "residuals_data_plot.jpg"
+output_path <- file.path(folder_path, file_name)
+
+
+ggsave(output_path, 
+       plot = residuals_data_plot,
+       width = 10, height = 8, dpi = 400)
 ```
 
 ```{r}
@@ -2092,7 +2108,7 @@ cooks_data_df <- data.frame(
 )
 
 # Plot Cook's Distance
-
+cooks_data_df_plot <-
 ggplot(cooks_data_df, aes(x = Observed_Outcome, y = Cooks_Distance)) +
   geom_point() +
   geom_hline(yintercept = 4 / nrow(cooks_data_df), linetype = "dashed", color = "red") + 
@@ -2102,6 +2118,21 @@ ggplot(cooks_data_df, aes(x = Observed_Outcome, y = Cooks_Distance)) +
     y = "Cook's Distance"
   ) +
   theme_minimal()
+
+cooks_data_df_plot
+```
+
+```{r, eval = FALSE}
+# Saving the Cook's Distance plot
+# Specify the folder path and file name
+folder_path <- "C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temp_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/FIGURES/"
+file_name <- "cooks_data_df_plot.jpg"
+output_path <- file.path(folder_path, file_name)
+
+
+ggsave(output_path, 
+       plot = cooks_data_df_plot,
+       width = 10, height = 8, dpi = 400)
 ```
 
 A Cook's Distance plot helps identify influential observations in a regression analysis, indicating which data points substantially affect the model's predictions. Observations with high Cook's Distance values suggest that their exclusion would significantly change the model's results. This is crucial in our sensitivity analysis, where we systematically exclude each study to assess the robustness of our findings. By comparing Cook's Distance results with other sensitivity analyses outcomes, we can pinpoint studies or data points that disproportionately influence the meta-analysis. If certain observations are flagged as influential in both analyses, they may require further investigation to check for data entry errors, outliers, or unique characteristics that justify their influence. Based on these insights, we can decide whether to exclude, adjust, or treat these influential observations differently to enhance model reliability. Documenting and addressing these influential points ensures the robustness and credibility of our meta-analysis, providing transparency and enhancing the overall validity of your findings.
@@ -2121,12 +2152,27 @@ hat_values_data <- data.frame(
 threshold <- 2 * mean(hat_vals)
 
 # Plot Hat Values using ggplot2
+hat_values_data_plot <-
 ggplot(hat_values_data, aes(x = Observed_Outcome, y = Hat_Values)) +
   geom_segment(aes(xend = Observed_Outcome, yend = 0), color = "blue") +
   geom_hline(yintercept = threshold, linetype = "dashed", color = "red") +
   labs(title = "Hat Values Plot", x = "Observed Outcome", y = "Hat Values") +
   theme_minimal()
 
+hat_values_data_plot
+```
+
+```{r, eval = FALSE}
+# Saving the Hat Values plot
+# Specify the folder path and file name
+folder_path <- "C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temp_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/FIGURES/"
+file_name <- "hat_values_data_plot.jpg"
+output_path <- file.path(folder_path, file_name)
+
+
+ggsave(output_path, 
+       plot = hat_values_data_plot,
+       width = 10, height = 8, dpi = 400)
 ```
 
 A Hat Value plot is a diagnostic tool used in regression analysis to evaluate the influence or leverage of each data point on the fitted model. In this plot, each point represents a hat value, which is derived from the diagonal elements of the hat matrix used in the regression calculation. Hat values measure how far an observation's predictor values are from the mean of all predictor values, indicating its influence on the model's predictions. High hat values suggest that the corresponding observation has substantial leverage, meaning it can significantly affect the regression line or model fit.
@@ -2146,12 +2192,26 @@ weights_data <- data.frame(
 )
 
 # Plot the weights using ggplot2
+weights_model_fit_plot <- 
 ggplot(weights_data, aes(x = Observed_Outcome, y = Weights)) +
   geom_bar(stat = "identity", fill = "steelblue") +
   labs(title = "Weights for Observed Outcomes", x = "Observed Outcome", y = "Weight") +
   theme_minimal() +
   theme(panel.grid.major = element_line(colour = "grey90"),
         panel.grid.minor = element_blank())
+```
+
+```{r, eval = FALSE}
+# Saving the Hat Values plot
+# Specify the folder path and file name
+folder_path <- "C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temp_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/FIGURES/"
+file_name <- "weights_model_fit_plot.jpg"
+output_path <- file.path(folder_path, file_name)
+
+
+ggsave(output_path, 
+       plot = weights_model_fit_plot,
+       width = 4, height = 2, dpi = 400)
 ```
 
 The weights plot for model fitting visually represents how much influence each observed outcome has on the overall meta-analysis model. In this context, weights are inversely related to the variance of the observations: smaller variances, indicating more precise estimates, are given higher weights. The plot shows each bar representing an observed outcome, with its height indicating the weight assigned to that outcome. From the provided plot, we can see that a few observations have exceptionally high weights, suggesting they have a significant impact on the model's fit. This disproportionate influence implies that these particular data points are much more precise (or have smaller variances) than others. It will be important to examine these high-weight observations to understand why they are so influential, which might involve checking the underlying study designs or measurement methods. Identifying such influential data points is crucial for ensuring the robustness of our meta-analysis results, potentially leading to adjustments or exclusions for maintaining validity.
@@ -2208,7 +2268,8 @@ cov_r_data <- data.frame(
 
 ##################################################
 # Save to CSV
-readr::write_csv(cov_r_data, "cov_r_data_3.csv")
+readr::write_csv(cov_r_data, 
+here::here("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temp_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/cov_r_data_3.csv"))
 ##################################################
 
 # End time tracking
