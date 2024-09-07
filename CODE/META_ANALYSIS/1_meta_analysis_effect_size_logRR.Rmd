@@ -1907,7 +1907,7 @@ Cook's Distance:
 Purpose: Cook's distance assesses the influence of each observation on the overall model. Large values indicate observations that have a significant impact on the model's parameters.
 Interpretation: Typically, Cook's distance values greater than 1 may indicate influential points. In large datasets, even smaller values can be significant. Points far above the average line in the plot are considered highly influential.
 
-*OBS! Time for running this code below is 7.75 hours*
+*OBS! Time for running this code below takes several days*
 
 ```{r, eval = FALSE}
 # Calculate influence diagnostics
@@ -2018,8 +2018,19 @@ time.taken
 # > #   |==================================================| 100% elapsed=07h 40m 51s
 
 #################################################################################
-# Last go: (05/09-24)
+# Last go: (07/09-24)
 
+#  cooks_d <- cooks.distance(original_model, 
+# +                           reestimate = TRUE,
+# +                           progbar = TRUE)
+#   |==================================================| 100% elapsed=08h 53m 22s
+# dfbetas_vals <- dfbetas(original_model, 
+# +                         progbar = TRUE)
+#   |==================================================| 100% elapsed=07h 22m 26s
+# student_resid <- rstudent(original_model, 
+# +                           progbar = TRUE)
+#   |==================================================| 100% elapsed=04h 09m 34s
+# Time difference of 20.42284 hours
 ```
 
 
