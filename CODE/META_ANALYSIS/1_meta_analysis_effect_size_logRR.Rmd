@@ -2393,55 +2393,64 @@ start.time <- Sys.time()
 ##################################################
 ##################################################
 
-
 # Create a formula for the moderators
 moderator_formula <- as.formula(paste("~", paste(moderators, collapse = " + ")))
 
-# Fit a multivariate meta-analysis model including moderators
+# Fit a multivariate meta-analysis model including moderators using the rma.mv() function from the metafor package.
+# This model estimates the effect sizes for the moderator variables while accounting for random effects (article-level and response variable level).
 moderator_model <- rma.mv(
-  # Effect size estimates
-  yi = yi,                     
-  # Variance-covariance matrix of the effect sizes
-  V = V_matrix,                
-  # Moderator variables
-  mods = moderator_formula,    
+  # The effect size estimates (dependent variable).
+  yi = yi,          
+  # The variance-covariance matrix of the effect sizes (weights for the meta-analysis).
+  V = V_matrix,          
+  # The moderator variables (predictors) included in the model.
+  mods = moderator_formula,     
   random = list(
-  # Random intercept for each article
-    ~ 1 | id_article,          
-  # Random intercept for each response variable within each article
+  # Random intercept for each article to capture article-level variability.
+    ~ 1 | id_article,           
+  # Random intercept for each response variable within each article to account for within-article variability.
     ~ 1 | id_article/response_variable  
   ),
-  # Data frame containing the meta-analysis data with effect sizes
+  # The dataset that contains the effect sizes and moderator variables.
   data = filtered_meta_data_ROM,  
-  # Use REML for estimation with moderators
-  method = "REML",             
+  # Restricted Maximum Likelihood (REML) for estimating variance components, reducing bias.
+  method = "REML",               
   control = list(
-    optimizer = "nlminb",
-    iter.max = 5000,
-    rel.tol = 1e-5
+  # Use the nlminb optimizer to handle complex random-effects models.
+    optimizer = "nlminb",     
+  # Set maximum number of iterations for the optimizer to ensure convergence.
+    iter.max = 5000,       
+  # Set relative tolerance to ensure convergence with sufficient precision.
+    rel.tol = 1e-5                
   ),
-  # Print progress and convergence information
-  verbose = TRUE               
+  # Enable progress information and convergence diagnostics during model fitting.
+  verbose = TRUE                
 )
 
-# Notes:
-# Using Restricted Maximum Likelihood (REML) for estimating models with moderators in a meta-analysis is beneficial due to its more accurate handling of variance components. Unlike Maximum Likelihood (ML), which can underestimate these components, REML focuses on estimating random effects first, reducing bias and leading to more reliable estimates. This is particularly important when the number of studies is small or when the data structure is complex, involving nested or hierarchical relationships. By adjusting for the degrees of freedom lost in estimating fixed effects, REML provides a better fit for models with random effects, ensuring the residual variance is accurately represented.
+# Extract relevant results from the model
+# Coefficients (b), standard errors (se), confidence intervals (ci.lb, ci.ub), and p-values (pval)
+# The coefficients (b), standard errors (se), confidence intervals (ci.lb, ci.ub), and p-values (pval) for the moderators are stored as a data frame.
+moderator_results <- data.frame(
+  Coefficient = moderator_model$b,   # Extracts the estimated effect sizes (regression coefficients) for each moderator.
+  Std_Error = moderator_model$se,    # Extracts the standard errors associated with each moderator's coefficient.
+  CI_Lower = moderator_model$ci.lb,  # Extracts the lower bounds of the 95% confidence intervals for each coefficient.
+  CI_Upper = moderator_model$ci.ub,  # Extracts the upper bounds of the 95% confidence intervals for each coefficient.
+  P_Value = moderator_model$pval     # Extracts the p-values to assess the statistical significance of each moderator.
+)
 
-# REML is also less prone to overfitting compared to ML. Overfitting can occur when a model is too tailored to the specific dataset, particularly with many parameters relative to observations. REML's more conservative estimation approach mitigates this risk, enhancing the generalizability of the findings. This robustness is crucial in meta-analyses, where the goal is to draw broader conclusions across multiple studies, not just fit the model to the peculiarities of the sample data.
-
-# Furthermore, REML is preferable for hypothesis testing involving random effects because it provides more accurate p-values and confidence intervals. This accuracy is vital when examining the influence of moderators, as it ensures the significance and strength of these moderators are assessed reliably. In meta-analysis contexts, using REML helps maintain consistency across studies, accurately reflecting true between-study variability and improving the validity of conclusions about how moderators impact outcomes.
-
-# In summary, REML enhances the validity and reliability of meta-analysis findings by providing unbiased variance estimates, reducing overfitting, and ensuring robust hypothesis testing. These features are crucial for understanding how various moderators affect the outcomes and for making informed, generalizable conclusions.
+# Add row names (moderators) as a column
+moderator_results$Moderator <- rownames(moderator_results)
+rownames(moderator_results) <- NULL
 
 ##############################################################
-# Save to CSV
-readr::write_csv(moderator_model, 
-                 here::here("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temp_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/moderator_model_3.csv"))
+# Save the results to a CSV file
+readr::write_csv(moderator_results, 
+                 here::here("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temp_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/moderator_results_3.csv"))
 
 ##############################################################
 
-# Display the moderator model
-moderator_model
+# Display the extracted results
+moderator_results
 
 ##################################################
 ##################################################
@@ -2452,49 +2461,132 @@ end.time <- Sys.time()
 ##############################################################
 # Calculate time taken
 time.taken <- end.time - start.time
-time.taken
+print(time.taken)
 
 ##################################################
+
+# NOTES
+
+# In this code, we first create a formula for the moderators by concatenating the list of variables into a single formula. This formula is passed into the mods
+# argument in the rma.mv() function to include the moderators in the meta-analysis model. The model itself is fitted using the rma.mv() function from the metafor
+# package. It estimates the effect sizes for each moderator while accounting for random effects at the article level and the response variable level.
+ 
+# The model uses Restricted Maximum Likelihood (REML) to estimate the variance components, as REML is effective at reducing bias when estimating random effects.
+# To ensure convergence, the optimizer is set to nlminb, with a maximum iteration count of 5000 and a relative tolerance of 1e-5, which balances precision and
+# computational feasibility. The progress and diagnostics of the model fitting process are also displayed, as verbose = TRUE.
+
+# After fitting the model, we extract key results such as the coefficients (effect sizes), standard errors, confidence intervals, and p-values for each moderator.
+# These results are stored in a data frame, and the moderator names are added for clarity. The results are then saved to a CSV file for further review and 
+# analysis.
+
+# Finally, the model results are printed to the console for immediate inspection, and the total time taken to fit the model is calculated and recorded. This
+# process allows for a comprehensive assessment of how each moderator affects the outcome, contributing valuable insights into the meta-analysis.
+
+##############################################################
+# Last go: (08/09-24)
+
+# Advarsel: 83 rows with NAs omitted from model fitting.
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.
+# Advarsel: Redundant predictors dropped from the model.
+# Iteration 48    ll = -1614.1311   sigma2 = 0.0032  0.0032  0.0010  
+# Iteration 49    ll = -1614.1311   sigma2 = 0.0032  0.0032  0.0010  
+# Iteration 50    ll = -1614.1311   sigma2 = 0.0032  0.0032  0.0010  
+# Iteration 51    ll = -1614.1311   sigma2 = 0.0032  0.0032  0.0010  
+# Iteration 52    ll = -1614.1311   sigma2 = 0.0032  0.0032  0.0010  
+# 
+# Time difference of 20.4787 secs
+
+# Sometimes I get this error message "Fejl: uventet numerisk konstant in "Iteration 48"" - as well as the other warnings above
 ```
+########################################################
+DIAGNOSIS OF THE MODERATOR ANALYSIS
+########################################################
 
 ```{r}
+# Summary of the moderator model
 summary(moderator_model)
 ```
 
 ```{r}
-# Examine the influence of each moderator
+# ANOVA to test the influence of each moderator on the effect size
 anova(moderator_model)
-```
 
+```
 ```{r}
-# Forest plot to visualize the results
+# Forest plot to visualize the effect sizes for each study
 forest(moderator_model, slab = paste(id_article, response_variable, sep = ", "), cex = 0.6)
 
-# Bubble plot for visualizing relationship between effect sizes and selected moderator
-bubble_plot <- function(data, moderator) {
-  data %>%
-    ggplot(aes_string(x = moderator, y = "yi", size = "vi")) +
-    geom_point(alpha = 0.5) +
-    labs(x = moderator, y = "Effect Size (yi)", size = "Variance (vi)") +
-    theme_minimal()
-}
 ```
-
-
 ```{r}
-# Example bubble plot for one moderator
-bubble_plot(filtered_meta_data_ROM, "Alley_width")
+# Function to create a bubble plot for a given moderator with additional plot information
+bubble_plot <- function(data, moderator, title_info) {
+  
+  # Ensure the moderator variable is numeric
+  data[[moderator]] <- as.numeric(data[[moderator]])
+  
+  # Remove rows with NA values in the moderator variable
+  data <- data[!is.na(data[[moderator]]), ]
+  
+  # Generate the bubble plot
+  data %>%
+    ggplot(aes_string(x = moderator, y = "yi", size = "vi")) +  # `vi` represents variance of effect sizes
+    geom_point(alpha = 0.5) +  # Transparency to avoid overplotting
+    labs(
+      title = paste("Bubble Plot of Effect Sizes vs", title_info),  # Custom title based on the moderator
+      x = paste(moderator, "(in meters)"),  # Custom x-axis label with units
+      y = "Effect Size (yi)",  # Descriptive y-axis label
+      size = "Variance (vi)"   # Label explaining the size of bubbles
+    ) +  
+    scale_x_continuous(breaks = seq(0, max(data[[moderator]], na.rm = TRUE), by = 5),  # Custom x-axis intervals
+                       limits = c(0, max(data[[moderator]], na.rm = TRUE))) +  # Set range for x-axis
+    theme_minimal() +  # Clean theme for visualization
+    theme(plot.title = element_text(hjust = 0.5))  # Center the title
+}
+
+# Example bubble plot for the "Alley_width" moderator with title
+bubble_plot(filtered_meta_data_ROM, "alley_width", "Alley Width")
+
 ```
+```{r}
+# Interaction plot between "tree_crop_combination_t" and another moderator
+interaction_plot <- function(data, moderator1, moderator2) {
+  data %>%
+    ggplot(aes_string(x = moderator1, y = "yi", color = moderator2, group = moderator2)) +
+    geom_point(size = 3) +
+    geom_smooth(method = "lm", se = FALSE) +
+    labs(
+      title = paste("Interaction Plot of", moderator1, "and", moderator2, "on Effect Size"),
+      x = moderator1,
+      y = "Effect Size (yi)",
+      color = moderator2
+    ) +
+    theme_minimal() +
+    theme(plot.title = element_text(hjust = 0.5))
+}
 
+# Example interaction plot for "tree_crop_combination_t" and "alley_width"
+interaction_plot(filtered_meta_data_ROM, "tree_crop_combination_t", "alley_width")
 
+```
+```{r}
+# Box plot for the categorical moderator "tree_crop_combination_t"
+box_plot_categorical <- function(data, moderator) {
+  data %>%
+    ggplot(aes_string(x = moderator, y = "yi")) +
+    geom_boxplot() +
+    labs(
+      title = paste("Box Plot of Effect Sizes by", moderator),
+      x = moderator,
+      y = "Effect Size (yi)"
+    ) +
+    theme_minimal() +
+    theme(plot.title = element_text(hjust = 0.5))
+}
 
+# Example box plot for "tree_crop_combination_t"
+box_plot_categorical(filtered_meta_data_ROM, "tree_crop_combination_t")
 
-
-
-
-
-
-
+```
 
 
 
