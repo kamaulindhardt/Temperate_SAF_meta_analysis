@@ -2281,12 +2281,16 @@ time.taken <- end.time - start.time
 time.taken
 
 ##################################################
+
+##############################################################
+# Last go: (08/09-24)
+Time difference of 14.59279 hours
 ```
 
 ```{r}
 # Plot Covariance Ratios using ggplot2
 
-cov_r_data |> 
+cov_var_ratio_plot <- cov_r_data |> 
 ggplot(aes(x = Observed_Outcome, y = Covariance_Ratios)) +
   geom_segment(aes(xend = Observed_Outcome, yend = 1), color = "blue") +
   geom_hline(yintercept = 1, linetype = "dashed", color = "red") +
@@ -2294,9 +2298,22 @@ ggplot(aes(x = Observed_Outcome, y = Covariance_Ratios)) +
   theme_minimal() +
   theme(panel.grid.major = element_line(colour = "grey90"),
         panel.grid.minor = element_blank())
+
+cov_var_ratio_plot
 ```
 
+```{r, eval = FALSE}
+# Saving the Hat Values plot
+# Specify the folder path and file name
+folder_path <- "C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temp_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/FIGURES/"
+file_name <- "cov_var_ratio_plot.jpg"
+output_path <- file.path(folder_path, file_name)
 
+
+ggsave(output_path, 
+       plot = cov_var_ratio_plot,
+       width = 6, height = 3, dpi = 400)
+```
 
 
 
@@ -2347,10 +2364,17 @@ Step-by-Step Moderator Analysis
 # View the structure of the cleaned and imputed dataset
 imputed_database_clean |> glimpse()
 
+# Unfortunately, the details of moderators were specified in another updated datasheet under another tab called "descriptive data" -- which is not 
+# the same tab used for the quantitative meta-analysis modelling and diagnostics. Hence, it is necessary to first import that new sheet and merge the details 
+# with the previous version (as I have ran all other models and diagnostics with the previous version of the dataset.), and then make sure information from the "descriptive data" sheet match 1:1 with the qualitative, on a study-observation level.  
+
 # List of moderators to investigate
-moderators <- c("Soil_texture", "Tree_crop_combination_T", "Season", 
-                "Tree_row_orientation", "No_tree_per_m", "Alley_width", 
-                "Tree_height", "Tillage", "Organic")
+moderators <- c("tree_crop_combination_t", "alley_width")
+
+# All moderators, that needs update and merging of the sheets "descriptive" and "quantitative" before proceeding
+# ("soil_texture", "tree_crop_combination_t", "season", 
+# "tree_row_orientation", "no_tree_per_m", "alley_width", 
+# "tree_height", "tillage", "organic")
 ```
 
 REML enhances the validity and reliability of meta-analysis findings by providing unbiased variance estimates, reducing overfitting, and ensuring robust hypothesis testing. These features are crucial for understanding how various moderators affect the outcomes and for making informed, generalizable conclusions.
@@ -2412,7 +2436,7 @@ moderator_model <- rma.mv(
 ##############################################################
 # Save to CSV
 readr::write_csv(moderator_model, 
-                 here::here("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temp_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/moderator_model_2.csv"))
+                 here::here("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temp_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/moderator_model_3.csv"))
 
 ##############################################################
 
