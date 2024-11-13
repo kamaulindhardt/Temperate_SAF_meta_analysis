@@ -1413,9 +1413,393 @@ bubble_plot(filtered_meta_data_ROM, "alley_width")
 
 
 
+**Older model from earlier database**
+The multivariate meta-analysis model includes 1007 effect sizes from various studies and is implemented using the maximum likelihood (ML) method. The log-likelihood value is -16178.1646, which indicates how well the model fits the data. The model's fit statistics, including the AIC (32364.3291), BIC (32383.9881), and AICc (32364.3691), are measures of the model's goodness of fit, with lower values suggesting a better fit. These values are essential for comparing different models and selecting the most appropriate one.
+
+The model accounts for variability at different levels using random effects. The variance components for the id_article level are as follows:
+
+- sigma^2.1: 0.0006 (with a standard deviation of 0.0253), indicating the variance attributed to individual articles.
+- sigma^2.2: 0.0000 (with a standard deviation of 0.0000), suggesting negligible or no variance at this level.
+- sigma^2.3: 0.0041 (with a standard deviation of 0.0637), representing the variance attributed to different response variables within each article.
+
+These variance components reflect the hierarchical structure of the data, emphasizing the importance of considering both article-level and response variable-level variability.
+
+The Q-test for heterogeneity shows significant variability among the effect sizes, with a Q-value of 264771.5488 and a p-value of less than 0.0001. This significant heterogeneity implies that the effect sizes vary more than would be expected by chance alone, indicating underlying differences between the studies that must be accounted for in the analysis. The presence of such substantial heterogeneity justifies the use of a random-effects model to capture the between-study variability.
+
+Despite the significant heterogeneity, the overall effect size estimate is -0.0098, with a standard error of 0.0109. This estimate is not statistically significant, as indicated by a p-value of 0.3682. The 95% confidence interval for the effect size ranges from -0.0311 to 0.0115, which includes zero, further indicating the lack of a significant overall effect. This suggests that the effect sizes across the studies do not show a consistent trend or significant overall impact, highlighting the complexity and variability inherent in the data.
+
+**Updated model from database v3**
+The multivariate meta-analysis model, based on 1007 effect sizes from different studies, was fitted using the Maximum Likelihood (ML) estimation method. The log-likelihood value of -16178.2376 reflects the fit of the model, while fit indices like AIC (32364.4752), BIC (32384.1341), and AICc (32364.5151) provide measures of the model's goodness of fit. These values are crucial for model comparison, with lower values indicating a better fit.
+
+The random-effects model accounts for variability at two levels: study-level (id_article) and within-study (response variables). The variance components are as follows:
+
+- sigma^2.1 = 0.0000 (standard deviation = 0.0037): Indicates near-zero variance between studies, suggesting minimal between-study variability.
+- sigma^2.2 = 0.0000 (standard deviation = 0.0037): Also reflects negligible variance at the article level, implying little variation between the articles.
+- sigma^2.3 = 0.0047 (standard deviation = 0.0682): Captures within-study variability across different response variables, suggesting more substantial within-study variability.
+
+The model also reports a highly significant Q-test for heterogeneity (Q = 264771.5488, p < 0.0001), showing substantial variability among the effect sizes across studies. This indicates that the observed differences in effect sizes are not due to chance alone and supports the need for a random-effects model to account for this heterogeneity.
+
+Despite the high heterogeneity, the overall effect size estimate is -0.0095 with a standard error of 0.0106, which is not statistically significant (p = 0.3677). The 95% confidence interval, ranging from -0.0302 to 0.0112, includes zero, indicating no significant overall effect across the studies.
+
+################################################################################################
+SUMMARISED:
+
+**Older model from earlier database**
+Understanding the Variance Components
+The model accounts for variability at multiple levels:
+
+- sigma^2.1 (id_article level): A small variance (0.0006) indicates limited variability between articles, suggesting that article-level differences are not a major source of variability.
+
+- sigma^2.2 (id_article level): No variance (0.0000) at this level suggests negligible additional article-level influences on the outcomes.
+
+- sigma^2.3 (id_article/response_variable level): A higher variance (0.0041) indicates more variability due to differences in response variables within each article, highlighting the influence of specific metrics or outcomes.
+
+Significant Heterogeneity
+The Q-test shows substantial heterogeneity among the effect sizes (Q = 264771.5488, p < 0.0001), indicating that the observed differences are not due to chance alone but are likely influenced by factors such as study design and measurement methods. This significant variability supports the use of a random-effects model to appropriately account for the complexity of the data.
+
+Non-Significant Overall Effect Size
+The overall effect size (-0.0098) is not statistically significant (p = 0.3682), with the confidence interval (-0.0311 to 0.0115) crossing zero. This suggests that the combined studies do not show a consistent trend or significant effect, which may be due to inherent variability across studies or a genuine lack of a consistent overall effect.
+
+**Updated model from database v3**
+Understanding the Variance Components
+The model highlights variability at multiple levels:
+
+- sigma^2.1 (id_article level): Near-zero variance (0.0000) suggests limited variability between studies, indicating that differences between articles do not contribute much to overall variability.
+- sigma^2.2 (id_article level): Also near-zero variance (0.0000), indicating no significant additional study-level variance.
+- sigma^2.3 (id_article/response_variable level): Higher variance (0.0047) suggests more substantial variability within studies, driven by differences in response variables, showing the influence of study-specific outcomes.
+
+Significant Heterogeneity
+The Q-test indicates significant heterogeneity among effect sizes (Q = 264771.5488, p < 0.0001). This heterogeneity points to substantial variability that may arise from differences in study designs, populations, or measurement methods, supporting the use of random-effects modeling to handle this complexity.
+
+Non-Significant Overall Effect Size
+The overall effect size of -0.0095 is not statistically significant (p = 0.3677), with a confidence interval ranging from -0.0302 to 0.0112, indicating that the effect size across studies is small and not significantly different from zero. This suggests that, on average, the studies do not show a consistent trend or significant effect, likely due to variability between and within studies.
+
+################################################################################################
+COMPARING 'OLD' AND NEW (DATABASE v3) MODELS
+
+The updated model shows slightly different variance components, particularly a reduction in between-study variance (sigma^2.1) and a slight increase in within-study variance (sigma^2.3). However, the overall conclusions remain the same: there is no significant overall effect across studies, and the heterogeneity between studies remains high, justifying the use of a random-effects model in both cases.
 
 
 
 
+Discussion of Model Setup and Trade-offs in this Meta-Analysis
+
+Addressing Non-Convergence and Model Adaptations
+
+Handling non-convergence is crucial in meta-analysis to ensure reliable results. A series of strategies can be employed to mitigate these issues, including adjusting initial values for model parameters, simplifying the model by reducing the number of random effects, and using different optimizers such as "optim" instead of the default "nlminb" in the rma.mv function. Diagnostic measures like Cook's distance or leverage statistics can help identify studies with high influence, allowing for robust variance estimation methods that are less sensitive to these influential points. Additionally, modifying the analysis loop to handle non-convergence gracefully—by skipping problematic studies or trying alternative optimization methods—ensures the robustness of the findings.
+
+The warning about the “Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results” highlights significant disparities in the variances among study estimates. This disparity can lead to instability, as studies with larger variances may disproportionately influence the pooled effect size, potentially skewing results. Addressing this requires a thorough examination of variance distribution to understand and mitigate the impact of outliers. Using robust variance estimators or adjusting study weights based on variance can help stabilize results. Continuing with sensitivity analysis is essential to assess the robustness of findings, and persistent instability may warrant consulting with a statistician to ensure the integrity of the analysis.
+
+Modifications in Sensitivity Analysis Compared to the Original Model
+
+The sensitivity analysis involved key modifications to the original model settings to handle convergence issues effectively. While the original model used the optimizer nlminb with a maximum of 1000 iterations and a strict relative tolerance of 1e-8 for high precision, the sensitivity analysis increased the maximum iterations to 5000, relaxed the relative tolerance to 1e-2, set the step size to 100, and introduced initial estimates for variance components (sigma2.init = c(0.001, 0.001, 0.005)). These adjustments were necessary to enhance the model’s ability to find stable solutions, particularly when excluding specific studies.
+
+The relaxation of convergence criteria in the sensitivity analysis highlights a trade-off: it prioritizes consistent convergence over precision, which is essential for handling data variability. While the original model’s strict settings were geared towards obtaining precise solutions, they were more prone to convergence failures, especially during iterative fitting across different subsets. Introducing initial variance component estimates helped guide the optimizer towards reasonable starting points, improving the chances of convergence in complex models.
+
+Impact and Interpretation of Model Adjustments
+
+The relaxed settings in the sensitivity analysis model, though essential for achieving convergence across multiple iterations, may lead to slightly less stable and precise estimates. This could result in increased variability in the results, potentially masking subtle effects that the original model detected. Therefore, findings from the sensitivity analysis should be interpreted with caution and seen as a measure of robustness rather than definitive conclusions.
+
+These adjustments underscore the complexity of the meta-analysis model and the need for further refinement to ensure reliable results. Exploring alternative modeling strategies or data transformation methods may be required to reduce variability in sampling variance and improve the stability of estimates. Ultimately, while sensitivity analyses are crucial for understanding the robustness of findings, they also highlight the importance of continually refining analytical methods to enhance the validity and reliability of meta-analytic conclusions.
 
 
+
+
+INTERPRETATION OF MODERATOR ANALYSIS
+
+*Tree-Crop Combination:*
+The tree-crop combinations represent different agroforestry systems where specific tree species are combined with either cereal or legume crops. 
+
+Apple-Legume:
+- Estimate: 0.1411, not statistically significant (p = 0.6257).
+
+Maple-Cereal:
+Estimate: 0.1061, not statistically significant (p = 0.5792).
+
+Maple-Legume:
+Estimate: 0.1871, not statistically significant (p = 0.3554).
+
+Mixed-Cereal:
+Estimate: 0.0492, not statistically significant (p = 0.7314).
+
+Mixed-Legume:
+Estimate: 0.0535, not statistically significant (p = 0.7089).
+
+Paulownia-Cereal:
+Estimate: -0.2062, not statistically significant (p = 0.5704). This negative estimate suggests a potential decrease in effect size, but it is not statistically significant.
+
+Poplar-Cereal:
+Estimate: 0.0163, not statistically significant (p = 0.9094).
+
+Poplar-Legume:
+Estimate: 0.0543, not statistically significant (p = 0.7049).
+
+Hence, none of the tree-crop combinations show a statistically significant effect on the overall effect size in this analysis, as their confidence intervals all cross zero and p-values are well above 0.05. However, there might be significant variations within each response variable (ecosystem services). This is assessed below.
+
+
+*Test of Moderators (ANOVA)*
+The ANOVA result shows the overall test for the significance of all moderator variables: QM(df = 20) = 216.3594, p-val < .0001
+This test indicates that the set of moderator variables, as a whole, is statistically significant. The low p-value (<0.0001) suggests that the moderators, collectively, explain a significant portion of the variance in the effect sizes. While individual moderators might not be significant on their own, the model as a whole benefits from the inclusion of moderators, improving the fit.
+
+
+```{r}
+# Ensure all moderators are factors with explicitly defined levels
+metdata_moderators <- metdata_moderators |> 
+  mutate(
+    tree_crop_combination = factor(tree_crop_combination, 
+                                   levels = c("Biomass-Cereal", "Biomass-Legume", "Biomass-Oilseed", 
+                                              "Fruit-Legume", "Mixed-Cereal", "Mixed-Legume", 
+                                              "Timber-Cereal", "Timber-Legume")),
+    season = factor(season, levels = c("Winter", "Summer", "Winter and Summer")),
+    alley_width_category = factor(alley_width_category, levels = c("Narrow", "Moderate", "Wide")),
+    tree_row_orientation = factor(tree_row_orientation, levels = c("NS", "EW")),
+    soil_texture = factor(soil_texture, levels = c("Clay", "Clay loam", "Silty clay")),
+    tree_density_category = factor(tree_density_category, levels = c("Low density", "Medium density", "High density")),
+    tree_height_category = factor(tree_height_category, levels = c("Short", "Medium", "Tall")),
+    age_system = factor(age_system, levels = c("Young", "Medium", "Mature")),
+    tillage = factor(tillage, levels = c("Yes", "No")),
+    organic = factor(organic, levels = c("Yes", "No"))
+  )
+
+# Add a dummy row with all factor levels
+dummy_row <- data.frame(
+  yi = 0, vi = 1e6,  # Neutral effect size with very high variance (negligible weight)
+  id_article = NA,
+  response_variable = NA,
+  tree_crop_combination = factor("Biomass-Cereal", levels = levels(metdata_moderators$tree_crop_combination)),
+  season = factor("Winter", levels = levels(metdata_moderators$season)),
+  alley_width_category = factor("Narrow", levels = levels(metdata_moderators$alley_width_category)),
+  tree_row_orientation = factor("NS", levels = levels(metdata_moderators$tree_row_orientation)),
+  soil_texture = factor("Clay", levels = levels(metdata_moderators$soil_texture)),
+  tree_density_category = factor("Low density", levels = levels(metdata_moderators$tree_density_category)),
+  tree_height_category = factor("Short", levels = levels(metdata_moderators$tree_height_category)),
+  age_system = factor("Young", levels = levels(metdata_moderators$age_system)),
+  tillage = factor("Yes", levels = levels(metdata_moderators$tillage)),
+  organic = factor("Yes", levels = levels(metdata_moderators$organic))
+)
+
+# Combine the dummy row with the actual data
+metdata_moderators <- bind_rows(metdata_moderators, dummy_row)
+
+# Check the factor levels again to ensure all are present
+lapply(metdata_moderators, levels)
+
+# Create the design matrix using model.matrix() with drop = FALSE
+design_matrix <- model.matrix(~ 0 + tree_crop_combination + season + alley_width_category +
+                              tree_row_orientation + soil_texture + tree_density_category +
+                              tree_height_category + age_system + tillage + organic, 
+                              data = metdata_moderators, 
+                              drop.unused.levels = FALSE)
+
+```
+
+
+
+*OBS! Time for running this code below is slightly long!*
+
+```{r}
+##########################################################################
+# Set up the parallel processing plan
+plan(multisession, workers = parallel::detectCores() - 1)
+##################################################
+
+# Start time tracking
+start.time <- Sys.time()
+
+##################################################
+##################################################
+
+# Fit a multivariate meta-analysis model including moderators using the rma.mv() function from the metafor package.
+
+# This model estimates the effect sizes for the moderator variables while accounting for random effects (article-level and response variable level).
+moderator_model <- rma.mv(
+  # The effect size estimates (dependent variable).
+  yi = yi,             
+  # The variance-covariance matrix of the effect sizes (weights for the meta-analysis).
+  V = V_matrix,               
+  # The moderator variables (predictors) included in the model.
+  mods = moderator_formula_no_intercept,     
+  random = list(
+    # Random intercept for each article to capture article-level variability.
+    ~ 1 | id_article,          
+    # Random intercept for each response variable within each article to account for within-article variability.
+    ~ 1 | id_article/response_variable  
+  ),
+  # The dataset that contains the effect sizes and moderator variables.
+  data = metdata_moderators,   
+  # Use Restricted Maximum Likelihood (REML) instead of ML, for estimating variance components, reducing bias. In the original_model I've used ML for estimating           variance components. 
+  # Justification for using Restricted Maximum Likelihood (REML) instead of Maximum Likelihood (ML):
+  # - Enhanced Precision for Moderator Analysis: REML improves the accuracy of variance estimates, which is crucial when evaluating the impact of moderators, as it          helps isolate the true effects of these variables.
+  # - Effective Handling of Complex Random Effects: The use of REML is better suited for the nested random effects structure (study-level and within-study variation)        in moderator analysis, accounting for both between- and within-study variability.
+  # - Minimizes Bias in Variance Components: By focusing on estimating variance components first, REML reduces bias, ensuring that the effects of each moderator are         not distorted by inaccurate variance estimates.
+  # - Improved Robustness in Heterogeneous Data: REML provides more stable and reliable estimates when analyzing heterogeneous data with multiple moderators, helping        to accurately detect their influence on effect sizes.
+  # - Downsides: REML cannot compare models with different fixed effects, is computationally slower, and may underestimate variance components with very small sample        sizes.
+  method = "REML",               
+  control = list(
+    # Optimizer to be used for fitting the model; changed to 'optim' with BFGS that can better handle complex models.
+    optimizer = "optim",  
+    # Use the BFGS optimization method for more efficient convergence.
+    optim.method = "BFGS",       
+    # Set maximum number of iterations for the optimizer to ensure convergence.
+    iter.max = 1000,              
+    # Set relative tolerance to ensure convergence with sufficient precision.
+    rel.tol = 1e-12              
+  ),
+  # Enable verbose output for progress information and convergence diagnostics.
+  verbose = TRUE                
+)
+
+# Extract relevant results from the model
+# Coefficients (b), standard errors (se), confidence intervals (ci.lb, ci.ub), and p-values (pval)
+# The coefficients (b), standard errors (se), confidence intervals (ci.lb, ci.ub), and p-values (pval) for the moderators are stored as a data frame.
+# moderator_results <- data.frame(
+#   Coefficient = moderator_model$b,   # Extracts the estimated effect sizes (regression coefficients) for each moderator.
+#   Std_Error = moderator_model$se,    # Extracts the standard errors associated with each moderator's coefficient.
+#   CI_Lower = moderator_model$ci.lb,  # Extracts the lower bounds of the 95% confidence intervals for each coefficient.
+#   CI_Upper = moderator_model$ci.ub,  # Extracts the upper bounds of the 95% confidence intervals for each coefficient.
+#   P_Value = moderator_model$pval     # Extracts the p-values to assess the statistical significance of each moderator.
+# )
+
+# Extract the coefficients for all levels
+moderator_results <- data.frame(
+  Moderator = rownames(moderator_model$b),
+  Estimate = moderator_model$b,
+  Std_Error = moderator_model$se,
+  CI_Lower = moderator_model$ci.lb,
+  CI_Upper = moderator_model$ci.ub,
+  P_Value = moderator_model$pval
+)
+
+
+# Add row names (moderators) as a column
+moderator_results$Moderator <- rownames(moderator_results)
+rownames(moderator_results) <- NULL
+
+##############################################################
+# Save the results to a CSV file
+readr::write_csv(moderator_results, 
+                 here::here("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temp_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/moderator_results_database_v5.csv"))
+
+##############################################################
+
+# Display the extracted results
+moderator_results
+
+##################################################
+##################################################
+
+# End time tracking
+end.time <- Sys.time()
+
+##############################################################
+# Calculate time taken
+time.taken <- end.time - start.time
+print(time.taken)
+
+##################################################
+
+# NOTES
+
+# In this code, we first create a formula for the moderators by concatenating the list of moderator variables into a single formula. This formula is passed into the mods argument in the rma.mv() function, allowing the inclusion of moderators in the meta-analysis model. The model itself is fitted using the rma.mv() function from the metafor package, which estimates the effect sizes for each moderator while accounting for random effects at the article level and response variable level.
+
+# The model employs Restricted Maximum Likelihood (REML) for estimating variance components. REML is known for reducing bias in random effect estimates, especially in smaller sample sizes or when the random effects structure is complex. By focusing on estimating the random effects first, REML ensures that variance components are accurately reflected, providing more reliable and less biased results.
+
+# The optimizer has been set to "optim" with the BFGS method. BFGS is well-suited for handling complex, non-linear optimization problems like those encountered in meta-analysis models with multiple levels of random effects. The optimizer is configured with a maximum iteration count of 1000 and a relative tolerance of 1e-12, providing stricter convergence criteria while ensuring computational efficiency.
+
+# OBS: Be aware that removing the intercept changes the interpretation of the coefficients: 
+# In the original model, the intercept represented the effect size for the reference level of each moderator (e.g., "Summer" for season, "Clay" for soil_texture).
+# Without the intercept, each coefficient stands alone, which can be more intuitive but might complicate comparisons if you're used to reference-based interpretation.
+
+##############################################################
+# Last go: (08/09-24)
+
+# Advarsel: 83 rows with NAs omitted from model fitting.
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.
+# Advarsel: Redundant predictors dropped from the model.
+# Iteration 48    ll = -1614.1311   sigma2 = 0.0032  0.0032  0.0010  
+# Iteration 49    ll = -1614.1311   sigma2 = 0.0032  0.0032  0.0010  
+# Iteration 50    ll = -1614.1311   sigma2 = 0.0032  0.0032  0.0010  
+# Iteration 51    ll = -1614.1311   sigma2 = 0.0032  0.0032  0.0010  
+# Iteration 52    ll = -1614.1311   sigma2 = 0.0032  0.0032  0.0010  
+# 
+# Time difference of 20.4787 secs
+
+# Sometimes I get this error message "Fejl: uventet numerisk konstant in "Iteration 48"" - as well as the other warnings above
+
+##############################################################
+# Last go: (08/11-24)
+
+# Iteration 238   ll = -1859.7286   sigma2 = 0.0000  0.0000  0.0010  
+# Iteration 239   ll = -1859.7286   sigma2 = 0.0000  0.0000  0.0010  
+# Iteration 240   ll = -1859.7286   sigma2 = 0.0000  0.0000  0.0010  
+# Iteration 241   ll = -1859.7286   sigma2 = 0.0000  0.0000  0.0010  
+# 
+# Time difference of 5.843096 secs
+
+# Last go: (13/11-24)
+# Iteration 240   ll = -1859.7286   sigma2 = 0.0000  0.0000  0.0010  
+# Iteration 241   ll = -1859.7286   sigma2 = 0.0000  0.0000  0.0010  
+# 
+# Time difference of 15.90985 secs
+```
+```{r}
+# Extract the intercept and coefficients
+intercept_value <- moderator_model$b["intrcpt"]
+intercept_ci_lb <- moderator_model$ci.lb["intrcpt"]
+intercept_ci_ub <- moderator_model$ci.ub["intrcpt"]
+```
+
+```{r}
+# ANOVA to test the influence of each moderator on the effect size
+anova(moderator_model)
+```
+
+INTERPRETATION OF MODERATOR ANALYSIS
+
+*Tree-Crop Combination:*
+The analysis evaluates the influence of various tree-crop combinations on the effect size. Most combinations show non-significant results, indicating that the type of tree-crop pairing does not significantly impact the effect size.
+
+ - Apple-Legume: The coefficient (0.0384) is positive but not statistically significant (p = 0.685), suggesting no meaningful effect.
+ - Maple-Cereal: Coefficient of 0.0526, with a non-significant p-value (p = 0.5672), showing little influence.
+ - Mixed-Legume: Coefficient of 0.0811, non-significant (p = 0.2549), indicating no notable impact.
+ - Paulownia-Cereal: Negative coefficient (-0.0747), non-significant (p = 0.7342), suggesting no significant effect.
+
+Overall, none of the tree-crop combinations had a statistically significant influence, highlighting the potential uniformity in response across different agroforestry systems.
+
+*Season:*
+The season of measurement plays a significant role in the effect size:
+
+ - Winter: Shows a significant positive effect (coefficient = 0.0374, p = 0.0024**), indicating that outcomes measured in winter tend to have higher effect sizes.
+ - Winter and Summer Combined: The effect is not significant (p = 0.8252), suggesting no clear combined seasonal impact.
+
+This suggests a potential seasonal pattern in the data, with winter measurements showing stronger effects.
+
+*Alley Width:*
+The influence of different alley widths on effect size is assessed:
+
+ - Width = 48 meters: Significant negative effect (coefficient = -0.0516, p = 0.0012**), indicating that wider alleys reduce the effect size.
+ - Other widths (e.g., 10m, 15m): Non-significant results, suggesting that variations in narrower alley widths have no substantial impact.
+
+This finding implies that very wide alleys may diminish the positive effects seen in agroforestry systems, possibly due to reduced tree-crop interactions.
+
+*Soil Texture:*
+Different soil types did not show a significant impact on effect sizes:
+
+ - Clay: Coefficient = 0.0093, p = 0.8629 (non-significant).
+ - Clay Loam: Coefficient = -0.0524, p = 0.2853 (non-significant).
+ - Silty Clay: Coefficient = -0.0006, p = 0.9936 (non-significant).
+
+These results suggest that soil texture is not a major determinant of effect size in the analyzed studies.
+
+*Tree Height and System Age:*
+ - Tree Height: Non-significant (coefficient = 0.0011, p = 0.9592), indicating no detectable influence on effect size.
+
+ - Young Age System: Non-significant (coefficient = 0.0194, p = 0.8074), suggesting that younger systems do not show a different trend compared to older systems.
+
+This suggests that structural characteristics like tree height and system age do not explain variation in effect sizes across studies.
+
+
+*Test of Moderators (ANOVA)*
+The ANOVA result for the test of moderators shows a significant effect (QM = 200.6479, df = 20, p < 0.0001), indicating that at least one of the included moderators significantly influences the effect size. This finding justifies the inclusion of moderator variables in the model, highlighting their importance in explaining part of the heterogeneity observed in the meta-analysis.
+
+In summary, the moderator analysis identified season (specifically winter) and wide alley width (48m) as significant moderators, suggesting these factors have the most substantial impact on effect sizes. Other tested moderators, including tree-crop combinations, soil texture, and tree height, did not show significant effects, indicating they do not contribute meaningfully to explaining the variability in effect sizes across studies.

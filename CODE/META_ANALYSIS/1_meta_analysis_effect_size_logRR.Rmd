@@ -44,9 +44,9 @@ Formulae to estimate effects (and their standard errors)?
 
 #############
 # STEP 0
-##########################################################################################################################################
+#########################################################################################################################################
 PREPARING SCRIPT AND READ IN THE DATA
-##########################################################################################################################################
+#########################################################################################################################################
 
 ```{r}
 # Clean workspace
@@ -130,7 +130,7 @@ setwd("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temp_SAF_meta_a
 
 # Suppress warnings to avoid clutter in the console output
 suppressWarnings({
-  database <- read_excel(here::here("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temp_SAF_meta_analysis/DATA/META_ANALYSIS/Final_database_2024_05_17.xlsx"),
+  database <- readxl::read_excel(here::here("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temp_SAF_meta_analysis/DATA/META_ANALYSIS/Final_database_2024_05_17_v3.xlsx"), # Final_database_2024_05_17
                          sheet = "Quantatitive data") 
   #%>%
   #  filter(INCLUDED == TRUE) # include only data entries that have been assesed and deemed included
@@ -151,9 +151,9 @@ database |> skim()
 
 #############
 # STEP 1
-##########################################################################################################################################
+#########################################################################################################################################
 DATA PREPROCESSING
-##########################################################################################################################################
+#########################################################################################################################################
 
 ```{r}
 # Function to safely convert to numeric, replacing non-numeric values with NA
@@ -398,10 +398,12 @@ plot(imputed_data)
 # Compare the distribution of the observed and imputed data
 densityplot(imputed_data)
 ```
+
 ```{r}
 # Use stripplot to compare observed and imputed values
 stripplot(imputed_data, pch = 20, cex = 1.2)
 ```
+
 ```{r}
 # For an evidence-based choice, we may calculate some metrics
 # Calculate the mean and standard deviation of each imputed dataset
@@ -422,6 +424,7 @@ imputed_summaries_df <- bind_rows(imputed_summaries, .id = "imputation")
 
 imputed_summaries_df
 ```
+
 ```{r}
 # Choose the imputation based on the diagnostics and summaries
 # For simplicity, let's assume we choose the imputation with the median mean_silvo_se
@@ -430,6 +433,7 @@ chosen_imputation <- imputed_summaries_df %>%
 
 chosen_imputation
 ```
+
 ```{r}
 # Extract the chosen imputation number
 chosen_imputation_number <- chosen_imputation$imputation
@@ -503,6 +507,15 @@ library(patchwork)
 
 silvo_se_impute_original_plot + control_se_impute_original_plot
 ```
+
+
+
+**Needs to be run from here to STEP 5 "ANALYSING MODERATORS" using the updated database "Final_database_2024_05_17_v3"**
+
+
+
+
+
 
 
 #############
@@ -710,7 +723,7 @@ meta_data_ROM <- meta_data_ROM_adjusted
 ##############################################################
 # Save to CSV
 readr::write_csv(meta_data_ROM, 
-                 here::here("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temp_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/meta_data_ROM.csv"))
+                 here::here("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temp_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/meta_data_ROM_database_v3.csv"))
 ```
 
 
@@ -721,7 +734,7 @@ READING THE METADATA CSV
 ############################################################################################################################
 
 ```{r}
-meta_data_ROM <- readr::read_csv("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temp_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/meta_data_ROM.csv")
+meta_data_ROM <- readr::read_csv("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temp_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/meta_data_ROM_database_v3.csv")
 ```
 
 ```{r}
@@ -830,7 +843,7 @@ silvo_data$mean |> skim()
 control_data$mean |> skim()
 ```
 
-Visualiseing with log-transformed values
+Visualizing with log-transformed values
 
 ```{r}
 # Create the density plot with log scale
@@ -1092,7 +1105,7 @@ filtered_meta_data_ROM |> skim()
 ##############################################################
 # Save to CSV
 readr::write_csv(filtered_meta_data_ROM, 
-                 here::here("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temp_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/filtered_meta_data_ROM.csv"))
+                 here::here("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temp_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/filtered_meta_data_ROM_database_v3.csv"))
 ```
 
 
@@ -1103,7 +1116,7 @@ READING THE FILTERED METADATA CSV
 ############################################################################################################################
 
 ```{r}
-filtered_meta_data_ROM <- readr::read_csv("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temp_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/filtered_meta_data_ROM.csv")
+filtered_meta_data_ROM <- readr::read_csv("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temp_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/filtered_meta_data_ROM_database_v3.csv")
 
 filtered_meta_data_ROM
 ```
@@ -1173,6 +1186,20 @@ Quality Assessment of the filtered_meta_data_ROM and V_matrix data
 missing_values <- sapply(filtered_meta_data_ROM, function(x) sum(is.na(x)))
 print("Missing Values in filtered_meta_data_ROM:")
 print(missing_values)
+
+# [1] "Missing Values in filtered_meta_data_ROM:"
+#              id_article       response_variable        measured_metrics           measured_unit                      yi                      vi 
+#                       0                       0                       0                       0                       0                       0 
+#              silvo_mean                silvo_se                silvo_sd                 silvo_n            control_mean              control_se 
+#                       0                       0                       0                       0                       0                       0 
+#              control_sd               control_n                  id_obs     experimental_design              comparator   tree_crop_combination 
+#                       0                       0                       0                     854                       0                       0 
+# tree_crop_combination_t                  season    tree_row_orientation            soil_texture           no_tree_per_m             tree_height 
+#                       0                       0                     314                      42                     114                     441 
+#             alley_width                 tillage                 organic   sub_response_variable         distance_tree_m        study_year_start 
+#                      83                       0                       0                       0                     200                       0 
+#          study_year_end                comments         min_value_shift                  row_id 
+#                       0                       0                       0                       0 
 ```
 ```{r}
 # Distribution of vi
@@ -1183,6 +1210,7 @@ filtered_meta_data_ROM |>
   scale_x_log10() +
   theme_minimal()
 ```
+
 ```{r}
 # Check for positive definiteness of V_matrix
 is_positive_definite <- function(mat) {
@@ -1203,11 +1231,13 @@ is_positive_definite <- function(mat) {
   all(eigenvalues > 0)
 }
 ```
+
 ```{r}
 positive_definite_check <- is_positive_definite(V_matrix)
 print(paste("V_matrix is positive definite:", positive_definite_check))
 ```
-The code snippet you provided is checking if the variance-covariance matrix (V_matrix) used in your meta-analysis model is positive definite. Here's a detailed explanation of what it means:
+
+The code snippet provided is checking if the variance-covariance matrix (V_matrix) used in your meta-analysis model is positive definite. 
 
 Positive Definiteness of a Matrix:
 A matrix is positive definite if all its eigenvalues are positive.
@@ -1270,8 +1300,82 @@ TEST
 ```
 
 
+```{r}
+filtered_meta_data_ROM
+```
+
+```{r}
+# Count the number of unique response variables for each study
+study_response_count <- filtered_meta_data_ROM %>%
+  group_by(id_article) %>%
+  summarize(num_response_vars = n_distinct(response_variable))
+
+# Plot the number of response variables for each study
+
+ggplot(study_response_count, aes(x = factor(id_article), y = num_response_vars)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  labs(title = "Number of Response Variables per Study",
+       x = "Study (id_article)",
+       y = "Number of Response Variables") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))  # Rotate x-axis labels for readability
+
+```
+
+```{r}
+model_with_response_var <- rma.mv(
+  # Effect size estimates (dependent variable)
+  yi = yi,              
+  # Variance-covariance matrix of the effect sizes
+  V = V_matrix,         
+  random = list(
+    # Random intercept for each article to account for between-study variability
+    ~ 1 | id_article,                   
+    # Random intercept for each response variable within each article to account for within-study correlation
+    ~ 1 | id_article/response_variable
+  ),
+  data = filtered_meta_data_ROM,  # The dataset for the meta-analysis
+  verbose = TRUE,                 # Enable verbose output to track convergence
+  control = list(
+    optimizer = "optim",          # Use 'optim' optimizer
+    optim.method = "BFGS",        # Use BFGS optimization method
+    iter.max = 1000,              # Maximum iterations
+    rel.tol = 1e-8                # Normal convergence tolerance
+  ),
+  method = "ML"                   # Use Maximum Likelihood for model fitting
+)
 
 
+model_without_response_var <- rma.mv(
+  # Effect size estimates (dependent variable)
+  yi = yi,              
+  # Variance-covariance matrix of the effect sizes
+  V = V_matrix,         
+  # Only random intercept for each article
+  random = ~ 1 | id_article,  
+  data = filtered_meta_data_ROM,  # The dataset for the meta-analysis
+  verbose = TRUE,                 # Enable verbose output to track convergence
+  control = list(
+    optimizer = "optim",          # Use 'optim' optimizer
+    optim.method = "BFGS",        # Use BFGS optimization method
+    iter.max = 1000,              # Maximum iterations
+    rel.tol = 1e-8                # Normal convergence tolerance
+  ),
+  method = "ML"                   # Use Maximum Likelihood for model fitting
+)
+
+```
+
+```{r}
+AIC(model_with_response_var, model_without_response_var)
+```
+
+```{r}
+anova(model_with_response_var, model_without_response_var)
+```
+
+
+Full Model (with both random intercepts for article and response variable within article) is better than the Reduced Model (with only random intercept for article).
 
 
 
@@ -1306,9 +1410,9 @@ original_model <- rma.mv(
   # Variance-covariance matrix of the effect sizes (providing information on within-study sampling variances and covariances)
   V = V_matrix,                                      
   random = list(
-    # Random intercept for each article to model between-study variability
+    # Random intercept for each article to account for between-study variability
     ~ 1 | id_article,                   
-    # Random intercept for each response variable within each article to model within-study correlation
+    # Random intercept for each response variable within each article to account for within-study correlation
     ~ 1 | id_article/response_variable               
   ),
   # Data frame containing the meta-analysis data, including effect sizes and their variances 
@@ -1317,12 +1421,18 @@ original_model <- rma.mv(
   # Enable verbose output to print progress and convergence information
   verbose = TRUE,                                    
   control = list(
-    # Optimizer to be used for fitting the model; 'nlminb' is robust for constrained optimization problems
-    optimizer = "nlminb",   
+    # Optimizer to be used for fitting the model; 'nlminb' is robust for constrained optimization problems. 
+    # Changed to 'optim' (the 08/10-24) with BFGS that can better handle complex, non-linear surfaces and is generally faster in converging. 
+    # nlminb might get stuck more easily if the likelihood function is tricky or has flat areas, but it’s more robust when parameter constraints are needed.
+    optimizer = "optim",  
+    # Use BFGS optimization method,   
+    optim.method = "BFGS",
      # Maximum number of iterations for the optimizer; increase if the model is complex or if convergence is slow
     iter.max = 1000,              
     # Relative convergence tolerance; lower values indicate stricter convergence criteria
-    rel.tol = 1e-8                                   
+    rel.tol = 1e-12     # with nlminb I reduced from 1e-8 to 1e-4 (the 08/10-24) to avoid non-convergence       
+    # Alternatively, provide initial estimates for variance components to ease convergence
+    #sigma2.init = c(0.01, 0.01, 0.01)  
   ),
   # Use Maximum Likelihood (ML) estimation for fitting the model (alternatively, REML could be used for restricted maximum likelihood)
   # Justification for using Maximum Likelihood (ML) over REML:
@@ -1390,6 +1500,35 @@ time.taken
 # Iteration 72    ll = -3044.1332   sigma2 = 0.0014  0.0014  0.0011  
 # 
 # Time difference of 54.30005 secs
+
+##############################################################
+# Last go: (08/10-24)
+
+# Iteration 70    ll = -3044.1332   sigma2 = 0.0014  0.0014  0.0011  
+# Iteration 71    ll = -3044.1332   sigma2 = 0.0014  0.0014  0.0011  
+# Iteration 72    ll = -3044.1332   sigma2 = 0.0014  0.0014  0.0011  
+# 
+# Time difference of 1.071125 mins
+
+# Iteration 26    ll = -16196.8585   sigma2 = 0.0106  0.0106  0.0106  
+# Iteration 27    ll = -16196.8585   sigma2 = 0.0106  0.0106  0.0106  
+# Iteration 28    ll = -16196.8585   sigma2 = 0.0106  0.0106  0.0106  
+# Iteration 29    ll = -16196.8585   sigma2 = 0.0106  0.0106  0.0106  
+# 
+# Time difference of 13.45971 secs
+
+##############################################################
+# Last go: (08/10-24)
+
+# Iteration 105   ll = -16178.2376   sigma2 = 0.0000  0.0000  0.0047  
+# Iteration 106   ll = -16178.2376   sigma2 = 0.0000  0.0000  0.0047  
+# Iteration 107   ll = -16178.2396   sigma2 = 0.0000  0.0000  0.0047  
+# Iteration 108   ll = -16178.2377   sigma2 = 0.0000  0.0000  0.0047  
+# Iteration 109   ll = -16178.2376   sigma2 = 0.0000  0.0000  0.0047  
+# Iteration 110   ll = -16178.2376   sigma2 = 0.0000  0.0000  0.0047  
+# 
+# Time difference of 46.44449 secs
+
 ```
 
 
@@ -1501,18 +1640,97 @@ summary(original_model)
 # 
 # ---
 # Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+##############################################################
+# Last go: (08/10-24)
+
+# Multivariate Meta-Analysis Model (k = 1017; method: ML)
+# 
+#     logLik    Deviance         AIC         BIC        AICc   
+# -3044.1332  10969.9452   6096.2665   6115.9649   6096.3060   
+# 
+# Variance Components:
+# 
+#             estim    sqrt  nlvls  fixed                        factor 
+# sigma^2.1  0.0014  0.0380     37     no                    id_article 
+# sigma^2.2  0.0014  0.0380     37     no                    id_article 
+# sigma^2.3  0.0011  0.0334     48     no  id_article/response_variable 
+# 
+# Test for Heterogeneity:
+# Q(df = 1016) = 1919085.9233, p-val < .0001
+# 
+# Model Results:
+# 
+# estimate      se     zval    pval    ci.lb   ci.ub    
+#  -0.0065  0.0107  -0.6103  0.5417  -0.0276  0.0145    
+# 
+# ---
+# Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+##############################################################
+# Last go: (08/10-24)
+
+# Multivariate Meta-Analysis Model (k = 1007; method: ML)
+# 
+#      logLik     Deviance          AIC          BIC         AICc   
+# -16196.8585   37264.7554   32401.7170   32421.3759   32401.7569   
+# 
+# Variance Components:
+# 
+#             estim    sqrt  nlvls  fixed                        factor 
+# sigma^2.1  0.0106  0.1032     37     no                    id_article 
+# sigma^2.2  0.0106  0.1032     37     no                    id_article 
+# sigma^2.3  0.0106  0.1032     48     no  id_article/response_variable 
+# 
+# Test for Heterogeneity:
+# Q(df = 1006) = 264771.5488, p-val < .0001
+# 
+# Model Results:
+# 
+# estimate      se     zval    pval    ci.lb   ci.ub    
+#  -0.0112  0.0291  -0.3826  0.7020  -0.0683  0.0460    
+# 
+# ---
+# Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+##############################################################
+# Last go: (08/10-24)
+
+# Multivariate Meta-Analysis Model (k = 1007; method: ML)
+# 
+#      logLik     Deviance          AIC          BIC         AICc   
+# -16178.2376   37227.5136   32364.4752   32384.1341   32364.5151   
+# 
+# Variance Components:
+# 
+#             estim    sqrt  nlvls  fixed                        factor 
+# sigma^2.1  0.0000  0.0037     37     no                    id_article 
+# sigma^2.2  0.0000  0.0037     37     no                    id_article 
+# sigma^2.3  0.0047  0.0682     48     no  id_article/response_variable 
+# 
+# Test for Heterogeneity:
+# Q(df = 1006) = 264771.5488, p-val < .0001
+# 
+# Model Results:
+# 
+# estimate      se     zval    pval    ci.lb   ci.ub    
+#  -0.0095  0.0106  -0.9008  0.3677  -0.0302  0.0112    
+# 
+# ---
+# Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
 ```
 
 
 INTERPRETATION OF MODEL SUMMARY
 
+**Older model from earlier database**
 The multivariate meta-analysis model includes 1007 effect sizes from various studies and is implemented using the maximum likelihood (ML) method. The log-likelihood value is -16178.1646, which indicates how well the model fits the data. The model's fit statistics, including the AIC (32364.3291), BIC (32383.9881), and AICc (32364.3691), are measures of the model's goodness of fit, with lower values suggesting a better fit. These values are essential for comparing different models and selecting the most appropriate one.
 
 The model accounts for variability at different levels using random effects. The variance components for the id_article level are as follows:
 
-* sigma^2.1: 0.0006 (with a standard deviation of 0.0253), indicating the variance attributed to individual articles.
-* sigma^2.2: 0.0000 (with a standard deviation of 0.0000), suggesting negligible or no variance at this level.
-* sigma^2.3: 0.0041 (with a standard deviation of 0.0637), representing the variance attributed to different response variables within each article.
+- sigma^2.1: 0.0006 (with a standard deviation of 0.0253), indicating the variance attributed to individual articles.
+- sigma^2.2: 0.0000 (with a standard deviation of 0.0000), suggesting negligible or no variance at this level.
+- sigma^2.3: 0.0041 (with a standard deviation of 0.0637), representing the variance attributed to different response variables within each article.
 
 These variance components reflect the hierarchical structure of the data, emphasizing the importance of considering both article-level and response variable-level variability.
 
@@ -1520,23 +1738,57 @@ The Q-test for heterogeneity shows significant variability among the effect size
 
 Despite the significant heterogeneity, the overall effect size estimate is -0.0098, with a standard error of 0.0109. This estimate is not statistically significant, as indicated by a p-value of 0.3682. The 95% confidence interval for the effect size ranges from -0.0311 to 0.0115, which includes zero, further indicating the lack of a significant overall effect. This suggests that the effect sizes across the studies do not show a consistent trend or significant overall impact, highlighting the complexity and variability inherent in the data.
 
-################################################
+**Updated model from database v3**
+The multivariate meta-analysis model, based on 1007 effect sizes from different studies, was fitted using the Maximum Likelihood (ML) estimation method. The log-likelihood value of -16178.2376 reflects the fit of the model, while fit indices like AIC (32364.4752), BIC (32384.1341), and AICc (32364.5151) provide measures of the model's goodness of fit. These values are crucial for model comparison, with lower values indicating a better fit.
+
+The random-effects model accounts for variability at two levels: study-level (id_article) and within-study (response variables). The variance components are as follows:
+
+- sigma^2.1 = 0.0000 (standard deviation = 0.0037): Indicates near-zero variance between studies, suggesting minimal between-study variability.
+- sigma^2.2 = 0.0000 (standard deviation = 0.0037): Also reflects negligible variance at the article level, implying little variation between the articles.
+- sigma^2.3 = 0.0047 (standard deviation = 0.0682): Captures within-study variability across different response variables, suggesting more substantial within-study variability.
+
+The model also reports a highly significant Q-test for heterogeneity (Q = 264771.5488, p < 0.0001), showing substantial variability among the effect sizes across studies. This indicates that the observed differences in effect sizes are not due to chance alone and supports the need for a random-effects model to account for this heterogeneity.
+
+Despite the high heterogeneity, the overall effect size estimate is -0.0095 with a standard error of 0.0106, which is not statistically significant (p = 0.3677). The 95% confidence interval, ranging from -0.0302 to 0.0112, includes zero, indicating no significant overall effect across the studies.
+
+################################################################################################
 SUMMARISED:
 
+**Older model from earlier database**
 Understanding the Variance Components
 The model accounts for variability at multiple levels:
 
-* sigma^2.1 (id_article level): A small variance (0.0006) indicates limited variability between articles, suggesting that article-level differences are not a major source of variability.
+- sigma^2.1 (id_article level): A small variance (0.0006) indicates limited variability between articles, suggesting that article-level differences are not a major source of variability.
 
-* sigma^2.2 (id_article level): No variance (0.0000) at this level suggests negligible additional article-level influences on the outcomes.
+- sigma^2.2 (id_article level): No variance (0.0000) at this level suggests negligible additional article-level influences on the outcomes.
 
-* sigma^2.3 (id_article/response_variable level): A higher variance (0.0041) indicates more variability due to differences in response variables within each article, highlighting the influence of specific metrics or outcomes.
+- sigma^2.3 (id_article/response_variable level): A higher variance (0.0041) indicates more variability due to differences in response variables within each article, highlighting the influence of specific metrics or outcomes.
 
 Significant Heterogeneity
 The Q-test shows substantial heterogeneity among the effect sizes (Q = 264771.5488, p < 0.0001), indicating that the observed differences are not due to chance alone but are likely influenced by factors such as study design and measurement methods. This significant variability supports the use of a random-effects model to appropriately account for the complexity of the data.
 
 Non-Significant Overall Effect Size
 The overall effect size (-0.0098) is not statistically significant (p = 0.3682), with the confidence interval (-0.0311 to 0.0115) crossing zero. This suggests that the combined studies do not show a consistent trend or significant effect, which may be due to inherent variability across studies or a genuine lack of a consistent overall effect.
+
+**Updated model from database v3**
+Understanding the Variance Components
+The model highlights variability at multiple levels:
+
+- sigma^2.1 (id_article level): Near-zero variance (0.0000) suggests limited variability between studies, indicating that differences between articles do not contribute much to overall variability.
+- sigma^2.2 (id_article level): Also near-zero variance (0.0000), indicating no significant additional study-level variance.
+- sigma^2.3 (id_article/response_variable level): Higher variance (0.0047) suggests more substantial variability within studies, driven by differences in response variables, showing the influence of study-specific outcomes.
+
+Significant Heterogeneity
+The Q-test indicates significant heterogeneity among effect sizes (Q = 264771.5488, p < 0.0001). This heterogeneity points to substantial variability that may arise from differences in study designs, populations, or measurement methods, supporting the use of random-effects modeling to handle this complexity.
+
+Non-Significant Overall Effect Size
+The overall effect size of -0.0095 is not statistically significant (p = 0.3677), with a confidence interval ranging from -0.0302 to 0.0112, indicating that the effect size across studies is small and not significantly different from zero. This suggests that, on average, the studies do not show a consistent trend or significant effect, likely due to variability between and within studies.
+
+################################################################################################
+COMPARING 'OLD' AND NEW (DATABASE v3) MODELS
+
+The updated model shows slightly different variance components, particularly a reduction in between-study variance (sigma^2.1) and a slight increase in within-study variance (sigma^2.3). However, the overall conclusions remain the same: there is no significant overall effect across studies, and the heterogeneity between studies remains high, justifying the use of a random-effects model in both cases.
+
 
 ```{r, eval = FALSE}
 # Extract variance-covariance components
@@ -1660,16 +1912,18 @@ for (study in unique_studies) {
     data = data_excluded,
     method = "ML",  # Consistent with the original model's method
     control = list(
-      # Try using the "BFGS" optimizer instead of "nlminb"
-      optimizer = "nlminb",      
-      # Increase the maximum number of iterations
-      iter.max = 5000,
-      # Relax the relative tolerance for convergence
-      rel.tol = 1e-2,             
-      # Adjust step size for the optimizer
-      step.max = 100,              
-      # Provide initial estimates for variance components
-      sigma2.init = c(0.001, 0.001, 0.005)  
+      # Optimizer to be used for fitting the model; 'nlminb' is robust for constrained optimization problems. 
+      # Changed to 'optim' (the 08/10-24) with BFGS that can better handle complex, non-linear surfaces and is generally faster in converging. 
+      # nlminb might get stuck more easily if the likelihood function is tricky or has flat areas, nlminb more robust when parameter constraints are needed.
+      optimizer = "optim",  
+      # Use BFGS optimization method, 
+      optim.method = "BFGS",
+      # Maximum number of iterations for the optimizer; increase if the model is complex or if convergence is slow
+      iter.max = 1000,              
+      # Relative convergence tolerance; lower values indicate stricter convergence criteria
+      rel.tol = 1e-12     # with nlminb I reduced from 1e-8 to 1e-4 (the 08/10-24) to avoid non-convergence      
+      # Alternatively, provide initial estimates for variance components to ease convergence
+      #sigma2.init = c(0.01, 0.01, 0.01)  
       ),
     verbose = FALSE  # Set to FALSE to avoid excessive output during loop
   )
@@ -1752,6 +2006,18 @@ time.taken
 # Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.
 # Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.
 # Time difference of 5.464035 mins
+
+#################################################################################
+# Last go: (08/10-24)
+
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.
+# Time difference of 11.23059 mins
+
+#################################################################################
+# Last go: (08/10-24)
+
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.
+# Time difference of 35.15741 mins
 ```
 
 ```{r, eval = FALSE}
@@ -1762,7 +2028,7 @@ SAVING THE SENSITIVITY MATRIX
 
 ```{r, eval = FALSE}
 readr::write_csv(sensitivity_df,
-                 here::here("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temp_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/sensitivity_df_original_model_2.csv"))
+                 here::here("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temp_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/sensitivity_df_original_model_database_v3.csv"))
 ```
 
 
@@ -1796,7 +2062,7 @@ These adjustments underscore the complexity of the meta-analysis model and the n
 READING THE SAVED SENSITIVITY MATRIX
 
 ```{r}
-sensitivity_df <- readr::read_csv("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temperate_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/sensitivity_df_original_model_2.csv")
+sensitivity_df <- readr::read_csv("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temp_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/sensitivity_df_original_model_database_v3.csv")
 
 sensitivity_df
 ```
@@ -2284,7 +2550,7 @@ time.taken
 
 ##############################################################
 # Last go: (08/09-24)
-Time difference of 14.59279 hours
+# Time difference of 14.59279 hours
 ```
 
 ```{r}
@@ -2303,7 +2569,7 @@ cov_var_ratio_plot
 ```
 
 ```{r, eval = FALSE}
-# Saving the Hat Values plot
+# Saving the Covariance Ratios plot
 # Specify the folder path and file name
 folder_path <- "C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temp_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/FIGURES/"
 file_name <- "cov_var_ratio_plot.jpg"
@@ -2337,14 +2603,14 @@ imputed_database_clean |> glimpse()
 
 # Moderators to be investigated:
 # 
-# Soil_texture/soil type
 # Tree_crop_combination_T
-# Season
-# Tree_row _orientation
-# No_tree_per_m
-# Alley_width
-# Tree_height
-# Tillage
+# Season	
+# Tree_row _orientation	
+# Soil_texture	
+# No_tree_per_m	
+# Tree_height	
+# Alley_width	
+# Tillage	
 # Organic
 ```
 
@@ -2354,32 +2620,67 @@ The moderator analysis
 
 Step-by-Step Moderator Analysis
   1. Data Preparation: Ensure that the variables of interest are used as moderators are correctly formatted and coded in the dataset. 
-      Convert categorical variables to factors if they are not already.
+     Convert categorical variables to factors if they are not already.
 
-  2. Model Fitting with Moderators: Use the rma.mv() function to fit a random-effects meta-analysis model, including the moderators as fixed effects.       This will allow to see the influence of each moderator on the effect size.
+  2. Model Fitting with Moderators: Use the rma.mv() function to fit a random-effects meta-analysis model, including the moderators as fixed      effects. This will allow to see the influence of each moderator on the effect size.
 
-  3. Interpretation of Results: Assess the coefficients for each moderator to determine their impact on the outcome. Significant moderators can             provide insights into factors that influence the effect sizes.
+  3. Interpretation of Results: Assess the coefficients for each moderator to determine their impact on the outcome. Significant moderators       can provide insights into factors that influence the effect sizes.
+  
+  (so for each of the response var. make a model for moderator analysis)
+  
+**Test each of the moderators if there is a significant effect on the response variables of interest (ES). **
+
+1) Pool/aggregate all the studies that have the same response variable
+
+This model estimates the effect sizes for the moderator variables while accounting for random effects (article-level and response variable level).
+moderator_model <- rma.mv(
+  # The effect size estimates (dependent variable).
+  yi = yi,          
+  # The variance-covariance matrix of the effect sizes (weights for the meta-analysis).
+  V = V_matrix,          
+  # The moderator variables (predictors) included in the model.
+  mods = moderator_formula,     
+  random = list(
+  # Random intercept for each article to capture article-level variability.
+    ~ 1 | id_article,           
+  # Random intercept for each response variable within each article to account for within-article variability.
+    ~ 1 | id_article/response_variable  
+  ),
+  
+  
 
 ```{r}
-# View the structure of the cleaned and imputed dataset
-imputed_database_clean |> glimpse()
-
-# Unfortunately, the details of moderators were specified in another updated datasheet under another tab called "descriptive data" -- which is not 
-# the same tab used for the quantitative meta-analysis modelling and diagnostics. Hence, it is necessary to first import that new sheet and merge the details 
-# with the previous version (as I have ran all other models and diagnostics with the previous version of the dataset.), and then make sure information from the "descriptive data" sheet match 1:1 with the qualitative, on a study-observation level.  
+# Unfortunately, the details of moderators were specified in another updated datasheet under another tab called "descriptive data" -- which is not the same tab used for the quantitative meta-analysis modelling and diagnostics. Hence, it is necessary to first import that new sheet and merge the details with the previous version (as I have ran all other models and diagnostics with the previous version of the dataset.),  then make sure information from the "descriptive data" sheet match 1:1 with the qualitative, on a study-observation level.  
 
 # List of moderators to investigate
-moderators <- c("tree_crop_combination_t", "alley_width")
+moderators <- c("tree_crop_combination_t",
+                "season",
+                "alley_width",
+                "tree_row_orientation",
+                "soil_texture",
+                "no_tree_per_m", 
+                "tree_height",
+                "alley_width",
+                "tillage",
+                "organic")
 
-# All moderators, that needs update and merging of the sheets "descriptive" and "quantitative" before proceeding
-# ("soil_texture", "tree_crop_combination_t", "season", 
-# "tree_row_orientation", "no_tree_per_m", "alley_width", 
-# "tree_height", "tillage", "organic")
+# All moderators
+# c("tree_crop_combination_t",
+#   "season",
+#   "alley_width",
+#   "tree_row_orientation",
+#   "soil_texture",
+#   "no_tree_per_m", 
+#   "tree_height",
+#   "alley_width",
+#   "tillage",
+#   "organic")
+
 ```
 
 REML enhances the validity and reliability of meta-analysis findings by providing unbiased variance estimates, reducing overfitting, and ensuring robust hypothesis testing. These features are crucial for understanding how various moderators affect the outcomes and for making informed, generalizable conclusions.
 
-*OBS! Time for running this code below is long!*
+*OBS! Time for running this code below is slightly long!*
 
 ```{r}
 ##########################################################################
@@ -2397,33 +2698,36 @@ start.time <- Sys.time()
 moderator_formula <- as.formula(paste("~", paste(moderators, collapse = " + ")))
 
 # Fit a multivariate meta-analysis model including moderators using the rma.mv() function from the metafor package.
+
 # This model estimates the effect sizes for the moderator variables while accounting for random effects (article-level and response variable level).
 moderator_model <- rma.mv(
   # The effect size estimates (dependent variable).
-  yi = yi,          
+  yi = yi,             
   # The variance-covariance matrix of the effect sizes (weights for the meta-analysis).
-  V = V_matrix,          
+  V = V_matrix,               
   # The moderator variables (predictors) included in the model.
   mods = moderator_formula,     
   random = list(
-  # Random intercept for each article to capture article-level variability.
-    ~ 1 | id_article,           
-  # Random intercept for each response variable within each article to account for within-article variability.
+    # Random intercept for each article to capture article-level variability.
+    ~ 1 | id_article,          
+    # Random intercept for each response variable within each article to account for within-article variability.
     ~ 1 | id_article/response_variable  
   ),
   # The dataset that contains the effect sizes and moderator variables.
-  data = filtered_meta_data_ROM,  
-  # Restricted Maximum Likelihood (REML) for estimating variance components, reducing bias.
+  data = filtered_meta_data_ROM,   
+  # Use Restricted Maximum Likelihood (REML) instead of ML, for estimating variance components, reducing bias.
   method = "REML",               
   control = list(
-  # Use the nlminb optimizer to handle complex random-effects models.
-    optimizer = "nlminb",     
-  # Set maximum number of iterations for the optimizer to ensure convergence.
-    iter.max = 5000,       
-  # Set relative tolerance to ensure convergence with sufficient precision.
-    rel.tol = 1e-5                
+    # Optimizer to be used for fitting the model; changed to 'optim' with BFGS that can better handle complex models.
+    optimizer = "optim",  
+    # Use the BFGS optimization method for more efficient convergence.
+    optim.method = "BFGS",       
+    # Set maximum number of iterations for the optimizer to ensure convergence.
+    iter.max = 1000,              
+    # Set relative tolerance to ensure convergence with sufficient precision.
+    rel.tol = 1e-12              
   ),
-  # Enable progress information and convergence diagnostics during model fitting.
+  # Enable verbose output for progress information and convergence diagnostics.
   verbose = TRUE                
 )
 
@@ -2445,7 +2749,7 @@ rownames(moderator_results) <- NULL
 ##############################################################
 # Save the results to a CSV file
 readr::write_csv(moderator_results, 
-                 here::here("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temp_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/moderator_results_3.csv"))
+                 here::here("C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temp_SAF_meta_analysis/DATA/META_ANALYSIS/FROM_R/moderator_results_database_v3.csv"))
 
 ##############################################################
 
@@ -2467,20 +2771,11 @@ print(time.taken)
 
 # NOTES
 
-# In this code, we first create a formula for the moderators by concatenating the list of variables into a single formula. This formula is passed into the mods
-# argument in the rma.mv() function to include the moderators in the meta-analysis model. The model itself is fitted using the rma.mv() function from the metafor
-# package. It estimates the effect sizes for each moderator while accounting for random effects at the article level and the response variable level.
- 
-# The model uses Restricted Maximum Likelihood (REML) to estimate the variance components, as REML is effective at reducing bias when estimating random effects.
-# To ensure convergence, the optimizer is set to nlminb, with a maximum iteration count of 5000 and a relative tolerance of 1e-5, which balances precision and
-# computational feasibility. The progress and diagnostics of the model fitting process are also displayed, as verbose = TRUE.
+# In this code, we first create a formula for the moderators by concatenating the list of moderator variables into a single formula. This formula is passed into the mods argument in the rma.mv() function, allowing the inclusion of moderators in the meta-analysis model. The model itself is fitted using the rma.mv() function from the metafor package, which estimates the effect sizes for each moderator while accounting for random effects at the article level and response variable level.
 
-# After fitting the model, we extract key results such as the coefficients (effect sizes), standard errors, confidence intervals, and p-values for each moderator.
-# These results are stored in a data frame, and the moderator names are added for clarity. The results are then saved to a CSV file for further review and 
-# analysis.
+# The model employs Restricted Maximum Likelihood (REML) for estimating variance components. REML is known for reducing bias in random effect estimates, especially in smaller sample sizes or when the random effects structure is complex. By focusing on estimating the random effects first, REML ensures that variance components are accurately reflected, providing more reliable and less biased results.
 
-# Finally, the model results are printed to the console for immediate inspection, and the total time taken to fit the model is calculated and recorded. This
-# process allows for a comprehensive assessment of how each moderator affects the outcome, contributing valuable insights into the meta-analysis.
+# The optimizer has been set to "optim" with the BFGS method. BFGS is well-suited for handling complex, non-linear optimization problems like those encountered in meta-analysis models with multiple levels of random effects. The optimizer is configured with a maximum iteration count of 1000 and a relative tolerance of 1e-12, providing stricter convergence criteria while ensuring computational efficiency.
 
 ##############################################################
 # Last go: (08/09-24)
@@ -2498,6 +2793,7 @@ print(time.taken)
 
 # Sometimes I get this error message "Fejl: uventet numerisk konstant in "Iteration 48"" - as well as the other warnings above
 ```
+
 ########################################################
 DIAGNOSIS OF THE MODERATOR ANALYSIS
 ########################################################
@@ -2510,13 +2806,62 @@ summary(moderator_model)
 ```{r}
 # ANOVA to test the influence of each moderator on the effect size
 anova(moderator_model)
-
 ```
+
+INTERPRETATION OF MODERATOR ANALYSIS
+
+*Tree-Crop Combination:*
+The tree-crop combinations represent different agroforestry systems where specific tree species are combined with either cereal or legume crops. 
+
+Apple-Legume:
+- Estimate: 0.1411, not statistically significant (p = 0.6257).
+
+Maple-Cereal:
+Estimate: 0.1061, not statistically significant (p = 0.5792).
+
+Maple-Legume:
+Estimate: 0.1871, not statistically significant (p = 0.3554).
+
+Mixed-Cereal:
+Estimate: 0.0492, not statistically significant (p = 0.7314).
+
+Mixed-Legume:
+Estimate: 0.0535, not statistically significant (p = 0.7089).
+
+Paulownia-Cereal:
+Estimate: -0.2062, not statistically significant (p = 0.5704). This negative estimate suggests a potential decrease in effect size, but it is not statistically significant.
+
+Poplar-Cereal:
+Estimate: 0.0163, not statistically significant (p = 0.9094).
+
+Poplar-Legume:
+Estimate: 0.0543, not statistically significant (p = 0.7049).
+
+Hence, none of the tree-crop combinations show a statistically significant effect on the overall effect size in this analysis, as their confidence intervals all cross zero and p-values are well above 0.05. However, there might be significant variations within each response variable (ecosystem services). This is assessed below.
+
+
+*Test of Moderators (ANOVA)*
+The ANOVA result shows the overall test for the significance of all moderator variables: QM(df = 20) = 216.3594, p-val < .0001
+This test indicates that the set of moderator variables, as a whole, is statistically significant. The low p-value (<0.0001) suggests that the moderators, collectively, explain a significant portion of the variance in the effect sizes. While individual moderators might not be significant on their own, the model as a whole benefits from the inclusion of moderators, improving the fit.
+
+
+
+
+################################################################################################################
+VISUALISING OVERALL EFFECT-SIZE MEASURES AS EFFECT OF DIFFERENT MODERATORS
+########################################################
+
+This is visualized and assessed by pooling all response variables and showing the general effect-size measure, hence not accounting for the potential variations in effect-size measures for the different response variables separately. 
+
+Overall Forest Plot 
+With all response variables to see effect of SAF against mono
+
+
 ```{r}
 # Forest plot to visualize the effect sizes for each study
 forest(moderator_model, slab = paste(id_article, response_variable, sep = ", "), cex = 0.6)
-
 ```
+
 ```{r}
 # Function to create a bubble plot for a given moderator with additional plot information
 bubble_plot <- function(data, moderator, title_info) {
@@ -2545,8 +2890,8 @@ bubble_plot <- function(data, moderator, title_info) {
 
 # Example bubble plot for the "Alley_width" moderator with title
 bubble_plot(filtered_meta_data_ROM, "alley_width", "Alley Width")
-
 ```
+
 ```{r}
 # Interaction plot between "tree_crop_combination_t" and another moderator
 interaction_plot <- function(data, moderator1, moderator2) {
@@ -2566,8 +2911,8 @@ interaction_plot <- function(data, moderator1, moderator2) {
 
 # Example interaction plot for "tree_crop_combination_t" and "alley_width"
 interaction_plot(filtered_meta_data_ROM, "tree_crop_combination_t", "alley_width")
-
 ```
+
 ```{r}
 # Box plot for the categorical moderator "tree_crop_combination_t"
 box_plot_categorical <- function(data, moderator) {
@@ -2585,14 +2930,263 @@ box_plot_categorical <- function(data, moderator) {
 
 # Example box plot for "tree_crop_combination_t"
 box_plot_categorical(filtered_meta_data_ROM, "tree_crop_combination_t")
-
 ```
-
 
 
 
 #############
 # STEP 6
+##########################################################################################################################################
+VISAUALISING (E.G. FOREST PLOT) EFFECT-SIZE MEASURES WITHIN THE DIFFERENT COMBINATIONS OF TREE-CROP
+##########################################################################################################################################
+
+
+A)
+2nd Forrest Plot
+Within the SAF there is different combination of tree-crop: Compare different tree-crop combinations on different ES
+
+First, creating a systematic dataset where moderators are pooled and the forest plot only distinguish for response variables (ecosystem services)
+
+```{r}
+# Function to create a systematic dataset by pooling moderators and aggregating by response variables
+create_systematic_dataset_pooled <- function(systematic_data, effect_size_col, variance_col, response_variable_col) {
+  
+  # Ensure necessary columns are present in the dataset
+  if (!effect_size_col %in% colnames(systematic_data) | 
+      !variance_col %in% colnames(systematic_data) | 
+      !response_variable_col %in% colnames(systematic_data)) {
+    stop("Necessary columns (effect size, variance, response variable) are missing from the dataset")
+  }
+  
+  # Group data by response variable (ecosystem services) and summarize the effect sizes and variances
+  pooled_data <- systematic_data %>%
+    group_by(.data[[response_variable_col]]) %>%
+    summarise(
+      mean_effect_size = mean(.data[[effect_size_col]], na.rm = TRUE),    # Average effect size for each response variable
+      total_variance = mean(.data[[variance_col]], na.rm = TRUE)          # Average variance for each response variable
+    ) %>%
+    ungroup()
+  
+  return(pooled_data)
+}
+
+systematic_dataset_pooled <- create_systematic_dataset_pooled(filtered_meta_data_ROM, "yi", "vi", "response_variable")
+```
+
+
+```{r}
+# Create a forest plot for each response variable in the pooled dataset
+forest(systematic_dataset_pooled$mean_effect_size, 
+       vi = systematic_dataset_pooled$total_variance,
+       slab = systematic_dataset_pooled$response_variable,  # Label each row with response variable names
+       xlab = "Effect Size", 
+       main = "Forest Plot of Pooled Effect Sizes Across Ecosystem Services",
+       cex = 0.8)  # Text size adjustment
+```
+
+
+
+
+
+Making a generic systematic dataset to visualize effect-sizes for different moderators and response variables (ecosystem services) 
+
+```{r}
+# Function to generate a systematic dataset for any moderator and response variable (ecosystem service)
+create_systematic_dataset <- function(data, moderator, response_var) {
+  
+  # Ensure the moderator and response variable are present in the data
+  if (!moderator %in% colnames(data) | !response_var %in% colnames(data)) {
+    stop("Moderator or response variable not found in the dataset")
+  }
+  
+  # Create a dataset grouped by the moderator and response variable
+  systematic_dataset <- data %>%
+    select(id_article, response_variable = !!sym(response_var), yi, vi, moderator = !!sym(moderator)) %>%  # Dynamically select columns
+    filter(!is.na(moderator), !is.na(response_variable)) %>%  # Remove rows with missing values
+    group_by(moderator, response_variable) %>%  # Group by the moderator and response variable
+    summarise(
+      mean_effect_size = mean(yi, na.rm = TRUE),   # Calculate the mean effect size
+      total_variance = sum(vi, na.rm = TRUE),      # Calculate the total variance
+      n_studies = n()                              # Count the number of studies per group
+    ) %>%
+    ungroup()  # Ungroup the dataset
+  
+  return(systematic_dataset)
+}
+```
+
+```{r}
+# Tree-crop combination
+systematic_dataset_tree_crop <- create_systematic_dataset(filtered_meta_data_ROM, "tree_crop_combination_t", "response_variable")
+
+systematic_dataset_tree_crop 
+```
+
+```{r}
+# Season
+systematic_dataset_season <- create_systematic_dataset(filtered_meta_data_ROM, "season", "response_variable")
+
+systematic_dataset_season
+```
+
+```{r}
+# Tillage
+systematic_dataset_tillage <- create_systematic_dataset(filtered_meta_data_ROM, "tillage", "response_variable")
+
+systematic_dataset_tillage
+```
+
+```{r}
+# Organic vs conventional
+systematic_dataset_organic <- create_systematic_dataset(filtered_meta_data_ROM, "organic", "response_variable")
+
+systematic_dataset_organic
+```
+
+
+
+
+```{r}
+# Function to create forest plots for different moderator groups
+create_forest_plots_individual_es <- function(systematic_data, moderator) {
+  
+  # Ensure that the moderator column is present in the data
+  if (!moderator %in% colnames(systematic_data)) {
+    stop("Moderator not found in the dataset")
+  }
+  
+  # Loop through each unique moderator value and create a forest plot
+  unique_moderators <- unique(systematic_data[[moderator]])
+  
+  for (mod_value in unique_moderators) {
+    
+    # Subset the data for the current moderator value
+    subset_data <- systematic_data[systematic_data[[moderator]] == mod_value, ]
+    
+    # Create the forest plot using the metafor package
+    forest_plot <- forest(subset_data$mean_effect_size, 
+                          subset_data$total_variance, 
+                          slab = paste(subset_data$response_variable, sep = ", "), 
+                          xlab = "Effect Size", 
+                          main = paste("Forest Plot for", moderator, "=", mod_value),
+                          cex = 0.7)  # Adjust text size
+    
+    print(forest_plot)  # Print the plot for each moderator value
+  }
+}
+```
+
+```{r}
+# Tree-crop on each response variable (ecosystem service)
+create_forest_plots_individual_es(systematic_dataset_tree_crop, "moderator")
+```
+```{r}
+# Season on each response variable (ecosystem service)
+create_forest_plots_individual_es(systematic_dataset_season, "moderator")
+```
+
+```{r}
+# Tollage on each response variable (ecosystem service)
+create_forest_plots_individual_es(systematic_dataset_tillage, "moderator")
+```
+```{r}
+# Organic vs. conventional on each response variable (ecosystem service)
+create_forest_plots_individual_es(systematic_dataset_organic, "moderator")
+```
+
+```{r}
+ggplot(systematic_dataset_pooled, aes(x = response_variable, y = mean_effect_size)) +
+  geom_bar(stat = "identity", fill = "skyblue", color = "black") +
+  geom_errorbar(aes(ymin = mean_effect_size - sqrt(total_variance), 
+                    ymax = mean_effect_size + sqrt(total_variance)), 
+                width = 0.2) +
+  labs(
+    title = "Bar Plot of Pooled Effect Sizes with Variance Across Ecosystem Services",
+    x = "Ecosystem Services (Response Variables)",
+    y = "Mean Effect Size"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Rotate x-axis labels
+```
+
+
+
+
+
+
+
+#############
+# STEP 7
+##########################################################################################################################################
+TEST AND VISAUALISE THE ORIGINAL MODEL AGAINST MORE ADVANCED A MODELS WHERE SITE LOCATION, EXPERIEMENTAL YEAR AND THE INTERACTION IS INCLUDED
+##########################################################################################################################################
+
+
+B)
+
+Test original model against a model where we include site location and experimental year and a model with interaction (site location * experimental year )
+
+Evaluate on BIC AIC (select the lowest one)
+
+mod_1 against mod_2 and mod_3
+
+
+#############
+# STEP 8
+##########################################################################################################################################
+TESTING THE MODERATOR' EFFECTS ON THE RESPONSE VARIABLES (ECOSYSTEM SERVICES)
+##########################################################################################################################################
+
+
+C)
+
+Moderator with aggregated/pooled 
+
+Testing for the moderator effect on response variable
+
+
+#############
+# STEP 9
+##########################################################################################################################################
+MAP THE STUDY SITES AND EXPERIMENTAL INVESTIGATIONS GEOGRAPHICALLY
+##########################################################################################################################################
+
+D) Map study sites
+
+Number of studies
+Some information on the agro-ES studied in the different places!!
+With number of exp. fields or effect size
+
+
+
+Tree-crop combinations? Now we have many. We should reduce. Make numbered categories. And change the name of the general things. 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#############
+# STEP 10
 ##########################################################################################################################################
 SENSITIVITY ANALYSIS ON DATA (E.G.: MISSING OUTCOME DATA)
 ##########################################################################################################################################
@@ -2604,7 +3198,7 @@ CHOOSING RESPONSE VARIABLES AND PERFORM
 
 
 #############
-# STEP 5
+# STEP 11
 ##########################################################################################################################################
 ASSESS THE META-ANALYSIS RESULTS
 ##########################################################################################################################################
@@ -2613,7 +3207,7 @@ ASSESS THE META-ANALYSIS RESULTS
 
 
 #############
-# STEP 6
+# STEP 12
 ##########################################################################################################################################
 VISUALISE THE META-ANALYSIS RESULTS
 ##########################################################################################################################################
