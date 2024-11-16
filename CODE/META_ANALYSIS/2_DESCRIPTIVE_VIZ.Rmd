@@ -1,0 +1,229 @@
+---
+title: "2_DESCRIPTIVE_VIZ"
+author: "M.K.K. Lindhardt"
+date: "2024-11-16"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+#############
+# STEP 0
+##########################################################################################################################################
+PREPARING SCRIPT AND READ IN THE DATA
+##########################################################################################################################################
+
+```{r}
+# Clean workspace
+rm(list = ls())
+```
+
+
+## Loading required packages and libraries
+
+```{r Loading other needed packages, warning=FALSE}
+# Suppress warnings to avoid clutter in the console output
+suppressWarnings({
+
+  # Load multiple add-on packages using pacman::p_load for efficiency
+  pacman::p_load(
+    # Data Manipulation / Transformation
+    tidyverse,        # Comprehensive collection of R packages for data science
+    readr,            # Read and write csv 
+    ###################################################################################################################
+    # Data Visualization
+    ggplot2,          # Data visualization package (part of tidyverse)
+    patchwork,        # ggplot2 API for sequentially building up a plot
+    ###################################################################################################################
+    # Spatial Data
+    raster,           # For spatial data analysis, especially BioClim variables from WorldClim
+    sp,               # For spatial data classes and methods
+    sf,               # For simple features in R, handling vector data
+    rnaturalearth,    # For world map data
+    rnaturalearthdata, 
+    ###################################################################################################################
+    # Project Management and Code Styling
+    here,             # Easy file referencing using the top-level directory of a file project
+    styler            # For code formatting and styling
+  )
+  
+  # If encountering issues with raster::getData(), consider using geodata::worldclim_global() from the geodata package
+})
+
+###################################################################################################################
+# Set preferences for conflicting functions
+conflict_prefer("filter", "dplyr")
+conflict_prefer("select", "dplyr")
+conflict_prefer("group_by", "dplyr") 
+conflict_prefer("summarise", "dplyr")
+conflict_prefer("mutate", "dplyr")
+conflict_prefer("arrange", "dplyr")
+conflict_prefer("locale", "readr")
+```
+
+
+Loading the two datasets (imputed and non-imputed)
+
+```{r Loading database, warning=FALSE, message=FALSE}
+# Set the working directory automatically using 'here'
+setwd(here::here())
+
+# Suppress warnings to avoid clutter in the console output
+suppressWarnings({
+
+# Define file paths
+non_imp_file <- here::here("DATA", "META_ANALYSIS", "FROM_R", "non_imp_dataset.csv")
+imp_file <- here::here("DATA", "META_ANALYSIS", "FROM_R", "imp_dataset.csv")
+
+# Read in the non-imputed dataset
+non_imp_dataset <- read_csv(non_imp_file) %>%
+  as.data.frame()
+
+# Read in the imputed dataset
+imp_dataset <- read_csv(imp_file) %>%
+  as.data.frame()
+})
+```
+
+
+
+
+
+
+
+
+
+
+
+#############
+# STEP 1
+##########################################################################################################################################
+SPATIAL DISTRIBUTION 
+##########################################################################################################################################
+
+```{r}
+# Step 1: Filter distinct studies based on coordinates
+distinct_studies <- database_clean |> 
+  filter(!is.na(final_lat) & !is.na(final_lon)) |> 
+  distinct(id_article, .keep_all = TRUE)
+
+# Step 2: Convert the data to an 'sf' object
+study_points_sf <- st_as_sf(
+  distinct_studies,
+  coords = c("final_lon", "final_lat"),
+  crs = 4326,    # Coordinate Reference System (WGS84)
+  remove = FALSE # Keep the original longitude and latitude columns
+)
+
+# Step 3: Get the world map data using 'rnaturalearth'
+world_map <- ne_countries(scale = "medium", returnclass = "sf")
+
+# Step 4: Create the map using 'ggplot2'
+map_plot <- ggplot(data = world_map) +
+  geom_sf() +  # Plot the world map
+  geom_sf(data = study_points_sf, aes(color = response_variable), size = 3, alpha = 0.7) +
+  scale_color_viridis_d(option = "C") +  # Use a color palette for points
+  theme_minimal() +
+  labs(
+    title = "Geographical Distribution of Distinct Studies",
+    x = "Longitude",
+    y = "Latitude",
+    color = "Study Location"
+  ) +
+  theme(
+    legend.position = "top"
+  )
+
+# Step 5: Display the map
+print(map_plot)
+```
+
+
+
+#############
+# STEP 1
+##########################################################################################################################################
+TEMPORAL DISTRIBUTION
+##########################################################################################################################################
+
+
+Step 2: Distribution of Studies Over Time
+
+```{r}
+# Histogram for the distribution of entries over time (assuming study_year_start represents 'Year')
+database_clean_eda |> 
+  ggplot(aes(x = as.Date(study_year_start))) +
+  geom_histogram(binwidth = 1, fill = "skyblue", color = "black") +
+  labs(title = "Distribution of Entries Over Time", x = "Year", y = "Number of Entries") +
+  theme_minimal()
+```
+
+```{r}
+# Histogram for the distribution of unique studies over time
+database_clean_eda |> 
+  distinct(id_article, study_year_start) |> 
+ggplot(aes(x = as.Date(study_year_start))) +
+  geom_histogram(binwidth = 1, fill = "lightgreen", color = "black") +
+  labs(title = "Distribution of Unique Studies Over Time", x = "Year", y = "Number of Studies") +
+  theme_minimal()
+```
+
+Step 3: Distribution of Studies Across Moderators
+
+```{r}
+# Bar plot for tree-crop combinations
+database_clean_eda |> 
+  ggplot(aes(x = tree_crop_combination)) +
+  geom_bar(fill = "cornflowerblue") +
+  labs(title = "Distribution of Entries Across Tree-Crop Combinations", x = "Tree-Crop Combination", y = "Number of Entries") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+```{r}
+# Bar plot for season
+database_clean_eda |>
+  ggplot(aes(x = season)) +
+  geom_bar(fill = "darkorange") +
+  labs(title = "Distribution of Entries Across Seasons", x = "Season", y = "Number of Entries") +
+  theme_minimal()
+
+```
+
+```{r}
+# Bar plot for alley width category
+```
+
+Step 4: Effect Size Distribution
+
+
+
+Step 5: Explore Moderators and Levels
+
+```{r}
+# Faceted bar plots for different moderators
+database_clean_eda |> 
+  ggplot(aes(x = response_variable)) +
+  geom_bar(aes(fill = season)) +
+  facet_wrap(~ tree_crop_combination) +
+  labs(title = "Number of Entries by Response Variable and Season", x = "Response Variable", y = "Number of Entries") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+Step 6: Distribution in Space (Using generated Categorized Location Column)
+
+```{r}
+# Bar plot for the number of studies per location
+database_clean_eda |> 
+  ggplot(aes(x = Continent)) +
+  geom_bar(fill = "steelblue") +
+  labs(title = "Number of Studies Per Continent", x = "Continent", y = "Number of Studies") +
+  theme_minimal()
+```
+

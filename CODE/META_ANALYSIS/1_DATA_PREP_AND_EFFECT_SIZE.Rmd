@@ -1,0 +1,1323 @@
+---
+title: "1_DATA_PREP"
+author: "M.K.K. Lindhardt"
+date: "2024-11-14"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+################################################################################
+Sources for developing approaches in meta-analysis: 
+
+https://wviechtb.github.io/metafor/reference/rma.mv.html 
+https://www.taylorfrancis.com/chapters/edit/10.1201/9780429061240-8/multivariate-meta-analysis-ding-geng-din-chen-karl-peace 
+https://training.cochrane.org/handbook/current/chapter-06 
+https://training.cochrane.org/handbook/current/chapter-10
+
+
+It is not uncommon for studies to have multiple outcome measures which lead to statistical multivariate analysis. The results of studies with multiple outcomes and/or endpoints are typically synthesized via conventional univariate meta-analysis (UMA) on each outcome separately, ignoring the correlations between the outcomes. The impact of ignoring the within-study correlation has been explored extensively in the statistical literature, with issues including overestimated variance of the pooled eﬀect size and biased estimates, which in turn may inﬂuence statistical inferences. In this case, multivariate meta-analysis should be used to synthesize multiple outcomes while taking into account their correlations, often resulting in superior parameter estimation. With study-level moderators or predictors, multivariate meta-regression can also be developed in parallel with multivariate regression techniques.
+
+Meta-Analysis with R Package metafor. Rearrange the Data Format. In order to use the metafor package for multivariate meta-analysis, meta-data
+should be rearranged accordingly. With this rearranged data format, we then construct a list of the variance-covariance matrices of the observed outcomes for the ﬁve studies to create a block diagonal matrix, V, for metafor.
+With the rearranged data and variance-covariance matrix, V, we now ﬁt the ﬁxed-eﬀects meta-analysis model using metafor with the option of
+method="FE". To ﬁt the random-eﬀects multivariate meta-analysis model using the metafor package, we simply change the option to method="REML". We note that this reproduces the results, with this random-effects model, we can also test the difference between
+
+#####################################################
+
+Response Variables are measured on a continuous scale, where each individual outcome is a measurement of a numerical quantity
+Chosen Effect Size:  
+
+Formulae to estimate effects (and their standard errors)?
+
+#####################################################
+Step-by-Step Plan for  Meta-Analysis
+
+1) DATA PREP
+Data Cleaning and Transformation
+Standardize Location Information
+Create Identifiers
+Classify Locations by Continent
+Standardize Measures of Variation
+Convert SE to SD --------------------- (save this dataset)
+Impute Missing Values
+Use imputation for silvo_se, control_se, silvo_n, and control_n
+Convert SE to SD in imputed dataset -- (save this dataset)
+Calculate Effect Sizes (ROM) - on non-imputed data
+Calculate Effect Sizes (ROM) - on imputed data
+
+Compare imputed and non-imputed data (mean, SD, median, density plots, boxplots, t-tests, Kolmogorov-Smirnov test, etc.)
+
+2) RMA.MV MODELLING
+Multivariate/Multilevel Linear (Mixed-Effects) Model with between-study, within-study, and exp_id as random effects
+rma.mv on non-imputed dataset
+rma.mv on imputed dataset 
+
+Compare the results side by side of imputed and non-imputed (effect sizes, conf intervals, heterogeneity stats)
+
+3) SENSITIVITY AND DIAGNOSTICS
+Sensitivity analysis
+Leave-one-out
+Trim-and-fill analysis
+
+4) MODERATOR analysis
+Splitting dataset into sub-sets for each moderator 
+Moderator analysis on both imputed and non-imputed data
+Might be useful to conduct a meta-regression to formally test for differences in moderator effects between the two datasets.
+
+5) VISUALISATIONS
+
+#############
+# STEP 0
+##########################################################################################################################################
+PREPARING SCRIPT AND READ IN THE DATA
+##########################################################################################################################################
+
+```{r}
+# Clean workspace
+rm(list = ls())
+```
+
+
+## Loading required packages and libraries
+
+```{r Loading other needed packages, warning=FALSE}
+# Suppress warnings to avoid clutter in the console output
+suppressWarnings({
+
+  # Load multiple add-on packages using pacman::p_load for efficiency
+  pacman::p_load(
+    # Data Manipulation / Transformation
+    tidyverse,        # Comprehensive collection of R packages for data science
+    readr,            # Read and write csv 
+    dlookr,           # Diagnose, explore, and transform data with dlookr
+    skimr,            # Provides easy summary statistics about variables in data frames, tibbles, data tables and vectors
+    janitor,          # For cleaning and renaming data columns
+    readxl,           # To read Excel files
+    vroom,            # Fast reading of large datasets from local disk
+    missForest,       # Random Forest method for imputing missing data
+    mice,             # For dealing with missing data by creating multiple imputations for multivariate missing data
+    missRanger,       # Fast missing value imputation by chained random forest
+    conflicted,       # An alternative conflict resolution strategy
+    future,           # Parallel processing
+    future.apply,     # Parallel processing
+    ###################################################################################################################
+    # Data Visualization
+    ggplot2,          # Data visualization package (part of tidyverse)
+    patchwork,        # ggplot2 API for sequentially building up a plot
+    ###################################################################################################################
+    # Spatial Data
+    raster,           # For spatial data analysis, especially BioClim variables from WorldClim
+    sp,               # For spatial data classes and methods
+    sf,               # For simple features in R, handling vector data
+    rnaturalearth,    # For world map data
+    rnaturalearthdata, 
+    ###################################################################################################################
+    # Meta-Analysis
+    metafor,          # For conducting meta-analysis, effect sizes, and response ratios
+    clubSandwich,     # Cluster-robust variance estimators for ordinary and weighted least squares linear regression models
+    ###################################################################################################################
+    # Exploratory Data Analysis (EDA)
+    DataExplorer,     # For exploratory data analysis
+    SmartEDA,         # For smart exploratory data analysis
+    ###################################################################################################################
+    # Project Management and Code Styling
+    here,             # Easy file referencing using the top-level directory of a file project
+    styler            # For code formatting and styling
+  )
+  
+  # If encountering issues with raster::getData(), consider using geodata::worldclim_global() from the geodata package
+})
+
+###################################################################################################################
+# Set preferences for conflicting functions
+conflict_prefer("filter", "dplyr")
+conflict_prefer("select", "dplyr")
+conflict_prefer("group_by", "dplyr") 
+conflict_prefer("summarise", "dplyr")
+conflict_prefer("mutate", "dplyr")
+conflict_prefer("arrange", "dplyr")
+conflict_prefer("locale", "readr")
+conflict_prefer("extract", "raster")
+```
+
+
+Loading the dataset (main metadata database)
+
+```{r Loading database, warning=FALSE, message=FALSE}
+# Set the working directory automatically using 'here'
+setwd(here::here())
+
+# Suppress warnings to avoid clutter in the console output
+suppressWarnings({
+  # Final database as 'meta-data'
+  # Manually modifying the SD columns to "control_sd" and "silvo_sd" in Excel!
+  database <- readxl::read_excel(
+    here("DATA", "META_ANALYSIS", "Meta_data_v2.xlsx"), 
+    sheet = "Quantatitive data"
+  )
+})
+```
+
+**Glimpse (taking a look at the data)**
+```{r Glimpse the dataset, eval=FALSE}
+database %>% dplyr::glimpse() 
+```
+
+```{r}
+database %>% summary() 
+```
+
+```{r}
+database |> skim()
+```
+
+
+#############
+# STEP 1
+##########################################################################################################################################
+DATA PREPROCESSING
+##########################################################################################################################################
+
+####################################
+GENERIC PREPROCESSING
+####################################
+
+Manually modifying the SD columns to "control_sd" and "silvo_sd" in Excel!
+
+```{r}
+# Function to safely convert to numeric, replacing non-numeric values with NA
+safe_as_numeric <- function(x) {
+  suppressWarnings(as.numeric(x))
+}
+
+# Data Preprocessing
+database_clean <- database |>
+  # Step 1: Clean column names
+  janitor::clean_names() |>
+  
+  # Step 2: Convert id_article and id_obs to integer
+  mutate(
+    id_article = as.integer(id_article),
+    id_obs = as.integer(id_obs)
+  ) |>
+  
+  # Step 3: Convert standard errors and other numeric columns
+  mutate(
+    silvo_mean = safe_as_numeric(silvo_mean),
+    silvo_se = safe_as_numeric(silvo_se),
+    silvo_sd = safe_as_numeric(silvo_sd),
+    silvo_n = safe_as_numeric(silvo_n),
+    control_mean = safe_as_numeric(control_mean),
+    control_se = safe_as_numeric(control_se),
+    control_sd = safe_as_numeric(control_sd),
+    control_n = safe_as_numeric(control_n),
+    tree_age = safe_as_numeric(tree_age),
+    no_tree_per_m = safe_as_numeric(no_tree_per_m)
+  ) |>
+  
+  # Step 4: Create Identifiers (Experiment, Treatment, Common Control)
+  # Group data by relevant columns for Treatment ID
+  group_by(id_article, tree_type, crop_type, location, experiment_year) |>
+  mutate(treat_id = cur_group_id()) |>
+  ungroup() |>
+  
+  # Group data by relevant columns for Experiment ID
+  group_by(id_article, location, experiment_year) |>
+  mutate(exp_id = cur_group_id()) |>
+  ungroup() |> 
+  
+  # Step 5: Ensure no infinite or NaN values are present in any columns
+  mutate(across(everything(), ~ifelse(is.infinite(.) | is.nan(.), NA, .))
+         ) |> 
+  
+  # Step 6: Convert "NA" strings to real NA values, excluding 'id_article' and 'id_obs'
+  mutate(
+    across(
+      .cols = where(is.character) & !c("id_article", "id_obs"),
+      .fns = ~ na_if(., "NA")
+    )
+  ) |>
+  
+  # Step 7: Convert year columns to date format
+ # Convert to proper Date format using "YYYY-01-01"
+ mutate(
+    experiment_year = as.Date(paste0(experiment_year, "-01-01")),
+    year_est_exp = as.Date(paste0(year_est_exp, "-01-01")),
+    study_year_start = as.Date(paste0(study_year_start, "-01-01")),
+    study_year_end = as.Date(paste0(study_year_end, "-01-01"))
+  ) |> 
+  # Step 8: Rename Latitude and Longitude to lat and lon
+  rename(
+    lat = latitude,
+    lon = longitude
+  ) |>
+  
+  # Step 9: Convert lat and lon to numeric coordinates
+  mutate(
+    lat = str_replace_all(lat, "[°NS]", "") |> safe_as_numeric(),
+    lon = str_replace_all(lon, "[°EW]", "") |> safe_as_numeric(),
+    lat = if_else(str_detect(lat, "S$"), -lat, lat),
+    lon = if_else(str_detect(lon, "W$"), -lon, lon)
+  ) |>
+  
+  # Step 10: Create a Coherent 'site_x' Column
+  mutate(
+    # If `lat` and `lon` are present, use them; otherwise, use the `location` name
+    site_x = case_when(
+      !is.na(lat) & !is.na(lon) ~ paste(lat, lon, sep = ", "),
+      !is.na(location) ~ location,
+      TRUE ~ NA_character_
+    )
+  ) 
+```
+
+####################################
+GEOSPATIAL PREPROCESSING
+####################################
+
+Manually changing 'South East England(Cambridgeshire)' to 'Cambridgeshire, England' and 'Bramham in northern England' to 'Bramham, England'
+```{r}
+# Step 1: Extract Coordinates from `site_x` if available
+database_clean <- database_clean |>
+  mutate(
+    # Extract latitude and longitude from `site_x` if it contains coordinates
+    extracted_lat = str_extract(site_x, "[-]?\\d+\\.\\d+(?=, )") |> as.numeric(),
+    extracted_lon = str_extract(site_x, "(?<=, )[-]?\\d+\\.\\d+") |> as.numeric()
+  )
+
+# Step 2: Identify rows that need geocoding (i.e., where coordinates are missing)
+locations_to_geocode <- database_clean |>
+  filter(is.na(extracted_lat) | is.na(extracted_lon)) |>
+  distinct(location) |>
+  filter(!is.na(location))
+
+# Step 3: Geocode Location Names
+geocoded_locations <- locations_to_geocode |>
+  geocode(address = location, method = "osm", lat = "geo_lat", long = "geo_lon")
+
+# Step 4: Merge Geocoded Coordinates Back to the Dataset
+database_clean <- database_clean |>
+  left_join(geocoded_locations, by = "location") |>
+  mutate(
+    # Use extracted coordinates if available, otherwise use geocoded coordinates
+    final_lat = coalesce(extracted_lat, geo_lat),
+    final_lon = coalesce(extracted_lon, geo_lon),
+    # Create the `exp_site_loc` column with final coordinates
+    exp_site_loc = if_else(!is.na(final_lat) & !is.na(final_lon),
+                           paste(final_lat, final_lon, sep = ", "),
+                           NA_character_)
+  ) |>
+  select(-extracted_lat, -extracted_lon, -geo_lat, -geo_lon)|> 
+  
+  
+  
+  # Step 5: Relocate columns to the desired order
+  relocate(
+    # Overall ID info
+    id_article, id_obs, treat_id, exp_id,
+    # Response variable info
+    response_variable, sub_response_variable,
+    # Geographic and temporal info
+    location, final_lat, final_lon, exp_site_loc, experiment_year,
+    # Moderators info
+    tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width,
+    # Quantitative mata-analysis effect size info
+    silvo_mean, silvo_se, silvo_sd, silvo_n, control_mean, control_se, control_sd, control_n
+  )
+
+# Passing 23 addresses to the Nominatim single address geocoder
+# Query completed in: 23.4 seconds
+```
+
+Checking if any missing values in coordinates
+
+```{r}
+# Filter rows where either final_lat or final_lon is missing
+missing_coordinates <- database_clean |>
+  filter(is.na(final_lat) | is.na(final_lon))
+
+# View the rows with missing coordinates
+missing_coordinates
+
+# No missing coordinates
+# 0 rows | 1-10 of 39 columns
+```
+
+
+Add geographical sub-regions to the dataset
+
+```{r}
+# Load Köppen-Geiger Climate Data (as a raster file)
+kg_climate <- raster(here("DATA", "META_ANALYSIS", "koppen_geiger_tif", "1991_2020", "koppen_geiger_0p1.tif"))
+
+
+# Preserve final_lat and final_lon before conversion
+database_clean <- database_clean |> 
+  mutate(
+    preserved_lat = final_lat,
+    preserved_lon = final_lon
+  )
+
+# Convert your dataset to an sf object using preserved lat/lon columns
+database_clean_sf <- database_clean |>
+  drop_na(preserved_lat, preserved_lon) |>
+  st_as_sf(coords = c("preserved_lon", "preserved_lat"), crs = 4326)
+
+# Extract climate zone for each observation using spatial overlay
+# Beck, H.E., T.R. McVicar, N. Vergopolan, A. Berg, N.J. Lutsko, A. Dufour, Z. Zeng, X. Jiang, A.I.J.M. van Dijk, D.G. MirallesHigh-resolution (1 km) Köppen-Geiger maps for 1901–2099 based on constrained CMIP6 projectionsScientific Data 10, 724, doi:10.1038/s41597-023–02549‑6 (2023)
+# The variable 'climate_zone' represents the climate classification code assigned to each data point based on its geographical coordinates (latitude and longitude) from the Köppen-Geiger map. The climate_zone information was extracted using a spatial overlay.
+database_clean_sf <- database_clean_sf |>
+  mutate(
+    climate_zone = extract(kg_climate, st_coordinates(database_clean_sf))
+  )
+
+# Classify sub-regions based on the climate zone
+database_clean_sf <- database_clean_sf |>
+  mutate(
+    sub_region = case_when(
+      climate_zone %in% c(11, 12) ~ "Atlantic Europe",
+      climate_zone %in% c(13, 14) ~ "Mediterranean Europe",
+      climate_zone %in% c(15, 16, 17) ~ "Continental Europe",
+      climate_zone %in% c(21, 22) ~ "Boreal Europe",
+      climate_zone %in% c(23, 24) ~ "North-East USA",
+      climate_zone %in% c(25, 26) ~ "Pacific Northwest USA",
+      climate_zone %in% c(27, 28) ~ "Midwest USA",
+      climate_zone %in% c(29, 30) ~ "Southern Canada",
+      climate_zone %in% c(5, 6, 7) ~ "Arid North America",
+      climate_zone %in% c(31, 32) ~ "Tropical South America",
+      climate_zone %in% c(33, 34) ~ "Subtropical South America",
+      climate_zone %in% c(35, 36, 37) ~ "Temperate Asia",
+      climate_zone %in% c(38, 39) ~ "Arid Australia",
+      climate_zone %in% c(40, 41) ~ "Subtropical Australia",
+      climate_zone %in% c(42, 43, 44) ~ "Continental Asia",
+      climate_zone %in% c(45, 46) ~ "Oceanic Asia",
+      climate_zone %in% c(47, 48) ~ "Boreal Asia",
+      climate_zone %in% c(49, 50) ~ "Polar Regions",
+      climate_zone %in% c(51, 52) ~ "Tundra",
+      climate_zone %in% c(53, 54) ~ "Desert",
+      climate_zone %in% c(55, 56) ~ "Steppe",
+      climate_zone %in% c(57, 58) ~ "Savanna",
+      climate_zone %in% c(59, 60) ~ "Rainforest",
+      TRUE ~ "Unclassified"
+    )
+  )
+```
+
+Checking for unclassified in sub_region
+
+```{r}
+unclassified_sub_region <- database_clean |>
+  filter(sub_region == "Unclassified") 
+
+# Count the number of unclassified rows
+n_unclassified <- nrow(unclassified_sub_region)
+print(paste("Number of unclassified rows:", n_unclassified))
+
+# [1] "Number of unclassified rows: 57"
+
+# Check the unique climate zones that are currently unclassified
+unclassified_climate_zones <- unclassified_sub_region |> 
+  distinct(climate_zone) |> 
+  arrange(climate_zone)
+
+unclassified_climate_zones
+
+# A tibble:2 × 1
+# climate_zone
+# <dbl>
+# 8				
+# NA	
+unclassified_sub_region |> 
+  distinct(location)
+```
+
+
+Correcting unclassified in sub_region
+
+```{r}
+# Manually update the sub-region for the specific locations
+database_clean_sf <- database_clean_sf |>
+  mutate(
+    sub_region = case_when(
+      location == "Vézénobres" ~ "Mediterranean Europe",
+      location == "Restinclières" ~ "Mediterranean Europe",
+      location == "Xinjiang" ~ "Continental Asia",
+      TRUE ~ sub_region
+    )
+  )
+```
+
+```{r}
+# Rename back to 'database_clean'
+
+# Relocate columns to the desired order
+database_clean <- database_clean_sf |>
+  relocate(
+    # Overall ID info
+    id_article, id_obs, treat_id, exp_id,
+    # Response variable info
+    response_variable, sub_response_variable,
+    # Geographic and temporal info
+    location, sub_region, final_lat, final_lon, exp_site_loc, experiment_year,
+    # Moderators info
+    tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width,
+    # Quantitative mata-analysis effect size info
+    silvo_mean, silvo_se, silvo_sd, silvo_n, control_mean, control_se, control_sd, control_n
+  )
+
+# Preview the resulting data
+database_clean |> 
+  glimpse()
+```
+
+
+```{r}
+# Create the bar chart
+database_clean |> 
+  ggplot(aes(x = sub_region)) +
+  geom_bar(fill = "skyblue", color = "black") +
+  theme_minimal() +
+  labs(
+    title = "Distribution of Observations by Sub-Region",
+    x = "Sub-Region",
+    y = "Count of Observations"
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    plot.title = element_text(size = 14, face = "bold"),
+    axis.title.x = element_text(size = 12),
+    axis.title.y = element_text(size = 12)
+  )
+```
+
+
+#############
+# STEP 2
+##########################################################################################################################################
+CALCULATING META-ANALYSIS QUANTITATIVE DATA (Std Dev., Std. Err. etc.)
+##########################################################################################################################################
+
+Code for Calculating Meta-Analysis Quantitative Data
+
+```{r}
+# Dunctions for converting different measures of variability to SD - (however, in our data we only have SE)
+
+# SE to SD
+# SEtoSD <- function(SE, n) {
+#   SE * sqrt(n)
+# }
+
+# # LSD to SD
+# LSDtoSD <- function(LSD, n) {
+#   LSD / (qt(0.975, n - 1)) * (sqrt(n) / sqrt(2))
+# }
+# 
+# # CV to SD
+# CVtoSD <- function(CV, mean) {
+#   (CV / 100) * mean
+# }
+# 
+# # MSE to SD
+# MSEtoSD <- function(MSE) {
+#   sqrt(MSE)
+# }
+```
+
+```{r}
+# Calculate standard deviations from standard errors and sample sizes
+database_clean_sd <- database_clean |>
+  mutate(
+    # Calculate standard deviation for silvo group
+    silvo_sd = silvo_se * sqrt(silvo_n),
+    
+    # Calculate standard deviation for control group
+    control_sd = control_se * sqrt(control_n)
+  )
+```
+
+Checking for missing data in control_sd and silvo_sd
+
+```{r}
+# Calculate percentage of missing SD values for control and silvo groups
+missing_control_sd <- sum(is.na(database_clean_sd$control_sd)) / nrow(database_clean_sd) * 100
+missing_silvo_sd <- sum(is.na(database_clean_sd$silvo_sd)) / nrow(database_clean_sd) * 100
+
+message("Percentage of missing SD values for control group: ", round(missing_control_sd, 2), "%")
+message("Percentage of missing SD values for silvo group: ", round(missing_silvo_sd, 2), "%")
+
+# Percentage of missing SD values for control group: 17.95%
+# Percentage of missing SD values for silvo group: 17.95%
+
+missing_sd <- database_clean_sd |>
+  filter(is.na(control_sd) | is.na(silvo_sd)) |> 
+  relocate(id_article, id_obs, response_variable, location, 
+           # Quantitative mata-analysis effect size info
+           silvo_mean, silvo_se, silvo_sd, silvo_n, control_mean, control_se, control_sd, control_n)
+
+missing_sd
+```
+
+Dataset that is used as non-imputed
+
+```{r}
+# This is the dataset that is used for analysis before imputation
+database_clean_sd |> glimpse()
+```
+
+
+#############
+# STEP 3
+##########################################################################################################################################
+HANDELING OF MISSING VALUES IN THE DATASET
+##########################################################################################################################################
+
+Perform imputation using "mice" (Multivariate Imputation by Chained Equations)
+
+```{r, eval = TRUE}
+##########################################################################
+# Set up the parallel processing plan
+plan(multisession, workers = parallel::detectCores() - 1)
+##################################################
+# Start time tracking
+start.time <- Sys.time()
+##################################################
+##################################################
+
+############################################################################################################################
+# Set seed for reproducibility
+set.seed(1234)
+
+# Perform imputation using mice
+# - read about mice() here: https://www.metafor-project.org/doku.php/tips:multiple_imputation_with_mice_and_metafor
+# - col_for_impute: the data frame containing the columns to be imputed
+# - m = 5: number of multiple imputations to perform
+# - maxit = 100: maximum number of iterations to perform for each imputation
+# - method = 'pmm': method to use for imputation, 'pmm' stands for predictive mean matching
+# - seed = 500: random seed for reproducibility of the imputations
+# - printFlag: If TRUE, mice will print history on console. Use print=FALSE for silent computation.
+
+
+
+# Step 1: Check and enforce correct data types
+col_for_impute <- database_clean_sd |> 
+  as.data.frame() |> 
+  select(-geometry) |> 
+  select(
+    # Columns that need to be imputed
+    silvo_se, control_se, silvo_n, control_n,
+    # Columns that are used by mice to impute values
+    tree_age, crop_type, tree_type, sub_region, experiment_year, alley_width,
+    # IDs that are used to back-link imputed values to the dataset
+    id_article, id_obs, treat_id, exp_id
+  ) |> 
+  # Convert relevant columns to the correct data types
+  mutate(
+    silvo_se = as.numeric(silvo_se),
+    control_se = as.numeric(control_se),
+    silvo_n = as.numeric(silvo_n),
+    control_n = as.numeric(control_n),
+    tree_age = as.numeric(tree_age),
+    crop_type = as.factor(crop_type),
+    tree_type = as.factor(tree_type),
+    sub_region = as.factor(sub_region),
+    alley_width = as.factor(alley_width),
+    id_article = as.numeric(id_article),
+    id_obs = as.numeric(id_obs),
+    treat_id = as.numeric(treat_id),
+    exp_id = as.numeric(exp_id)
+  )
+
+# Step 2: Define the predictor matrix
+pred_matrix <- mice::make.predictorMatrix(col_for_impute)
+
+# Allow only specific columns to be imputed
+# Set all columns except 'silvo_se', 'control_se', 'silvo_n', and 'control_n' to be non-imputed
+pred_matrix[, c("tree_age", "crop_type", "tree_type", "sub_region", "experiment_year", "alley_width", "id_article", "id_obs", "treat_id", "exp_id")] <- 0
+
+# Step 3: Update the method vector to specify imputation only for target columns
+# Use 'pmm' (predictive mean matching) for numeric columns to be imputed and "" for others
+method <- c(
+  "silvo_se" = "pmm",
+  "control_se" = "pmm",
+  "silvo_n" = "pmm",
+  "control_n" = "pmm",
+  "tree_age" = "",           # Not imputed
+  "crop_type" = "",          # Not imputed
+  "tree_type" = "",          # Not imputed
+  "sub_region" = "",         # Not imputed
+  "experiment_year" = "",    # Not imputed
+  "alley_width" = "",        # Not imputed
+  "id_article" = "",         # Not imputed
+  "id_obs" = "",             # Not imputed
+  "treat_id" = "",           # Not imputed
+  "exp_id" = ""              # Not imputed
+)
+
+# Step 4: Perform imputation using mice
+set.seed(1234)
+imputed_data <- mice(
+  col_for_impute,
+  m = 20,
+  maxit = 100,
+  method = method,
+  predictorMatrix = pred_matrix,
+  seed = 1234,
+  printFlag = FALSE
+)
+
+# Step 5: Extract a completed dataset for inspection
+completed_data <- mice::complete(imputed_data, 1)
+print(head(completed_data))
+# Step 5: Extract the completed data
+completed_data <- mice::complete(imputed_data)
+
+##################################################
+# End time tracking
+end.time <- Sys.time()
+# Calculate time taken
+time.taken <- end.time - start.time
+time.taken
+##############################################################
+# Last go: (16/11-24)
+# Time difference of 14.25402 secs
+```
+
+```{r}
+####################################################################################
+
+# Check the summary of imputed data
+summary(imputed_data)
+```
+```{r}
+# Evaluate the imputed datasets
+# Check convergence diagnostics
+plot(imputed_data)
+```
+```{r}
+# Compare the distribution of the observed and imputed data
+densityplot(imputed_data |> select(silvo_se, control_se, silvo_n, control_n))
+```
+
+```{r}
+# Use stripplot to compare observed and imputed values
+stripplot(imputed_data, pch = 20, cex = 1.2)
+```
+
+```{r}
+# Step 1: Extract observed values for 'silvo_se'
+# - `col_for_impute` is the data frame containing the columns to be imputed.
+# - We filter out the non-missing values from the original 'silvo_se' column.
+observed_silvo_se <- col_for_impute$silvo_se[!is.na(col_for_impute$silvo_se)]
+
+# Step 2: Extract imputed values for 'silvo_se'
+# - We use `lapply()` to loop over all 20 imputed datasets generated by `mice`.
+# - `mice::complete(imputed_data, i)` extracts the completed dataset for the i-th imputation.
+# - `data$silvo_se[is.na(col_for_impute$silvo_se)]` selects the imputed values where the original data had missing values.
+# - `unlist()` is used to flatten the list of imputed values into a vector.
+imputed_silvo_se <- unlist(lapply(1:20, function(i) {
+  data <- mice::complete(imputed_data, i) # Extract the i-th imputed dataset
+  data$silvo_se[is.na(col_for_impute$silvo_se)] # Select only the imputed values
+}))
+
+# Step 3: Create a combined data frame for plotting
+# - `value`: A combined vector of both observed and imputed values.
+# - `type`: A vector indicating whether the value is "Original" (observed) or "Imputed".
+# - `rep()`: Repeats the labels for the respective lengths of observed and imputed values.
+plot_data <- data.frame(
+  value = c(observed_silvo_se, imputed_silvo_se),
+  type = c(rep("Original", length(observed_silvo_se)),
+           rep("Imputed", length(imputed_silvo_se)))
+)
+
+# Step 4: Plot the density of observed vs. imputed values using ggplot2
+ggplot(plot_data, aes(x = value, fill = type)) +
+  # `geom_density()`: Plots the density curve for each type ("Original" and "Imputed").
+  # `alpha = 0.5`: Sets the transparency of the density curves (0 = fully transparent, 1 = fully opaque).
+  geom_density(alpha = 0.5) +
+  # `labs()`: Adds titles and labels to the plot.
+  labs(
+    title = "Density Plot of Original vs. Imputed Values for silvo_se",
+    x = "silvo_se Values",
+    y = "Density"
+  ) +
+  # `scale_fill_manual()`: Manually sets the colors for the fill based on the "type" variable.
+  # - "blue" for the "Original" values and "red" for the "Imputed" values.
+  scale_fill_manual(values = c("blue", "red")) +
+  # `scale_x_log10()`: Applies a log10 transformation to the x-axis (silvo_se values).
+  # - This transformation helps visualize the data if there is a large range or skewness.
+  scale_x_log10() +
+  # vertical lines indicating the mean or median of each group
+  geom_vline(aes(xintercept = mean(observed_silvo_se)), color = "blue", linetype = "dashed") +
+  geom_vline(aes(xintercept = mean(imputed_silvo_se)), color = "red", linetype = "dashed") +
+  # `theme_minimal()`: Uses a minimal theme for a clean look.
+  theme_minimal() +
+  # `theme()`: Customizes the appearance of the plot.
+  theme(
+    legend.title = element_text(size = 10), # Sets the font size for the legend title
+    legend.position = "top" # Places the legend at the top of the plot
+  )
+```
+
+
+```{r}
+# For an evidence-based choice, we may calculate some metrics
+# Calculate the mean and standard deviation of each imputed dataset
+
+# Initialize an empty list to store summaries
+imputed_summaries <- list()
+
+# Loop through the first all 20 imputed datasets
+for (i in 1:20) {
+  data <- mice::complete(imputed_data, i)
+
+  # Check the structure of each completed dataset
+  str(data)
+
+  # Calculate the summary statistics
+  summary <- data %>%
+    summarise(
+      mean_silvo_se = mean(silvo_se, na.rm = TRUE),
+      sd_silvo_se = sd(silvo_se, na.rm = TRUE),
+      mean_control_se = mean(control_se, na.rm = TRUE),
+      sd_control_se = sd(control_se, na.rm = TRUE)
+    )
+
+  # Store the summary with the imputation index
+  imputed_summaries[[i]] <- summary
+}
+
+# Combine the summaries into a single data frame
+imputed_summaries_df <- bind_rows(imputed_summaries, .id = "imputation")
+
+# View the combined summary data frame
+imputed_summaries_df
+
+
+
+
+
+
+# Choose the imputation based on the diagnostics and summaries
+# For simplicity, let's assume we choose the imputation with the median mean_silvo_se
+# Calculate the median of mean_silvo_se
+median_value <- median(imputed_summaries_df$mean_silvo_se)
+
+# Find the row with the closest value to the median
+chosen_imputation <- imputed_summaries_df %>%
+  slice(which.min(abs(mean_silvo_se - median_value)))
+
+chosen_imputation
+```
+
+
+
+```{r}
+# Extract the chosen imputation number
+chosen_imputation_number <- chosen_imputation$imputation
+
+# Extract the complete dataset for the chosen imputation
+imputed_col_data <- complete(imputed_data, as.integer(chosen_imputation_number))
+
+imputed_col_data |> glimpse()
+```
+```{r}
+# Update the original data with imputed values
+# Step 1: Join the imputed values back to the original dataset using identifiers
+imp_dataset <- non_imp_dataset %>%
+  left_join(
+    completed_data %>%
+      select(id_article, id_obs, silvo_se, control_se),
+    by = c("id_article", "id_obs"),
+    suffix = c("_original", "_imputed")
+  )|> 
+  as.data.frame() |> 
+  select(-geometry)
+
+# Step 2: Replace missing values in the original columns with imputed values
+imp_dataset <- imp_dataset %>%
+  mutate(
+    silvo_se = ifelse(is.na(silvo_se_original), silvo_se_imputed, silvo_se_original),
+    control_se = ifelse(is.na(control_se_original), control_se_imputed, control_se_original)
+  ) %>%
+  select(-silvo_se_original, -silvo_se_imputed, -control_se_original, -control_se_imputed)
+
+imp_dataset
+```
+
+
+Visualising the distribution of imputed values for silvo_se and control_se together with the original data for the chosen imputation
+
+```{r}
+# Prepare the original data
+original_data_x <- non_imp_dataset %>%
+  select(id_article, id_obs, response_variable, silvo_se, control_se) |> 
+  mutate(data_source = "Original") |> 
+  as.data.frame() 
+
+imputed_data_y <- imp_dataset |> 
+  select(id_article, id_obs, response_variable, silvo_se, control_se) |> 
+  mutate(data_source = "Imputed") 
+
+# Combine the original and imputed data
+combined_data <- bind_rows(original_data_x, imputed_data_y)
+
+combined_data
+```
+
+
+```{r}
+# Join the original and imputed data to directly compare
+comparison_data <- original_data_x %>%
+  full_join(imputed_data_y, by = c("id_article", "response_variable"), suffix = c("_original", "_imputed")) %>%
+  distinct()
+# Advarsel: Detected an unexpected many-to-many relationship between `x` and `y`
+
+# Identify rows where imputation occurred by checking if originally missing values are filled
+imputation_evaluation <- comparison_data %>%
+  filter(
+    (is.na(silvo_se_original) & !is.na(silvo_se_imputed)) |
+    (is.na(control_se_original) & !is.na(control_se_imputed))
+  ) %>%
+  select(id_article, response_variable) %>%
+  distinct()
+
+# Count the number of unique articles where imputation occurred
+n_imputed_studies <- imputation_evaluation %>%
+  distinct(id_article) %>%
+  nrow()
+
+# Output the results
+imputation_evaluation
+n_imputed_studies
+```
+```{r}
+imputation_summary <- comparison_data %>%
+  summarise(
+    total_missing = sum(is.na(silvo_se_original) & !is.na(silvo_se_imputed)),
+    total_imputed = sum(!is.na(silvo_se_imputed)),
+    proportion_imputed = total_missing / total_imputed
+  )
+
+imputation_summary
+```
+```{r}
+# Q-Q plot for silvo_se
+qqplot_silvo_se <- ggplot(combined_data, aes(sample = silvo_se)) +
+  stat_qq(aes(color = data_source)) +
+  stat_qq_line(aes(color = data_source)) +
+  ggtitle("Q-Q Plot of Original vs. Imputed silvo_se") +
+  theme_minimal()
+
+qqplot_silvo_se
+```
+
+
+```{r}
+# Create density plots for silvo_se with log transformation
+silvo_se_impute_original_plot <- combined_data |> 
+ggplot(aes(x = silvo_se, color = data_source)) +
+  geom_density(alpha = 0.5) +
+  scale_x_log10() +
+  scale_y_log10() +
+  ggtitle("Density Distribution of silvo_se (Log-Transformed)") +
+  theme_minimal()
+
+# Create density plots for control_se with log transformation
+control_se_impute_original_plot <- combined_data |> 
+ggplot(aes(x = control_se, color = data_source)) +
+  geom_density(alpha = 0.5) +
+  scale_x_log10() +
+  scale_y_log10() +
+  ggtitle("Density Distribution of control_se (Log-Transformed)") +
+  theme_minimal()
+
+library(patchwork)
+
+silvo_se_impute_original_plot + control_se_impute_original_plot
+```
+
+
+
+
+
+
+#############
+# STEP 4
+##########################################################################################################################################
+SAVING TWO VERSIONS OF PREPROCESSED DATA FOR FURTHER ANALYSIS AND VISUALIZATION
+##########################################################################################################################################
+
+
+Saving the dataset that is used as non-imputed
+Saving the dataset that is used as imputed
+
+```{r}
+# This is the dataset that is used for analysis before imputation
+non_imp_dataset <- database_clean_sd |> 
+  as.data.frame() |> 
+  select(-geometry)
+
+# This is the dataset that is used for analysis after imputation
+imp_dataset <- imp_dataset |> 
+  as.data.frame() 
+
+################################################################################
+# NON-IMPUTED
+readr::write_csv(database_clean_sd,
+                 here::here("DATA", "META_ANALYSIS", "FROM_R", "non_imp_dataset.csv"))
+# IMPUTED
+readr::write_csv(imp_dataset,
+                 here::here("DATA", "META_ANALYSIS", "FROM_R", "imp_dataset.csv"))
+```
+
+
+
+
+
+
+
+#############
+# STEP 5
+##########################################################################################################################################
+CALCULATING EFFECT SIZES FOR IMPUTED AND NON-IMPUTED DATASETS
+##########################################################################################################################################
+
+
+```{r}
+non_imp_dataset |> glimpse()
+imp_dataset |> glimpse()
+```
+Performing effect size calculation
+
+```{r}
+# Function for data preparation and effect size calculation
+
+# This function takes a dataset as input and applies several transformations
+# to clean, filter, and prepare it for effect size calculation.
+prep_dataset_for_rom <- function(data) {
+  data %>%
+    # Step 1: Filter out rows where the standard errors are zero or negative
+    # - Standard errors (SE) must be positive for valid statistical calculations.
+    # - Removing these rows prevents mathematical errors in subsequent calculations (e.g., division by zero).
+    filter(silvo_se > 0, control_se > 0) %>%
+    
+    # Step 2: Adjust the sign of mean values for specific response variables
+    # - For variables like "Greenhouse gas emissions," "Pests and Diseases," and "Water quality,"
+    #   lower values are considered better (e.g., lower emissions or fewer pests).
+    # - We negate the mean values to reflect this interpretation correctly.
+    mutate(
+      silvo_mean = ifelse(response_variable %in% c("Greenhouse gas emissions", "Pests and Diseases", "Water quality"),
+                          -silvo_mean, silvo_mean),
+      control_mean = ifelse(response_variable %in% c("Greenhouse gas emissions", "Pests and Diseases", "Water quality"),
+                            -control_mean, control_mean)
+    ) %>%
+    
+    # Step 3: Exclude specific response variables from analysis
+    # - "Soil water content" is excluded due to inconsistent data or limited measurements.
+    filter(response_variable != "Soil water content") %>%
+    
+    # Step 4: Remove rows with missing values in key columns
+    # - Ensures that the data is complete for effect size calculation.
+    # - Excludes rows where any of the following are missing: mean, sample size, or standard error for both groups.
+    filter(!is.na(silvo_mean) & !is.na(control_mean) &
+           !is.na(silvo_n) & !is.na(control_n) &
+           !is.na(silvo_se) & !is.na(control_se)) %>%
+    
+    # Step 5: Calculate standard deviations from standard errors and sample sizes
+    # - Standard deviation (SD) is calculated using the formula: SD = SE * sqrt(n)
+    # - This step is necessary for effect size calculations, which often require SDs rather than SEs.
+    mutate(
+      silvo_sd = silvo_se * sqrt(silvo_n),
+      control_sd = control_se * sqrt(control_n),
+      
+      # Step 6: Shift mean values to be positive
+      # - We calculate a shift value (min_value_shift) based on the absolute minimum value
+      #   of the means, ensuring all values are positive.
+      # - This shift is necessary for certain transformations (e.g., log transformations),
+      #   which require positive inputs.
+      min_value_shift = abs(min(c(silvo_mean, control_mean), na.rm = TRUE)) + 1,
+      
+      # Apply the shift to the mean values for both groups
+      silvo_mean = silvo_mean + min_value_shift,
+      control_mean = control_mean + min_value_shift
+    ) %>%
+    
+    # Step 7: Reorder columns for better readability and organization
+    # - Places important columns (e.g., identifiers, means, SEs, SDs, sample sizes) at the front of the data frame.
+    relocate(id_article, response_variable, measured_metrics, measured_unit,
+             silvo_mean, silvo_se, silvo_sd, silvo_n,
+             control_mean, control_se, control_sd, control_n) %>%
+    
+    # Step 8: Sort the data by article ID and response variable for consistency
+    # - Sorting helps ensure that the data is organized and facilitates easier inspection and analysis.
+    arrange(id_article, response_variable)
+}
+```
+
+```{r}
+# Apply the data preparation function to both non-imputed and imputed datasets
+# - This creates cleaned and prepared datasets for effect size calculation.
+meta_data_non_imp <- prep_dataset_for_rom(non_imp_dataset)
+meta_data_imp <- prep_dataset_for_rom(imp_dataset)
+
+# Check the structure of the prepared datasets
+# - Use `str()` to inspect the data frames and ensure that the columns are as expected.
+# str(meta_data_non_imp)
+# str(meta_data_imp)
+```
+
+```{r}
+# Generic function for effect size calculation using `escalc()`
+
+# This function can be applied to both imputed and non-imputed datasets.
+
+calculate_effect_sizes <- function(data, measure = "ROM") {
+  # Check if the required columns are present in the dataset
+  required_columns <- c("silvo_mean", "silvo_sd", "silvo_n",
+                        "control_mean", "control_sd", "control_n",
+                        "id_article", "study_year_start")
+  
+  if (!all(required_columns %in% names(data))) {
+    stop("The dataset is missing one or more required columns.")
+  }
+  
+  # Calculate effect sizes using `escalc()`
+  result <- escalc(
+    measure = measure,           # Specify the effect size measure (default is "ROM").
+    
+    # Experimental group (silvo_) parameters:
+    m1i = silvo_mean,            # Mean of the experimental (silvo) group.
+    sd1i = silvo_sd,             # Standard deviation of the experimental (silvo) group.
+    n1i = silvo_n,               # Sample size of the experimental (silvo) group.
+    
+    # Control group (control_) parameters:
+    m2i = control_mean,          # Mean of the control group.
+    sd2i = control_sd,           # Standard deviation of the control group.
+    n2i = control_n,             # Sample size of the control group.
+    
+    # Study labels for identification:
+    slab = paste(id_article, ", ", study_year_start, sep = ""),
+    
+    # The input dataset:
+    data = data
+  ) %>%
+    as.data.frame()              # Convert the result to a data frame for easier handling.
+  
+  # Return the resulting data frame with calculated effect sizes
+  return(result)
+}
+```
+
+```{r}
+# Apply the function to both non-imputed and imputed datasets
+meta_data_ROM_non_imp <- calculate_effect_sizes(meta_data_non_imp)
+meta_data_ROM_imp <- calculate_effect_sizes(meta_data_imp)
+
+# Check the structure of the resulting data frames
+# str(meta_data_ROM_non_imp)
+# str(meta_data_ROM_imp)
+```
+
+
+
+
+
+Comparing and evaluating the two meta-data sets (imputed vs. non-imputed)
+
+```{r}
+# Create a combined dataset for comparison
+comparison_data <- meta_data_ROM_non_imp %>%
+  select(id_article, id_obs, response_variable, yi_non_imp = yi, vi_non_imp = vi) %>%
+  left_join(meta_data_ROM_imp %>%
+              select(id_article, id_obs, yi_imp = yi, vi_imp = vi),
+            by = c("id_article", "id_obs"))
+
+# Scatter plot of effect sizes
+scatter_plot <- ggplot(comparison_data, aes(x = yi_non_imp, y = yi_imp)) +
+  geom_point(alpha = 0.6, color = "#0072B2") +
+  geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") +
+  labs(title = "Comparison of Effect Sizes (ROM): Imputed vs. Non-Imputed",
+       x = "Effect Size (Non-Imputed Data)", y = "Effect Size (Imputed Data)") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+
+scatter_plot
+```
+
+Paired t-test for Effect Sizes (yi)
+A paired t-test can help assess if there is a significant difference between the effect sizes of the imputed and non-imputed datasets.
+
+```{r}
+# Perform a paired t-test for effect sizes (yi)
+# Remove rows with NA or Inf values
+clean_data <- comparison_data %>%
+  filter(!is.na(yi_non_imp), !is.na(yi_imp), 
+         !is.infinite(yi_non_imp), !is.infinite(yi_imp))
+
+# Perform the paired t-test on the cleaned data
+t_test_result <- t.test(clean_data$yi_non_imp, clean_data$yi_imp, paired = TRUE)
+print(t_test_result)
+
+```
+
+Bland-Altman Analysis
+A Bland-Altman plot can provide a graphical method to assess agreement between the two datasets by plotting the differences against the means.
+
+```{r}
+# Calculate the mean and difference of effect sizes
+comparison_data <- comparison_data %>%
+  mutate(
+    mean_yi = (yi_non_imp + yi_imp) / 2,
+    diff_yi = yi_imp - yi_non_imp
+  )
+
+# Create a Bland-Altman plot
+bland_altman_plot <- ggplot(comparison_data, aes(x = mean_yi, y = diff_yi)) +
+  geom_point(alpha = 0.6, color = "#0072B2") +
+  geom_hline(yintercept = 0, color = "red", linetype = "dashed") +
+  labs(title = "Bland-Altman Plot: Imputed vs. Non-Imputed Effect Sizes",
+       x = "Mean Effect Size", y = "Difference in Effect Size (Imputed - Non-Imputed)") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+
+print(bland_altman_plot)
+
+```
+
+Correlation Analysis
+Calculate the correlation between the effect sizes from the imputed and non-imputed datasets.
+```{r}
+# Calculate Pearson and Spearman correlations
+# Calculate Pearson and Spearman correlations
+pearson_corr <- cor(comparison_data$yi_non_imp, comparison_data$yi_imp, method = "pearson")
+spearman_corr <- cor(comparison_data$yi_non_imp, comparison_data$yi_imp, method = "spearman")
+
+# Print the correlation results
+cat("Pearson Correlation:", pearson_corr, "\n")
+cat("Spearman Correlation:", spearman_corr, "\n")
+
+```
+
+Pearson correlation measures the linear relationship between the two sets of effect sizes. A value close to 1 indicates strong linear agreement.
+Spearman correlation measures the rank correlation, providing a non-parametric measure of the relationship. This is useful if the data has outliers or is not normally distributed.
+
+
+Mean Absolute Difference (MAD) and Root Mean Square Error (RMSE)
+These metrics provide an indication of the overall difference between the two sets of effect sizes.
+
+```{r}
+# Calculate Mean Absolute Difference (MAD)
+mad <- mean(abs(comparison_data$yi_imp - comparison_data$yi_non_imp), na.rm = TRUE)
+
+# Calculate Root Mean Square Error (RMSE)
+rmse <- sqrt(mean((comparison_data$yi_imp - comparison_data$yi_non_imp)^2, na.rm = TRUE))
+
+# Print the results
+cat("Mean Absolute Difference (MAD):", mad, "\n")
+cat("Root Mean Square Error (RMSE):", rmse, "\n")
+
+```
+
+Heterogeneity Analysis
+Compare the heterogeneity statistics between the meta-analyses conducted on the imputed and non-imputed datasets. This will help you understand if the imputation has influenced the heterogeneity of the studies.
+ 
+```{r}
+# Fit random-effects models on both datasets
+rma_non_imp <- rma(yi = yi_non_imp, vi = vi_non_imp, data = comparison_data)
+rma_imp <- rma(yi = yi_imp, vi = vi_imp, data = comparison_data)
+
+# Print heterogeneity statistics
+cat("Non-Imputed Data - Heterogeneity (I^2):", rma_non_imp$I2, "\n")
+cat("Non-Imputed Data - Between-study variance (tau^2):", rma_non_imp$tau2, "\n")
+
+cat("Imputed Data - Heterogeneity (I^2):", rma_imp$I2, "\n")
+cat("Imputed Data - Between-study variance (tau^2):", rma_imp$tau2, "\n")
+
+```
+ 
+Kolmogorov-Smirnov Test
+The Kolmogorov-Smirnov (KS) test can be used to compare the distributions of effect sizes.
+
+```{r}
+# Kolmogorov-Smirnov test
+ks_test_result <- ks.test(meta_data_ROM_non_imp$yi, meta_data_ROM_imp$yi)
+print(ks_test_result)
+```
+
+The Kolmogorov-Smirnov (KS) test was conducted to compare the distributions of effect sizes (ROM) between the imputed and non-imputed datasets. The test statistic D was 0.0389, with a p-value of 0.4772. This high p-value indicates that there is no significant difference between the distributions of the two datasets. Thus, we fail to reject the null hypothesis, suggesting that both datasets share a similar underlying distribution.
+
+A warning about approximate p-values due to ties was noted. This occurs when there are identical values within the data, which can slightly affect the accuracy of the p-value calculation. However, given the large sample size, this effect is minimal and does not alter the overall interpretation.
+
+These results align with earlier findings, such as the identical between-study variance implying that the imputation process did not introduce significant changes. The small D value and non-significant p-value suggest that the imputed values closely resemble the original data.
+
+Overall, the KS test supports the conclusion that the imputation process was effective in preserving the distribution of effect sizes, allowing for a consistent comparison in the meta-analysis without introducing bias or altering the data structure.
+ 
+ 
+ 
+```{r}
+# Descriptive statistics for non-imputed data
+summary_non_imp <- meta_data_ROM_non_imp %>%
+  summarise(
+    mean_yi = mean(yi, na.rm = TRUE),
+    median_yi = median(yi, na.rm = TRUE),
+    sd_yi = sd(yi, na.rm = TRUE)
+  )
+
+# Descriptive statistics for imputed data
+summary_imp <- meta_data_ROM_imp %>%
+  summarise(
+    mean_yi = mean(yi, na.rm = TRUE),
+    median_yi = median(yi, na.rm = TRUE),
+    sd_yi = sd(yi, na.rm = TRUE)
+  )
+
+# Print summaries
+summary_non_imp
+summary_imp
+```
+ 
+```{r}
+# Density plot for non-imputed data
+density_plot_non_imp <- ggplot(meta_data_ROM_non_imp, aes(x = yi)) +
+  geom_density(fill = "#0072B2", alpha = 0.5) +
+  labs(title = "Density Plot: Non-Imputed Data",
+       x = "Effect Size (yi)", y = "Density") +
+  theme_minimal()
+
+# Density plot for imputed data
+density_plot_imp <- ggplot(meta_data_ROM_imp, aes(x = yi)) +
+  geom_density(fill = "#E69F00", alpha = 0.5) +
+  labs(title = "Density Plot: Imputed Data",
+       x = "Effect Size (yi)", y = "Density") +
+  theme_minimal()
+
+# Boxplot for non-imputed data
+boxplot_non_imp <- ggplot(meta_data_ROM_non_imp, aes(y = yi)) +
+  geom_boxplot(fill = "#0072B2", alpha = 0.5) +
+  labs(title = "Boxplot: Non-Imputed Data",
+       y = "Effect Size (yi)") +
+  theme_minimal()
+
+# Boxplot for imputed data
+boxplot_imp <- ggplot(meta_data_ROM_imp, aes(y = yi)) +
+  geom_boxplot(fill = "#E69F00", alpha = 0.5) +
+  labs(title = "Boxplot: Imputed Data",
+       y = "Effect Size (yi)") +
+  theme_minimal()
+
+# Arrange the plots in a 2x2 layout
+(density_plot_non_imp | density_plot_imp) /
+(boxplot_non_imp | boxplot_imp)
+
+```
+
+
+
+
+

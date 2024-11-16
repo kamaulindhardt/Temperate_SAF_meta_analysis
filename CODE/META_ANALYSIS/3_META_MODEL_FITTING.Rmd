@@ -1,0 +1,163 @@
+---
+title: "3_META_MODEL_FITTING"
+author: "M.K.K. Lindhardt"
+date: "2024-11-16"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+################################################################################
+Sources for developing approaches in meta-analysis: 
+
+https://wviechtb.github.io/metafor/reference/rma.mv.html 
+https://www.taylorfrancis.com/chapters/edit/10.1201/9780429061240-8/multivariate-meta-analysis-ding-geng-din-chen-karl-peace 
+https://training.cochrane.org/handbook/current/chapter-06 
+https://training.cochrane.org/handbook/current/chapter-10
+
+
+It is not uncommon for studies to have multiple outcome measures which lead to statistical multivariate analysis. The results of studies with multiple outcomes and/or endpoints are typically synthesized via conventional univariate meta-analysis (UMA) on each outcome separately, ignoring the correlations between the outcomes. The impact of ignoring the within-study correlation has been explored extensively in the statistical literature, with issues including overestimated variance of the pooled eﬀect size and biased estimates, which in turn may inﬂuence statistical inferences. In this case, multivariate meta-analysis should be used to synthesize multiple outcomes while taking into account their correlations, often resulting in superior parameter estimation. With study-level moderators or predictors, multivariate meta-regression can also be developed in parallel with multivariate regression techniques.
+
+Meta-Analysis with R Package metafor. Rearrange the Data Format. In order to use the metafor package for multivariate meta-analysis, meta-data
+should be rearranged accordingly. With this rearranged data format, we then construct a list of the variance-covariance matrices of the observed outcomes for the ﬁve studies to create a block diagonal matrix, V, for metafor.
+With the rearranged data and variance-covariance matrix, V, we now ﬁt the ﬁxed-eﬀects meta-analysis model using metafor with the option of
+method="FE". To ﬁt the random-eﬀects multivariate meta-analysis model using the metafor package, we simply change the option to method="REML". We note that this reproduces the results, with this random-effects model, we can also test the difference between
+
+#####################################################
+
+Response Variables are measured on a continuous scale, where each individual outcome is a measurement of a numerical quantity
+Chosen Effect Size:  
+
+Formulae to estimate effects (and their standard errors)?
+
+#####################################################
+Step-by-Step Plan for  Meta-Analysis
+
+1) DATA PREP
+Data Cleaning and Transformation
+Standardize Location Information
+Create Identifiers
+Classify Locations by Continent
+Standardize Measures of Variation
+Convert SE to SD --------------------- (save this dataset)
+Impute Missing Values
+Use imputation for silvo_se, control_se, silvo_n, and control_n
+Convert SE to SD in imputed dataset -- (save this dataset)
+Calculate Effect Sizes (ROM) - on non-imputed data
+Calculate Effect Sizes (ROM) - on imputed data
+
+Compare imputed and non-imputed data (mean, SD, median, density plots, boxplots, t-tests, Kolmogorov-Smirnov test, etc.)
+
+2) RMA.MV MODELLING
+Multivariate/Multilevel Linear (Mixed-Effects) Model with between-study, within-study, and exp_id as random effects
+rma.mv on non-imputed dataset
+rma.mv on imputed dataset 
+
+Compare the results side by side of imputed and non-imputed (effect sizes, conf intervals, heterogeneity stats)
+
+3) SENSITIVITY AND DIAGNOSTICS
+Sensitivity analysis
+Leave-one-out
+Trim-and-fill analysis
+
+4) MODERATOR analysis
+Splitting dataset into sub-sets for each moderator 
+Moderator analysis on both imputed and non-imputed data
+Might be useful to conduct a meta-regression to formally test for differences in moderator effects between the two datasets.
+
+5) VISUALISATIONS
+
+#############
+# STEP 0
+##########################################################################################################################################
+PREPARING SCRIPT AND READ IN THE DATA
+##########################################################################################################################################
+
+```{r}
+# Clean workspace
+rm(list = ls())
+```
+
+
+## Loading required packages and libraries
+
+```{r Loading other needed packages, warning=FALSE}
+# Suppress warnings to avoid clutter in the console output
+suppressWarnings({
+
+  # Load multiple add-on packages using pacman::p_load for efficiency
+  pacman::p_load(
+    # Data Manipulation / Transformation
+    tidyverse,        # Comprehensive collection of R packages for data science
+    readr,            # Read and write csv 
+    future,           # Parallel processing
+    future.apply,     # Parallel processing
+    ###################################################################################################################
+    # Data Visualization
+    ggplot2,          # Data visualization package (part of tidyverse)
+    patchwork,        # ggplot2 API for sequentially building up a plot
+    ###################################################################################################################
+    # Meta-Analysis
+    metafor,          # For conducting meta-analysis, effect sizes, and response ratios
+    clubSandwich,     # Cluster-robust variance estimators for ordinary and weighted least squares linear regression models
+    ###################################################################################################################
+    # Exploratory Data Analysis (EDA)
+    DataExplorer,     # For exploratory data analysis
+    SmartEDA,         # For smart exploratory data analysis
+    ###################################################################################################################
+    # Project Management and Code Styling
+    here,             # Easy file referencing using the top-level directory of a file project
+    styler            # For code formatting and styling
+  )
+  
+  # If encountering issues with raster::getData(), consider using geodata::worldclim_global() from the geodata package
+})
+
+###################################################################################################################
+# Set preferences for conflicting functions
+conflict_prefer("filter", "dplyr")
+conflict_prefer("select", "dplyr")
+conflict_prefer("group_by", "dplyr") 
+conflict_prefer("summarise", "dplyr")
+conflict_prefer("mutate", "dplyr")
+conflict_prefer("arrange", "dplyr")
+conflict_prefer("locale", "readr")
+```
+
+
+Loading the two datasets (imputed and non-imputed)
+
+```{r Loading database, warning=FALSE, message=FALSE}
+# Set the working directory automatically using 'here'
+setwd(here::here())
+
+# Suppress warnings to avoid clutter in the console output
+suppressWarnings({
+
+# Define file paths
+non_imp_file <- here::here("DATA", "META_ANALYSIS", "FROM_R", "non_imp_dataset.csv")
+imp_file <- here::here("DATA", "META_ANALYSIS", "FROM_R", "imp_dataset.csv")
+
+# Read in the non-imputed dataset
+non_imp_dataset <- read_csv(non_imp_file) %>%
+  as.data.frame()
+
+# Read in the imputed dataset
+imp_dataset <- read_csv(imp_file) %>%
+  as.data.frame()
+})
+```
+
+
+
+#############
+# STEP 1
+##########################################################################################################################################
+PERFORMING MULTIVARIATE/MULTILEVEL LINEAR (MIXED-EFFECTS) MODELLING 
+##########################################################################################################################################
+
+
+
