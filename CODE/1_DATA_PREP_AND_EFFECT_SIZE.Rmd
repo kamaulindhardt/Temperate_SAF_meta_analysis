@@ -33,44 +33,37 @@ method="FE". To ﬁt the random-eﬀects multivariate meta-analysis model using 
 Response Variables are measured on a continuous scale, where each individual outcome is a measurement of a numerical quantity
 Chosen Effect Size:  
 
-Formulae to estimate effects (and their standard errors)?
+Formulas to estimate effects (and their standard errors)?
 
 #####################################################
-Step-by-Step Plan for  Meta-Analysis
+Step-by-Step Framework for Meta-Analysis
 
-1) DATA PREP
-Data Cleaning and Transformation
-Standardize Location Information
-Create Identifiers
-Classify Locations by Continent
-Standardize Measures of Variation
-Convert SE to SD --------------------- (save this dataset)
-Impute Missing Values
-Use imputation for silvo_se, control_se, silvo_n, and control_n
-Convert SE to SD in imputed dataset -- (save this dataset)
-Calculate Effect Sizes (ROM) - on non-imputed data
-Calculate Effect Sizes (ROM) - on imputed data
+1) Data Preparation
+Clean and transform the data.
+Standardize location information and create unique identifiers.
+Classify locations by continent.
+--- DESCRIPTIVE_VIZ: Exploratory data analysis and visualization.
+Standardize measures of variation and convert SE to SD (save this version).
+Impute missing values (silvo_se, control_se, silvo_n, control_n).
+Convert SE to SD in the imputed dataset (save this version).
+Calculate effect sizes (ROM) for both non-imputed and imputed datasets.
+Compare the imputed and non-imputed datasets using descriptive statistics (mean, SD, median) and tests (density plots, boxplots, t-tests, Kolmogorov-Smirnov test).
 
-Compare imputed and non-imputed data (mean, SD, median, density plots, boxplots, t-tests, Kolmogorov-Smirnov test, etc.)
+2) Meta-Analysis Model Fitting
+Use multivariate/multilevel mixed-effects models (rma.mv).
+Fit models on both non-imputed and imputed datasets.
+Compare results side by side, including effect sizes, confidence intervals, and heterogeneity statistics.
 
-2) RMA.MV MODELLING
-Multivariate/Multilevel Linear (Mixed-Effects) Model with between-study, within-study, and exp_id as random effects
-rma.mv on non-imputed dataset
-rma.mv on imputed dataset 
+3) Sensitivity Analysis and Diagnostics
+Perform sensitivity analysis, including leave-one-out analysis.
+Conduct trim-and-fill analysis to check for publication bias.
 
-Compare the results side by side of imputed and non-imputed (effect sizes, conf intervals, heterogeneity stats)
+4) Moderator Analysis
+Split the dataset by moderators and conduct analyses on both imputed and non-imputed data.
+Consider meta-regression to formally test for differences in moderator effects between the datasets.
 
-3) SENSITIVITY AND DIAGNOSTICS
-Sensitivity analysis
-Leave-one-out
-Trim-and-fill analysis
-
-4) MODERATOR analysis
-Splitting dataset into sub-sets for each moderator 
-Moderator analysis on both imputed and non-imputed data
-Might be useful to conduct a meta-regression to formally test for differences in moderator effects between the two datasets.
-
-5) VISUALISATIONS
+5) Visualizations
+Create comprehensive visual summaries, including caterpillar plots, forest plots, and geographical maps of study locations.
 
 #############
 # STEP 0
@@ -112,6 +105,7 @@ suppressWarnings({
     patchwork,        # ggplot2 API for sequentially building up a plot
     ###################################################################################################################
     # Spatial Data
+    tidygeocoder,     # Unified interface for performing both forward and reverse geocoding queries
     raster,           # For spatial data analysis, especially BioClim variables from WorldClim
     sp,               # For spatial data classes and methods
     sf,               # For simple features in R, handling vector data
@@ -158,7 +152,7 @@ suppressWarnings({
   # Final database as 'meta-data'
   # Manually modifying the SD columns to "control_sd" and "silvo_sd" in Excel!
   database <- readxl::read_excel(
-    here("DATA", "META_ANALYSIS", "Meta_data_v2.xlsx"), 
+    here("DATA", "Meta_data_v2.xlsx"), 
     sheet = "Quantatitive data"
   )
 })
@@ -354,7 +348,7 @@ Add geographical sub-regions to the dataset
 
 ```{r}
 # Load Köppen-Geiger Climate Data (as a raster file)
-kg_climate <- raster(here("DATA", "META_ANALYSIS", "koppen_geiger_tif", "1991_2020", "koppen_geiger_0p1.tif"))
+kg_climate <- raster(here("DATA", "koppen_geiger_tif", "1991_2020", "koppen_geiger_0p1.tif"))
 
 
 # Preserve final_lat and final_lon before conversion
@@ -412,7 +406,7 @@ database_clean_sf <- database_clean_sf |>
 Checking for unclassified in sub_region
 
 ```{r}
-unclassified_sub_region <- database_clean |>
+unclassified_sub_region <- database_clean_sf |>
   filter(sub_region == "Unclassified") 
 
 # Count the number of unclassified rows
@@ -701,7 +695,7 @@ plot(imputed_data)
 ```
 ```{r}
 # Compare the distribution of the observed and imputed data
-densityplot(imputed_data |> select(silvo_se, control_se, silvo_n, control_n))
+# densityplot(imputed_data |> select(silvo_se, control_se, silvo_n, control_n))
 ```
 
 ```{r}
@@ -829,7 +823,7 @@ imputed_col_data |> glimpse()
 ```{r}
 # Update the original data with imputed values
 # Step 1: Join the imputed values back to the original dataset using identifiers
-imp_dataset <- non_imp_dataset %>%
+imp_dataset <- database_clean_sd %>%
   left_join(
     completed_data %>%
       select(id_article, id_obs, silvo_se, control_se),
@@ -855,7 +849,7 @@ Visualising the distribution of imputed values for silvo_se and control_se toget
 
 ```{r}
 # Prepare the original data
-original_data_x <- non_imp_dataset %>%
+original_data_x <- database_clean_sd %>%
   select(id_article, id_obs, response_variable, silvo_se, control_se) |> 
   mutate(data_source = "Original") |> 
   as.data.frame() 
@@ -970,10 +964,10 @@ imp_dataset <- imp_dataset |>
 ################################################################################
 # NON-IMPUTED
 readr::write_csv(database_clean_sd,
-                 here::here("DATA", "META_ANALYSIS", "FROM_R", "non_imp_dataset.csv"))
+                 here::here("DATA", "OUTPUT_FROM_R", "non_imp_dataset.csv"))
 # IMPUTED
 readr::write_csv(imp_dataset,
-                 here::here("DATA", "META_ANALYSIS", "FROM_R", "imp_dataset.csv"))
+                 here::here("DATA", "OUTPUT_FROM_R", "imp_dataset.csv"))
 ```
 
 

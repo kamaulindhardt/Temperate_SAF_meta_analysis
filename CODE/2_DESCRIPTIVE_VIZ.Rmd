@@ -10,6 +10,36 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 
+#####################################################
+Step-by-Step Framework for Meta-Analysis
+
+1) Data Preparation
+Clean and transform the data.
+Standardize location information and create unique identifiers.
+Classify locations by continent.
+--- DESCRIPTIVE_VIZ: Exploratory data analysis and visualization.
+Standardize measures of variation and convert SE to SD (save this version).
+Impute missing values (silvo_se, control_se, silvo_n, control_n).
+Convert SE to SD in the imputed dataset (save this version).
+Calculate effect sizes (ROM) for both non-imputed and imputed datasets.
+Compare the imputed and non-imputed datasets using descriptive statistics (mean, SD, median) and tests (density plots, boxplots, t-tests, Kolmogorov-Smirnov test).
+
+2) Meta-Analysis Model Fitting
+Use multivariate/multilevel mixed-effects models (rma.mv).
+Fit models on both non-imputed and imputed datasets.
+Compare results side by side, including effect sizes, confidence intervals, and heterogeneity statistics.
+
+3) Sensitivity Analysis and Diagnostics
+Perform sensitivity analysis, including leave-one-out analysis.
+Conduct trim-and-fill analysis to check for publication bias.
+
+4) Moderator Analysis
+Split the dataset by moderators and conduct analyses on both imputed and non-imputed data.
+Consider meta-regression to formally test for differences in moderator effects between the datasets.
+
+5) Visualizations
+Create comprehensive visual summaries, including caterpillar plots, forest plots, and geographical maps of study locations.
+
 
 #############
 # STEP 0
@@ -76,8 +106,8 @@ setwd(here::here())
 suppressWarnings({
 
 # Define file paths
-non_imp_file <- here::here("DATA", "META_ANALYSIS", "FROM_R", "non_imp_dataset.csv")
-imp_file <- here::here("DATA", "META_ANALYSIS", "FROM_R", "imp_dataset.csv")
+non_imp_file <- here::here("DATA", "OUTPUT_FROM_R", "non_imp_dataset.csv")
+imp_file <- here::here("DATA", "OUTPUT_FROM_R", "imp_dataset.csv")
 
 # Read in the non-imputed dataset
 non_imp_dataset <- read_csv(non_imp_file) %>%
@@ -107,7 +137,7 @@ SPATIAL DISTRIBUTION
 
 ```{r}
 # Step 1: Filter distinct studies based on coordinates
-distinct_studies <- database_clean |> 
+distinct_studies <- imp_dataset |> 
   filter(!is.na(final_lat) & !is.na(final_lon)) |> 
   distinct(id_article, .keep_all = TRUE)
 
@@ -155,7 +185,7 @@ Step 2: Distribution of Studies Over Time
 
 ```{r}
 # Histogram for the distribution of entries over time (assuming study_year_start represents 'Year')
-database_clean_eda |> 
+imp_dataset |> 
   ggplot(aes(x = as.Date(study_year_start))) +
   geom_histogram(binwidth = 1, fill = "skyblue", color = "black") +
   labs(title = "Distribution of Entries Over Time", x = "Year", y = "Number of Entries") +
@@ -164,7 +194,7 @@ database_clean_eda |>
 
 ```{r}
 # Histogram for the distribution of unique studies over time
-database_clean_eda |> 
+imp_dataset |> 
   distinct(id_article, study_year_start) |> 
 ggplot(aes(x = as.Date(study_year_start))) +
   geom_histogram(binwidth = 1, fill = "lightgreen", color = "black") +
@@ -175,9 +205,9 @@ ggplot(aes(x = as.Date(study_year_start))) +
 Step 3: Distribution of Studies Across Moderators
 
 ```{r}
-# Bar plot for tree-crop combinations
-database_clean_eda |> 
-  ggplot(aes(x = tree_crop_combination)) +
+# Bar plot for crop_type
+imp_dataset |> 
+  ggplot(aes(x = crop_type)) +
   geom_bar(fill = "cornflowerblue") +
   labs(title = "Distribution of Entries Across Tree-Crop Combinations", x = "Tree-Crop Combination", y = "Number of Entries") +
   theme_minimal() +
@@ -186,7 +216,7 @@ database_clean_eda |>
 ```
 ```{r}
 # Bar plot for season
-database_clean_eda |>
+imp_dataset |>
   ggplot(aes(x = season)) +
   geom_bar(fill = "darkorange") +
   labs(title = "Distribution of Entries Across Seasons", x = "Season", y = "Number of Entries") +
@@ -206,10 +236,10 @@ Step 5: Explore Moderators and Levels
 
 ```{r}
 # Faceted bar plots for different moderators
-database_clean_eda |> 
+imp_dataset |> 
   ggplot(aes(x = response_variable)) +
   geom_bar(aes(fill = season)) +
-  facet_wrap(~ tree_crop_combination) +
+  facet_wrap(~ crop_type) +
   labs(title = "Number of Entries by Response Variable and Season", x = "Response Variable", y = "Number of Entries") +
   theme_minimal() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
@@ -219,9 +249,9 @@ database_clean_eda |>
 Step 6: Distribution in Space (Using generated Categorized Location Column)
 
 ```{r}
-# Bar plot for the number of studies per location
-database_clean_eda |> 
-  ggplot(aes(x = Continent)) +
+# Bar plot for the number of studies per sub_region
+imp_dataset |> 
+  ggplot(aes(x = sub_region)) +
   geom_bar(fill = "steelblue") +
   labs(title = "Number of Studies Per Continent", x = "Continent", y = "Number of Studies") +
   theme_minimal()
