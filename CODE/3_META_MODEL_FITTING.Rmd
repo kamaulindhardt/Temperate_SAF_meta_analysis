@@ -92,6 +92,7 @@ suppressWarnings({
     # Data Visualization
     ggplot2,          # Data visualization package (part of tidyverse)
     patchwork,        # ggplot2 API for sequentially building up a plot
+    gridExtra,
     ###################################################################################################################
     # Meta-Analysis
     metafor,          # For conducting meta-analysis, effect sizes, and response ratios
@@ -100,6 +101,10 @@ suppressWarnings({
     # Exploratory Data Analysis (EDA)
     DataExplorer,     # For exploratory data analysis
     SmartEDA,         # For smart exploratory data analysis
+    naniar,
+    VIM,
+    Hmisc,
+    BaylorEdPsych,
     ###################################################################################################################
     # Project Management and Code Styling
     here,             # Easy file referencing using the top-level directory of a file project
@@ -136,14 +141,57 @@ file_meta_data_ROM_imp <- here::here("DATA", "OUTPUT_FROM_R", "meta_data_ROM_imp
 
 # Read in the non-imputed dataset
 non_imp_dataset <- read_csv(file_meta_data_ROM_non_imp) %>%
-  as.data.frame()
+  as.data.frame()|> 
+  relocate(
+    # Overall ID info
+    id_article, id_obs, treat_id, exp_id,
+    # Effect size measure
+    yi, vi,
+    # Response variable info
+    response_variable, sub_response_variable,
+    # Geographic and temporal info
+    location, final_lat, final_lon, exp_site_loc, experiment_year,
+    # Moderators info
+    tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width,
+    # Quantitative mata-analysis effect size info
+    silvo_mean, silvo_se, silvo_sd, silvo_n, control_mean, control_se, control_sd, control_n
+  )
 
 # Read in the imputed dataset
 imp_dataset <- read_csv(file_meta_data_ROM_imp) %>%
-  as.data.frame()
+  as.data.frame()|> 
+  relocate(
+    # Overall ID info
+    id_article, id_obs, treat_id, exp_id,
+    # Effect size measure
+    yi, vi,
+    # Response variable info
+    response_variable, sub_response_variable,
+    # Geographic and temporal info
+    location, final_lat, final_lon, exp_site_loc, experiment_year,
+    # Moderators info
+    tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width,
+    # Quantitative mata-analysis effect size info
+    silvo_mean, silvo_se, silvo_sd, silvo_n, control_mean, control_se, control_sd, control_n
+  )
 })
 ```
 
+```{r}
+# Checking high observations with extreme high variance
+high_variance_obs <- 
+  imp_dataset|> 
+  filter(vi > quantile(vi, 0.995)) |> # 0.995
+  # Reorder columns for better readability
+  relocate(id_article, response_variable, measured_metrics, measured_unit, 
+           yi, vi,
+           silvo_mean, silvo_se, silvo_sd, silvo_n, 
+           control_mean, control_se, control_sd, control_n,
+           tree_type, crop_type, age_system, season, soil_texture, no_tree_per_m, tree_height, alley_width) |> 
+  arrange(id_article, response_variable)
+
+skim(high_variance_obs)
+```
 
 
 #############
@@ -152,198 +200,1051 @@ imp_dataset <- read_csv(file_meta_data_ROM_imp) %>%
 PERFORMING MULTIVARIATE/MULTILEVEL LINEAR (MIXED-EFFECTS) MODELLING 
 ##########################################################################################################################################
 
+Assessment of Missing Data for Moderators
+Imputation of Missing Values for Moderators Using mice()
+Post-Imputation Assessment of Moderators
+Selection of Moderators for Analysis
+Fitting the Multivariate Random-Effects Model with Selected Moderators
+
 ```{r}
-# Set up the parallel processing plan
-plan(multisession, workers = parallel::detectCores() - 1)
+library(scales)
 
-# Function to fit the multivariate random-effects model
-fit_meta_model <- function(data, dataset_name) {
-  # Start time tracking
-  start_time <- Sys.time()
-  cat("Starting model fitting for", dataset_name, "...\n")
+# Define the function for missing data assessment
+assess_missing_data <- function(dataset, moderators, dataset_name = "Dataset") {
+  
+  cat("\nStarting missing data assessment for", dataset_name, "...\n")
+  
+  # Step 1: Calculate the proportion of missing values for each moderator
+  missing_summary <- dataset %>%
+    summarise(across(all_of(moderators), ~ mean(is.na(.), na.rm = TRUE))) %>%
+    pivot_longer(cols = everything(), names_to = "variable", values_to = "missing_proportion")
 
-  # Check if the required columns are present
-  if (!all(c("yi", "vi", "id_article", "response_variable", "exp_id") %in% colnames(data))) {
-    stop("Dataset must contain 'yi', 'vi', 'id_article', 'response_variable', and 'exp_id' columns.")
+  # Print the missing summary table
+  cat("\nProportion of Missing Values for Each Moderator:\n")
+  print(missing_summary)
+
+  # Step 2: Create a basic bar chart of missing proportions
+  missing_plot <- ggplot(missing_summary, aes(x = reorder(variable, -missing_proportion), y = missing_proportion)) +
+    geom_bar(stat = "identity", fill = "#0072B2") +
+    labs(
+      title = paste("Proportion of Missing Data for Moderator Variables -", dataset_name),
+      x = "Moderator Variable",
+      y = "Missing Proportion"
+    ) +
+    scale_y_continuous(labels = scales::percent) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+  # Step 3: Calculate missingness for each moderator by response_variable
+  missing_by_response <- dataset %>%
+    group_by(response_variable) %>%
+    summarise(across(all_of(moderators), ~ mean(is.na(.), na.rm = TRUE))) %>%
+    pivot_longer(cols = -response_variable, names_to = "moderator", values_to = "missing_proportion")
+
+  # Print the summary table for missingness by response_variable
+  cat("\nMissing Proportion by Response Variable for Each Moderator:\n")
+  print(missing_by_response)
+
+  # Step 4: Create a heatmap for missingness by response_variable
+  missing_heatmap <- ggplot(missing_by_response, aes(x = moderator, y = response_variable, fill = missing_proportion)) +
+    geom_tile(color = "white") +
+    scale_fill_gradient(low = "#56B1F7", high = "#132B43", na.value = "gray90", labels = percent) +
+    labs(
+      title = paste("Heatmap of Missing Data by Moderator and Response Variable -", dataset_name),
+      x = "Moderator Variable",
+      y = "Response Variable",
+      fill = "Missing Proportion"
+    ) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+  # Display the plots
+  print(missing_plot)
+  print(missing_heatmap)
+  
+  cat("\nMissing data assessment completed for", dataset_name, ".\n")
+}
+```
+
+```{r}
+# Assessing Moderator missingness
+
+moderators <- c("tree_type", "crop_type", "age_system", "season", 
+                "soil_texture", "no_tree_per_m", "tree_height", "alley_width")
+
+# Assess missing data for non-imputed dataset
+assess_missing_data(non_imp_dataset, moderators, "Non-Imputed Dataset")
+
+# Assess missing data for imputed dataset
+assess_missing_data(imp_dataset, moderators, "Imputed Dataset")
+```
+
+
+```{r}
+impute_and_merge <- function(dataset, moderators, dataset_name = "Dataset") {
+  
+  cat("Starting imputation for", dataset_name, "...\n")
+
+  # Step 1: Prepare data for imputation
+  cols_for_impute <- dataset %>%
+    select(
+      yi, vi,
+      id_article, id_obs, exp_id,
+      response_variable, all_of(moderators)
+    )
+
+  # Step 2: Convert categorical variables to factors
+  cols_for_impute <- cols_for_impute %>%
+    mutate(across(all_of(moderators), as.factor))
+
+  # Step 3: Perform multiple imputation using mice
+  set.seed(1234)
+  imputed_data <- mice(
+    cols_for_impute,
+    m = 20,         # Number of imputations
+    maxit = 100,    # Maximum iterations
+    method = 'pmm', # Predictive Mean Matching
+    printFlag = FALSE
+  )
+
+  # Step 4: Extract the first imputed dataset for merging
+  completed_data <- complete(imputed_data, 1)
+
+  # Step 5: Join the imputed values back to the original dataset
+  merged_dataset <- dataset %>%
+    left_join(
+      completed_data %>%
+        select(id_article, id_obs, exp_id, all_of(moderators)),
+      by = c("id_article", "id_obs", "exp_id"),
+      suffix = c("_original", "_imputed")
+    )
+
+  # Step 6: Replace missing values in the original columns with imputed values
+  for (mod in moderators) {
+    original_col <- paste0(mod, "_original")
+    imputed_col <- paste0(mod, "_imputed")
+
+    if (original_col %in% colnames(merged_dataset) && imputed_col %in% colnames(merged_dataset)) {
+      merged_dataset[[mod]] <- ifelse(
+        is.na(merged_dataset[[original_col]]),
+        merged_dataset[[imputed_col]],
+        merged_dataset[[original_col]]
+      )
+    }
   }
 
-  # Fit the multivariate random-effects model with additional random effect for 'exp_id'
+  # Step 7: Drop the temporary columns
+  merged_dataset <- merged_dataset %>%
+    select(-ends_with("_original"), -ends_with("_imputed"))
+
+  cat("Imputation completed for", dataset_name, ".\n")
+  
+  return(merged_dataset)
+}
+```
+
+```{r}
+##########################################################################
+# Set up the parallel processing plan
+plan(multisession, workers = parallel::detectCores() - 1)
+##################################################
+# Start time tracking
+start.time <- Sys.time()
+##################################################
+##################################################
+
+
+# Performing moderator imputations
+moderators <- c("tree_type", "crop_type", "age_system", "season", 
+                "soil_texture", "no_tree_per_m", "tree_height", "alley_width")
+
+# Impute and merge for non-imputed dataset
+non_imp_dataset_imputed <- impute_and_merge(non_imp_dataset, moderators, "Non-Imputed Dataset")
+
+# Impute and merge for imputed dataset
+imp_dataset_imputed <- impute_and_merge(imp_dataset, moderators, "Imputed Dataset")
+
+
+############################################################################################################################
+# Helper function to convert numeric imputed values to categorical factors
+convert_to_factors <- function(data) {
+  # Convert 'no_tree_per_m' to character factors (Low, High)
+  data <- data %>%
+    mutate(
+      no_tree_per_m = case_when(
+        no_tree_per_m %in% c(1, "1") ~ "Low",
+        no_tree_per_m %in% c(2, "2") ~ "High",
+        TRUE ~ as.character(no_tree_per_m)
+      ) %>% as.factor()
+    )
+  
+  # Convert 'tree_height' to character factors (Short, Tall)
+  data <- data %>%
+    mutate(
+      tree_height = case_when(
+        tree_height %in% c(1, "1") ~ "Short",
+        tree_height %in% c(2, "2") ~ "Tall",
+        TRUE ~ as.character(tree_height)
+      ) %>% as.factor()
+    )
+  
+  # Convert 'alley_width' to character factors (Narrow, Wide)
+  data <- data %>%
+    mutate(
+      alley_width = case_when(
+        alley_width %in% c(1, "1") ~ "Narrow",
+        alley_width %in% c(2, "2") ~ "Wide",
+        TRUE ~ as.character(alley_width)
+      ) %>% as.factor()
+    )
+  
+  # Convert 'age_system' to character factors (Narrow, Wide)
+  data <- data %>%
+    mutate(
+      age_system = case_when(
+        age_system %in% c(1, "1") ~ "Young",
+        age_system %in% c(2, "2") ~ "Medium",
+        age_system %in% c(3, "3") ~ "Mature",
+        TRUE ~ as.character(age_system)
+      ) %>% as.factor()
+    )
+  
+   # Convert 'season' to character factors (Narrow, Wide)
+  data <- data %>%
+    mutate(
+      season = case_when(
+        season %in% c(1, "1") ~ "Summer",
+        season %in% c(2, "2") ~ "Winter",
+        season %in% c(3, "3") ~ "WinterSummer",
+        TRUE ~ as.character(season)
+      ) %>% as.factor()
+    )
+  
+  return(data)
+}
+
+# Apply the conversion function to both datasets
+non_imp_dataset_imputed <- convert_to_factors(non_imp_dataset_imputed) |> 
+  relocate(
+    # Overall ID info
+    id_article, id_obs, treat_id, exp_id,
+    # Effect size measure
+    yi, vi,
+    # Response variable info
+    response_variable, sub_response_variable,
+    # Geographic and temporal info
+    location, final_lat, final_lon, exp_site_loc, experiment_year,
+    # Moderators info
+    tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width,
+    # Quantitative mata-analysis effect size info
+    silvo_mean, silvo_se, silvo_sd, silvo_n, control_mean, control_se, control_sd, control_n
+  )
+
+
+imp_dataset_imputed <- convert_to_factors(imp_dataset_imputed) |> 
+  relocate(
+    # Overall ID info
+    id_article, id_obs, treat_id, exp_id,
+    # Effect size measure
+    yi, vi,
+    # Response variable info
+    response_variable, sub_response_variable,
+    # Geographic and temporal info
+    location, final_lat, final_lon, exp_site_loc, experiment_year,
+    # Moderators info
+    tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width,
+    # Quantitative mata-analysis effect size info
+    silvo_mean, silvo_se, silvo_sd, silvo_n, control_mean, control_se, control_sd, control_n
+  )
+
+ 
+
+############################################################################################################################
+
+
+##################################################
+# End time tracking
+end.time <- Sys.time()
+# Calculate time taken
+time.taken <- end.time - start.time
+time.taken
+##############################################################
+# Last go: (16/11-24)
+# Starting imputation for Non-Imputed Dataset ...
+# Advarsel: Number of logged events: 1Imputation completed for Non-Imputed Dataset .
+# Starting imputation for Imputed Dataset ...
+# Advarsel: Number of logged events: 1Imputation completed for Imputed Dataset .
+# Time difference of 1.3963 mins
+
+# Check the structure of the datasets
+# str(non_imp_dataset_imputed)
+# str(imp_dataset_imputed)
+```
+
+Assessing imputation of moderators again
+
+```{r}
+# Assessing Moderator missingness
+
+moderators <- c("tree_type", "crop_type", "age_system", "season", 
+                "soil_texture", "no_tree_per_m", "tree_height", "alley_width")
+
+# Assess missing data for non-imputed dataset
+assess_missing_data(non_imp_dataset_imputed, moderators, "Non-Imputed Dataset")
+
+# Assess missing data for imputed dataset
+assess_missing_data(imp_dataset_imputed, moderators, "Imputed Dataset")
+```
+
+Additional assessment of the moderator imputation
+
+```{r}
+library(scales)
+
+# Function to calculate missing data proportions
+calculate_missing_proportions <- function(data, moderators) {
+  data %>%
+    pivot_longer(cols = all_of(moderators), names_to = "moderator", values_to = "value") %>%
+    group_by(response_variable, moderator) %>%
+    summarise(
+      missing_proportion = mean(is.na(value), na.rm = TRUE)
+    )
+}
+
+# Function to plot missing data proportions per response variable
+plot_missing_proportions <- function(original_data, imputed_data, moderators, dataset_name) {
+  cat("\nStarting plot creation for", dataset_name, "...\n")
+
+  # Calculate missing proportions for original and imputed datasets
+  missing_original <- calculate_missing_proportions(original_data, moderators) %>%
+    mutate(data_source = "Original")
+  
+  missing_imputed <- calculate_missing_proportions(imputed_data, moderators) %>%
+    mutate(data_source = "Imputed")
+
+  # Combine the results
+  combined_missing <- bind_rows(missing_original, missing_imputed)
+
+  # Create the plot
+  plot <- ggplot(combined_missing, aes(x = response_variable, y = missing_proportion, fill = data_source)) +
+    geom_bar(stat = "identity", position = "dodge") +
+    facet_wrap(~ moderator, scales = "free_y") +
+    scale_y_continuous(labels = scales::percent_format()) +
+    labs(
+      title = paste("Proportion of Missing Data per Response Variable -", dataset_name),
+      x = "Response Variable",
+      y = "Missing Proportion"
+    ) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1),
+          legend.position = "top")
+
+  cat("\nPlot creation completed for", dataset_name, ".\n")
+
+  return(plot)
+}
+
+# List of moderators
+moderators <- c("tree_type", "crop_type", "age_system", "season", 
+                "soil_texture", "no_tree_per_m", "tree_height", "alley_width")
+
+# Create plots for Non-Imputed and Imputed datasets
+plot_non_imp <- plot_missing_proportions(non_imp_dataset, non_imp_dataset_imputed, moderators, "Non-Imputed Dataset")
+plot_imp <- plot_missing_proportions(imp_dataset, imp_dataset_imputed, moderators, "Imputed Dataset")
+
+# Display the plots side by side
+plot_non_imp + plot_imp
+```
+
+
+
+##########################################################################################################################################
+CREATING A VARIANCE-COVARIANCE MATRIX
+##########################################################################################################################################
+
+Creating a variance-covariance matrix is crucial in multivariate meta-analysis because it captures the dependencies among the effect sizes from different outcomes measured within the same study. Without accounting for these dependencies, the analysis could be biased and less efficient.
+
+Why a Variance-Covariance Matrix is Needed
+- Account for Within-Study Correlations: When multiple outcomes are reported within the same study, they are often correlated. Ignoring these correlations can lead to inaccurate estimates of the overall effect size and its variance.
+- Borrowing Strength: The variance-covariance matrix allows the analysis to borrow strength across different outcomes, leading to more precise estimates.
+- Improve Model Accuracy: Including the correct variance-covariance structure improves the accuracy of the random-effects model, leading to better inference.
+
+```{r}
+# Function to calculate the variance-covariance matrix for a given dataset
+calculate_v_matrix <- function(data, correlation = 0.5) {
+  cat("\nCalculating Variance-Covariance Matrix...\n")
+
+  # Initialize an empty list to store the variance-covariance matrices for each study
+  v_list <- list()
+
+  # Loop through each unique study ID
+  for (study in unique(data$id_article)) {
+    # Subset the data for the current study
+    study_data <- data[data$id_article == study, ]
+
+    # Check if the study has more than one outcome
+    if (nrow(study_data) > 1) {
+      # Create a diagonal matrix of variances
+      v <- diag(study_data$vi)
+
+      # Set the off-diagonal elements assuming a constant correlation
+      for (i in 1:nrow(v)) {
+        for (j in 1:nrow(v)) {
+          if (i != j) {
+            v[i, j] <- correlation * sqrt(v[i, i] * v[j, j])
+          }
+        }
+      }
+
+      # Store the matrix in the list
+      v_list[[as.character(study)]] <- v
+    } else {
+      # For single outcome studies, use the variance directly
+      v_list[[as.character(study)]] <- matrix(study_data$vi, nrow = 1, ncol = 1)
+    }
+  }
+
+  # Combine all matrices into a block-diagonal matrix
+  V_matrix <- bldiag(v_list)
+  cat("Variance-Covariance Matrix Calculation Complete.\n")
+
+  return(V_matrix)
+}
+```
+
+
+
+##########################################################################################################################################
+MODEL FITTING
+##########################################################################################################################################
+
+Fitting the multivariate random-effects model on both moderator-imputed and non-moderator-imputed datasets
+
+Applying model fitting process on all four datasets (non_imp_dataset, imp_dataset, non_imp_dataset_imputed, and imp_dataset_imputed)
+
+```{r}
+##########################################################################
+# Set up the parallel processing plan
+plan(multisession, workers = parallel::detectCores() - 1)
+##################################################
+# Start time tracking
+start.time <- Sys.time()
+##################################################
+##################################################
+
+
+# Updated function to fit the multivariate random-effects model using V_matrix
+fit_meta_model <- function(data, dataset_name, V_matrix) {
+  cat("\nStarting model fitting for", dataset_name, "...\n")
+
+  # Define the formula for moderators
+  moderators <- c("tree_type", "crop_type", "age_system", "season", "soil_texture", "no_tree_per_m", "tree_height", "alley_width")
+  moderator_formula <- as.formula(paste("yi ~", paste(moderators, collapse = " + ")))
+
+  # Prepare the data
+  data <- data %>%
+    mutate(across(all_of(moderators), as.factor)) %>%
+    as.data.frame()
+
+  # Fit the multivariate random-effects model
   model <- tryCatch({
     rma.mv(
-      yi = yi,                # Effect size estimates
-      V = vi,                 # Variance-covariance matrix of the effect sizes
+      yi = yi,
+      V = V_matrix,
+      mods = moderator_formula,
       random = list(
-        ~ 1 | id_article,                   # Random effect for between-study variability
-        ~ 1 | id_article/response_variable, # Nested random effect for within-study variability
-        ~ 1 | exp_id                       # Random effect for experiment-level variability
+        ~ 1 | id_article,
+        ~ 1 | id_article/response_variable,
+        ~ 1 | exp_id
       ),
-      data = data,            # Meta-analysis data
-      verbose = TRUE,         # Enable verbose output for tracking progress
+      data = data,
+      method = "ML",
       control = list(
-        optimizer = "optim",         # Use 'optim' optimizer
-        optim.method = "BFGS",       # Use BFGS optimization method
-        iter.max = 1000,             # Maximum number of iterations
-        rel.tol = 1e-8               # Convergence tolerance
-      ),
-      method = "ML"           # Use Maximum Likelihood estimation
+        optimizer = "optim",
+        optim.method = "BFGS",
+        iter.max = 1000,
+        rel.tol = 1e-8
+      )
     )
   }, error = function(e) {
     cat("Error in model fitting for", dataset_name, ":", e$message, "\n")
     return(NULL)
   })
 
-  # End time tracking
-  end_time <- Sys.time()
-  cat("Model fitting completed for", dataset_name, "in", round(difftime(end_time, start_time, units = "mins"), 2), "minutes.\n")
+  if (!is.null(model)) {
+    cat("Model fitting completed for", dataset_name, ".\n")
+    
+    # Extract model statistics
+    aic <- AIC(model)
+    bic <- BIC(model)
+    logLik_val <- logLik(model)
 
-  return(model)
+    # Calculate I² (heterogeneity)
+    tau2 <- sum(model$sigma2)
+    sigma2 <- mean(data$vi)
+    I2 <- (tau2 / (tau2 + sigma2)) * 100
+
+    # Create a summary list
+    model_summary <- list(
+      model = model,
+      aic = aic,
+      bic = bic,
+      logLik = logLik_val,
+      I2 = I2
+    )
+    
+    return(model_summary)
+  } else {
+    return(NULL)
+  }
 }
 
-# Apply the function to both non-imputed and imputed datasets
-cat("\nFitting model for Non-Imputed Data:\n")
-model_non_imp <- fit_meta_model(non_imp_dataset, "Non-Imputed Data")
 
-cat("\nFitting model for Imputed Data:\n")
-model_imp <- fit_meta_model(imp_dataset, "Imputed Data")
-
-# Check and compare model summaries
-if (!is.null(model_non_imp)) {
-  cat("\nSummary of Non-Imputed Model:\n")
-  print(summary(model_non_imp))
-}
-
-if (!is.null(model_imp)) {
-  cat("\nSummary of Imputed Model:\n")
-  print(summary(model_imp))
-}
-
-# Calculate the time taken for both models
-cat("\nTotal time taken for model fitting:\n")
-total_time <- Sys.time() - start_time
-print(total_time)
-```
-
-```{r}
-summary(model_non_imp)
-summary(model_imp)
-
-```
-```{r}
-# Fixed effects estimates
-fixed_effects_non_imp <- coef(model_non_imp)
-fixed_effects_imp <- coef(model_imp)
-
-print(fixed_effects_non_imp)
-print(fixed_effects_imp)
-
-```
-
-```{r}
-# Variance components (random effects)
-var_components_non_imp <- model_non_imp$sigma2
-var_components_imp <- model_imp$sigma2
-
-cat("Variance components for Non-Imputed Model:", var_components_non_imp, "\n")
-cat("Variance components for Imputed Model:", var_components_imp, "\n")
-
-```
-
-```{r}
-# Heterogeneity statistics
-# Function to calculate I2 for a given model
-calculate_I2 <- function(model) {
-  # Extract variance components
-  tau2 <- sum(model$sigma2) # Sum of all random effect variance components
-  sigma2 <- mean(model$vi)  # Mean of the within-study variances
-
-  # Calculate I^2
-  I2 <- tau2 / (tau2 + sigma2)
-  return(I2 * 100) # Convert to percentage
-}
-
-# Calculate I^2 for non-imputed and imputed models
-I2_non_imp <- calculate_I2(model_non_imp)
-I2_imp <- calculate_I2(model_imp)
-
-cat("I^2 for Non-Imputed Model:", round(I2_non_imp, 2), "%\n")
-cat("I^2 for Imputed Model:", round(I2_imp, 2), "%\n")
-
-```
-
-```{r}
-# Residuals
-residuals_non_imp <- residuals(model_non_imp)
-residuals_imp <- residuals(model_imp)
-
-# Fitted values
-fitted_values_non_imp <- fitted(model_non_imp)
-fitted_values_imp <- fitted(model_imp)
-
-# Print a few residuals and fitted values
-head(data.frame(Residuals_Non_Imp = residuals_non_imp, Fitted_Non_Imp = fitted_values_non_imp))
-head(data.frame(Residuals_Imp = residuals_imp, Fitted_Imp = fitted_values_imp))
-```
-
-```{r}
-# Log-Likelihood, AIC, and BIC
-logLik_non_imp <- logLik(model_non_imp)
-logLik_imp <- logLik(model_imp)
-
-AIC_non_imp <- AIC(model_non_imp)
-AIC_imp <- AIC(model_imp)
-
-BIC_non_imp <- BIC(model_non_imp)
-BIC_imp <- BIC(model_imp)
-
-cat("Non-Imputed Model - Log-Likelihood:", logLik_non_imp, "AIC:", AIC_non_imp, "BIC:", BIC_non_imp, "\n")
-cat("Imputed Model - Log-Likelihood:", logLik_imp, "AIC:", AIC_imp, "BIC:", BIC_imp, "\n")
-
-```
-
-```{r}
-# Confidence intervals
-conf_int_non_imp <- confint(model_non_imp)
-conf_int_imp <- confint(model_imp)
-
-print(conf_int_non_imp)
-print(conf_int_imp)
-
-```
-
-```{r}
-# Forest plot for non-imputed data
-cat("\nForest Plot for Non-Imputed Model:\n")
-forest(model_non_imp, showweights = TRUE, xlab = "Effect Size (yi)")
-
-# Forest plot for imputed data
-cat("\nForest Plot for Imputed Model:\n")
-forest(model_imp, showweights = TRUE, xlab = "Effect Size (yi)")
-
-```
-
-```{r}
-# Standardized residuals
-rstandard_non_imp <- rstandard(model_non_imp)
-rstandard_imp <- rstandard(model_imp)
-
-# Plot standardized residuals
-plot(rstandard_non_imp, main = "Standardized Residuals - Non-Imputed Data")
-plot(rstandard_imp, main = "Standardized Residuals - Imputed Data")
-
-```
-
-```{r}
-# Extract key results into a data frame
-results_df <- data.frame(
-  Dataset = c("Non-Imputed", "Imputed"),
-  Fixed_Effect = c(fixed_effects_non_imp, fixed_effects_imp),
-  Tau2 = c(var_components_non_imp[1], var_components_imp[1]),
-  I2 = c(I2_non_imp, I2_imp),
-  AIC = c(AIC_non_imp, AIC_imp),
-  BIC = c(BIC_non_imp, BIC_imp)
+# List of datasets and names
+datasets <- list(
+  non_imp_dataset = non_imp_dataset,
+  imp_dataset = imp_dataset,
+  non_imp_dataset_imputed = non_imp_dataset_imputed,
+  imp_dataset_imputed = imp_dataset_imputed
 )
 
-print(results_df)
+# Calculate the variance-covariance matrix for each dataset
+V_matrices <- lapply(names(datasets), function(dataset_name) {
+  calculate_v_matrix(datasets[[dataset_name]], correlation = 0.5)
+})
+names(V_matrices) <- names(datasets)
+
+# Fit the model on all datasets using the calculated V_matrices
+model_results <- lapply(names(datasets), function(dataset_name) {
+  fit_meta_model(datasets[[dataset_name]], dataset_name, V_matrices[[dataset_name]])
+})
+names(model_results) <- names(datasets)
+
+# Function to extract and compile model statistics
+extract_model_summary <- function(model_summary, dataset_name) {
+  if (is.null(model_summary)) {
+    return(data.frame(
+      Dataset = dataset_name,
+      AIC = NA,
+      BIC = NA,
+      LogLikelihood = NA,
+      I2 = NA
+    ))
+  }
+
+  data.frame(
+    Dataset = dataset_name,
+    AIC = model_summary$aic,
+    BIC = model_summary$bic,
+    LogLikelihood = model_summary$logLik,
+    I2 = model_summary$I2
+  )
+}
+
+# Compile the model summaries into a single data frame
+model_summaries <- bind_rows(
+  extract_model_summary(model_results$non_imp_dataset, "Non-Imputed Dataset"),
+  extract_model_summary(model_results$imp_dataset, "Imputed Dataset"),
+  extract_model_summary(model_results$non_imp_dataset_imputed, "Non-Imputed Imputed Dataset"),
+  extract_model_summary(model_results$imp_dataset_imputed, "Imputed Imputed Dataset")
+)
+
+# Print the combined summary table
+model_summaries
+
+# Save the summary table
+# write.csv(model_summaries, file = "model_summaries.csv")
+
+
+##################################################
+# End time tracking
+end.time <- Sys.time()
+# Calculate time taken
+time.taken <- end.time - start.time
+time.taken
+##############################################################
+# Last go: (17/11-24)
+# Time difference of 3.211481 mins
+
+# str(model_results)
+```
+
+```{r}
+# Define the output directory
+output_dir <- here::here("DATA", "OUTPUT_FROM_R")
+
+# Save the V_matrix for each dataset
+saveRDS(V_matrices$non_imp_dataset, file = file.path(output_dir, "V_matrix_non_imp_dataset.rds"))
+saveRDS(V_matrices$imp_dataset, file = file.path(output_dir, "V_matrix_imp_dataset.rds"))
+saveRDS(V_matrices$non_imp_dataset_imputed, file = file.path(output_dir, "V_matrix_non_imp_dataset_imputed.rds"))
+saveRDS(V_matrices$imp_dataset_imputed, file = file.path(output_dir, "V_matrix_imp_dataset_imputed.rds"))
+
+cat("Variance-covariance matrices have been saved to:", output_dir, "\n")
+```
+
+
+Evaluation of model fitting - comparing all four models
+
+```{r}
+# Extract AIC, BIC, Log-Likelihood, and I²
+model_stats <- model_summaries %>%
+  pivot_longer(cols = c(AIC, BIC, LogLikelihood, I2),
+               names_to = "Statistic",
+               values_to = "Value")
+
+# Extract fixed effects estimates for each model
+extract_fixed_effects <- function(model_summary, dataset_name) {
+  if (is.null(model_summary)) {
+    return(data.frame(
+      Dataset = dataset_name,
+      Term = NA,
+      Estimate = NA,
+      CI_Lower = NA,
+      CI_Upper = NA
+    ))
+  }
+  
+  coef_df <- data.frame(
+    Term = rownames(model_summary$model$b),
+    Estimate = model_summary$model$b[, 1],
+    CI_Lower = model_summary$model$ci.lb,
+    CI_Upper = model_summary$model$ci.ub
+  )
+  
+  coef_df$Dataset <- dataset_name
+  return(coef_df)
+}
+
+# Combine fixed effects data across all models
+fixed_effects_data <- bind_rows(
+  extract_fixed_effects(model_results$non_imp_dataset, "Non-Imputed Dataset"),
+  extract_fixed_effects(model_results$imp_dataset, "Imputed Dataset"),
+  extract_fixed_effects(model_results$non_imp_dataset_imputed, "Non-Imputed Imputed Dataset"),
+  extract_fixed_effects(model_results$imp_dataset_imputed, "Imputed Imputed Dataset")
+)
+
+# Filter out rows with NA values
+fixed_effects_data <- fixed_effects_data %>% drop_na()
+fixed_effects_data
+```
+
+
+Visualization 1: Model Fit Comparison (AIC, BIC, Log-Likelihood, and I²)
+
+```{r}
+# Plot Model Fit Statistics
+fit_plot <- ggplot(model_stats, aes(x = fct_reorder(Dataset, Value), y = Value, fill = Statistic)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_wrap(~ Statistic, scales = "free") +
+  labs(title = "Comparison of Model Fit Statistics",
+       x = "Dataset",
+       y = "Value",
+       fill = "Statistic") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+print(fit_plot)
+
+```
+
+
+
+Visualization 2: Fixed Effects Estimates Comparison
+
+```{r}
+# Plot Fixed Effects Estimates with Confidence Intervals
+coef_plot <- ggplot(fixed_effects_data, aes(x = Term, y = Estimate, color = Dataset)) +
+  geom_point(position = position_dodge(width = 0.5), size = 3) +
+  geom_errorbar(aes(ymin = CI_Lower, ymax = CI_Upper),
+                width = 0.2, position = position_dodge(width = 0.5)) +
+  coord_flip() +
+  labs(title = "Comparison of Fixed Effects Estimates Across Models",
+       x = "Fixed Effect Term",
+       y = "Estimate",
+       color = "Dataset") +
+  theme_minimal()
+
+print(coef_plot)
+
+```
+
+
+Visualization 3: Heterogeneity (I²) Comparison
+
+```{r}
+# Heterogeneity Comparison Plot
+I2_plot <- ggplot(model_summaries, aes(x = Dataset, y = I2, fill = Dataset)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = round(I2, 2)), vjust = -0.5) +
+  labs(title = "Comparison of I² (Heterogeneity) Across Models",
+       x = "Dataset",
+       y = "I² (%)") +
+  theme_minimal() +
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 45, hjust = 1))
+
+print(I2_plot)
+
+```
+
+Comparison table of key model statistics
+
+```{r}
+colnames(model_summaries)
+
+```
+
+```{r}
+# Define the updated function to extract key statistics
+extract_model_summary <- function(model_list, dataset_name) {
+  # Check if the model list is not NULL and contains a model object
+  if (is.null(model_list) || !inherits(model_list, "list")) {
+    return(data.frame(
+      Dataset = dataset_name,
+      k.all = NA,
+      LogLikelihood = NA,
+      AIC = NA,
+      BIC = NA,
+      I2 = NA,
+      QM = NA,
+      QMp = NA
+    ))
+  }
+
+  # Extract the actual model object from the list
+  model <- model_list$model
+  
+  # If the model object is NULL or does not have class "rma.mv", return NA
+  if (is.null(model) || !inherits(model, "rma.mv")) {
+    return(data.frame(
+      Dataset = dataset_name,
+      k.all = NA,
+      LogLikelihood = NA,
+      AIC = NA,
+      BIC = NA,
+      I2 = NA,
+      QM = NA,
+      QMp = NA
+    ))
+  }
+  
+  # Extract key statistics
+  k.all <- model$k.all
+  logLik <- as.numeric(logLik(model))
+  AIC <- AIC(model)
+  BIC <- BIC(model)
+  I2 <- round((sum(model$sigma2) / (sum(model$sigma2) + mean(model$vi))) * 100, 1)
+  QM <- model$QM
+  QMp <- model$QMp
+  
+  # Create a summary data frame
+  data.frame(
+    Dataset = dataset_name,
+    k.all = k.all,
+    LogLikelihood = logLik,
+    AIC = AIC,
+    BIC = BIC,
+    I2 = I2,
+    QM = QM,
+    QMp = QMp
+  )
+}
+
+# Apply the updated function to all models in `model_results`
+model_summaries <- bind_rows(
+  extract_model_summary(model_results$non_imp_dataset, "Non-Imputed Dataset"),
+  extract_model_summary(model_results$imp_dataset, "Imputed Dataset"),
+  extract_model_summary(model_results$non_imp_dataset_imputed, "Non-Imputed Imputed Dataset"),
+  extract_model_summary(model_results$imp_dataset_imputed, "Imputed Imputed Dataset")
+)
+
+# View the combined summary table
+print(model_summaries)
+
+```
+
+
+```{r}
+# Create a summary table with existing columns
+comparison_table <- model_summaries %>%
+  mutate(
+    LogLikelihood = round(LogLikelihood, 2),
+    AIC = round(AIC, 2),
+    BIC = round(BIC, 2),
+    I2 = paste0(round(I2, 1), "%")
+  )
+
+# Create a formatted table using `gt`
+comparison_gt <- comparison_table %>%
+  gt() %>%
+  tab_header(
+    title = "Model Comparison Summary",
+    subtitle = "Key Statistics for Evaluating Model Fit"
+  ) %>%
+  cols_label(
+    Dataset = "Dataset",
+    LogLikelihood = "Log-Likelihood",
+    AIC = "AIC",
+    BIC = "BIC",
+    I2 = "I² (%)"
+  ) %>%
+  fmt_number(
+    columns = c(LogLikelihood, AIC, BIC),
+    decimals = 2
+  ) %>%
+  fmt_missing(
+    columns = everything(),
+    missing_text = "-"
+  ) %>%
+  tab_style(
+    style = list(
+      cell_fill(color = "#f5f5f5"),
+      cell_borders(sides = "all", color = "gray", weight = px(1))
+    ),
+    locations = cells_body()
+  ) %>%
+  tab_options(
+    table.font.size = "small",
+    table.border.top.color = "gray",
+    table.border.bottom.color = "gray"
+  )
+
+# Optionally export the table
+# Define the output folder path
+output_folder <- here("DATA", "OUTPUT_FROM_R")
+
+# Export the table to HTML and PDF in the specified folder
+gtsave(comparison_gt, file.path(output_folder, "model_comparison_summary.html"))
+gtsave(comparison_gt, file.path(output_folder, "model_comparison_summary.pdf"))
+
+# Display the table
+comparison_gt
+```
+
+
+
+
+
+
+INTERPRETATION OF MODEL 
+
+
+
+Evaluation plots
+
+```{r}
+##########################################################################
+# Set up the parallel processing plan
+plan(multisession, workers = parallel::detectCores() - 1)
+##################################################
+# Start time tracking
+start.time <- Sys.time()
+##################################################
+##################################################
+
+# Define the model names and colors
+model_names <- c("Non-Imputed Dataset", "Imputed Dataset", "Non-Imputed Imputed Dataset", "Imputed Imputed Dataset")
+colors <- c("#0072B2", "#E69F00", "#009E73", "#D55E00")
+
+# Initialize lists to store the plots
+residuals_plots <- list()
+conf_intervals_plots <- list()
+std_residuals_plots <- list()
+
+# Define the output directory
+output_dir <- here::here("DATA", "OUTPUT_FROM_R", "FIGURES")
+
+# Loop through each model and generate the plots
+for (i in seq_along(model_results)) {
+  model <- model_results[[i]]$model
+  model_name <- model_names[i]
+  color <- colors[i]
+  V_matrix <- V_matrices[[i]]
+
+  # Generate Residuals vs. Fitted Values Plot
+  residuals_plot <- tryCatch({
+    plot_residuals_vs_fitted(model, model_name, color)
+  }, error = function(e) {
+    cat("Error generating Residuals vs. Fitted plot for", model_name, ":", e$message, "\n")
+    NULL
+  })
+  residuals_plots[[i]] <- residuals_plot
+
+# Updated function to calculate bootstrap confidence intervals and return a ggplot
+bootstrap_conf_intervals <- function(model, model_name, V_matrix, n_boot = 1000, alpha = 0.05) {
+  cat("\nCalculating Bootstrap Confidence Intervals for", model_name, "...\n")
+
+  # Initialize a matrix to store the bootstrap estimates
+  boot_estimates <- matrix(NA, nrow = n_boot, ncol = length(coef(model)))
+  colnames(boot_estimates) <- names(coef(model))
+
+  # Bootstrap loop
+  for (b in 1:n_boot) {
+    resample_indices <- sample(nrow(model$data), replace = TRUE)
+    resampled_data <- model$data[resample_indices, ]
+
+    boot_model <- tryCatch({
+      rma.mv(
+        yi = resampled_data$yi,
+        V = V_matrix[resample_indices, resample_indices],
+        mods = model$mods,
+        random = model$random,
+        data = resampled_data,
+        method = "ML"
+      )
+    }, error = function(e) NULL)
+
+    if (!is.null(boot_model)) {
+      boot_estimates[b, ] <- coef(boot_model)
+    }
+  }
+
+  boot_estimates <- boot_estimates[complete.cases(boot_estimates), ]
+  lower_bound <- apply(boot_estimates, 2, quantile, probs = alpha / 2)
+  upper_bound <- apply(boot_estimates, 2, quantile, probs = 1 - alpha / 2)
+
+  conf_int_df <- data.frame(
+    Term = names(coef(model)),
+    Estimate = coef(model),
+    CI.Lower = lower_bound,
+    CI.Upper = upper_bound
+  )
+
+  cat("Bootstrap Confidence Intervals Calculation Complete for", model_name, ".\n")
+
+  # Create a ggplot object
+  ggplot(conf_int_df, aes(x = Term, y = Estimate)) +
+    geom_point(color = "#0072B2") +
+    geom_errorbar(aes(ymin = CI.Lower, ymax = CI.Upper), width = 0.2) +
+    geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+    labs(
+      title = paste("Bootstrap Confidence Intervals -", model_name),
+      x = "Terms",
+      y = "Estimates"
+    ) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+}
+
+
+  # Generate Standardized Residuals Plot
+  std_residuals_plot <- tryCatch({
+    plot_standardized_residuals(model, model_name, color)
+  }, error = function(e) {
+    cat("Error generating Standardized Residuals plot for", model_name, ":", e$message, "\n")
+    NULL
+  })
+  std_residuals_plots[[i]] <- std_residuals_plot
+
+  # Generate and Save Forest Plot Individually
+  tryCatch({
+    create_forest_plot(model, model_name, V_matrix)
+    ggsave(
+      filename = file.path(output_dir, paste0("forest_plot_", model_name, ".jpg")),
+      width = 10, height = 8, dpi = 300
+    )
+    cat("Forest plot saved for", model_name, ".\n")
+  }, error = function(e) {
+    cat("Error generating or saving Forest plot for", model_name, ":", e$message, "\n")
+  })
+}
+
+
+##################################################
+# End time tracking
+end.time <- Sys.time()
+# Calculate time taken
+time.taken <- end.time - start.time
+time.taken
+##############################################################
+# Last go: (17/11-24)
+# Time difference of 25.3915 secs
+# 
+# Calculating Bootstrap Confidence Intervals for Non-Imputed Dataset ...
+# Bootstrap Confidence Intervals Calculation Complete for Non-Imputed Dataset .
+# 
+# Forest Plot for Non-Imputed Dataset :
+# 
+# Calculating Bootstrap Confidence Intervals for Imputed Dataset ...
+# Bootstrap Confidence Intervals Calculation Complete for Imputed Dataset .
+# 
+# Forest Plot for Imputed Dataset :
+# Advarsel: longer object length is not a multiple of shorter object length
+# Calculating Bootstrap Confidence Intervals for Non-Imputed Imputed Dataset ...
+# Bootstrap Confidence Intervals Calculation Complete for Non-Imputed Imputed Dataset .
+# 
+# Forest Plot for Non-Imputed Imputed Dataset :
+# 
+# Calculating Bootstrap Confidence Intervals for Imputed Imputed Dataset ...
+# Bootstrap Confidence Intervals Calculation Complete for Imputed Imputed Dataset .
+# 
+# Forest Plot for Imputed Imputed Dataset :
+```
+
+Saving plots
+
+```{r}
+
+```
+
+
+
+##########################################################################################################################################
+SAVING DATASETS AND MODEL OBJECTS
+##########################################################################################################################################
+
+```{r}
+# Define the output directory
+output_dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
+if (!dir.exists(output_dir)) {
+  dir.create(output_dir, recursive = TRUE)
+}
+
+# List of datasets and their names
+datasets <- list(
+  non_imp_dataset = non_imp_dataset,
+  imp_dataset = imp_dataset,
+  non_imp_dataset_imputed = non_imp_dataset_imputed,
+  imp_dataset_imputed = imp_dataset_imputed
+)
+
+# Save each dataset
+for (dataset_name in names(datasets)) {
+  dataset <- datasets[[dataset_name]]
+  saveRDS(dataset, file = file.path(output_dir, paste0(dataset_name, ".rds")))
+  cat("Dataset saved:", dataset_name, "\n")
+}
+
+
+# Save each variance-covariance matrix
+for (matrix_name in names(V_matrices)) {
+  V_matrix <- V_matrices[[matrix_name]]
+  saveRDS(V_matrix, file = file.path(output_dir, paste0("V_matrix_", matrix_name, ".rds")))
+  cat("Variance-Covariance Matrix saved:", matrix_name, "\n")
+}
+
+
+# Save each model object
+for (model_name in names(model_results)) {
+  model <- model_results[[model_name]]$model
+  if (!is.null(model)) {
+    saveRDS(model, file = file.path(output_dir, paste0("model_", model_name, ".rds")))
+    cat("Model object saved:", model_name, "\n")
+  } else {
+    cat("Model object for", model_name, "is NULL. Skipping save.\n")
+  }
+}
+
+
+# Save the model summary table
+saveRDS(model_summaries, file = file.path(output_dir, "model_summaries.rds"))
+cat("Model summary table saved.\n")
+
+
+# List all saved files
+saved_files <- list.files(output_dir, full.names = TRUE)
+cat("All saved files:\n")
+print(saved_files)
 
 ```
 

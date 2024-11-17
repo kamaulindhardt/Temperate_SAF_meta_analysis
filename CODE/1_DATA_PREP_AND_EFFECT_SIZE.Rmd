@@ -212,8 +212,7 @@ database_clean <- database |>
     control_sd = safe_as_numeric(control_sd),
     control_n = safe_as_numeric(control_n),
     tree_age = safe_as_numeric(tree_age),
-    no_tree_per_m = safe_as_numeric(no_tree_per_m)
-  ) |>
+    no_tree_per_m = as.character(no_tree_per_m)) |> 
   
   # Step 4: Create Identifiers (Experiment, Treatment, Common Control)
   # Group data by relevant columns for Treatment ID
