@@ -1313,5 +1313,24 @@ boxplot_imp <- ggplot(meta_data_ROM_imp, aes(y = yi)) +
 
 
 
+ 
+ 
 
+Saving the dataset meta_data_ROM_non_imp
+Saving the dataset that is used as imputed
 
+```{r}
+# This is the dataset that is used for analysis before imputation
+meta_data_ROM_non_imp
+
+# This is the dataset that is used for analysis after imputation
+meta_data_ROM_imp
+
+################################################################################
+# NON-IMPUTED
+readr::write_csv(meta_data_ROM_non_imp,
+                 here::here("DATA", "OUTPUT_FROM_R", "meta_data_ROM_non_imp.csv"))
+# IMPUTED
+readr::write_csv(meta_data_ROM_imp,
+                 here::here("DATA", "OUTPUT_FROM_R", "meta_data_ROM_imp.csv"))
+```

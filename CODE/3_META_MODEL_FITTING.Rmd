@@ -131,15 +131,15 @@ setwd(here::here())
 suppressWarnings({
 
 # Define file paths
-non_imp_file <- here::here("DATA", "OUTPUT_FROM_R", "non_imp_dataset.csv")
-imp_file <- here::here("DATA", "OUTPUT_FROM_R", "imp_dataset.csv")
+file_meta_data_ROM_non_imp <- here::here("DATA", "OUTPUT_FROM_R", "meta_data_ROM_non_imp.csv")
+file_meta_data_ROM_imp <- here::here("DATA", "OUTPUT_FROM_R", "meta_data_ROM_imp.csv")
 
 # Read in the non-imputed dataset
-non_imp_dataset <- read_csv(non_imp_file) %>%
+non_imp_dataset <- read_csv(file_meta_data_ROM_non_imp) %>%
   as.data.frame()
 
 # Read in the imputed dataset
-imp_dataset <- read_csv(imp_file) %>%
+imp_dataset <- read_csv(file_meta_data_ROM_imp) %>%
   as.data.frame()
 })
 ```
@@ -152,5 +152,198 @@ imp_dataset <- read_csv(imp_file) %>%
 PERFORMING MULTIVARIATE/MULTILEVEL LINEAR (MIXED-EFFECTS) MODELLING 
 ##########################################################################################################################################
 
+```{r}
+# Set up the parallel processing plan
+plan(multisession, workers = parallel::detectCores() - 1)
 
+# Function to fit the multivariate random-effects model
+fit_meta_model <- function(data, dataset_name) {
+  # Start time tracking
+  start_time <- Sys.time()
+  cat("Starting model fitting for", dataset_name, "...\n")
+
+  # Check if the required columns are present
+  if (!all(c("yi", "vi", "id_article", "response_variable", "exp_id") %in% colnames(data))) {
+    stop("Dataset must contain 'yi', 'vi', 'id_article', 'response_variable', and 'exp_id' columns.")
+  }
+
+  # Fit the multivariate random-effects model with additional random effect for 'exp_id'
+  model <- tryCatch({
+    rma.mv(
+      yi = yi,                # Effect size estimates
+      V = vi,                 # Variance-covariance matrix of the effect sizes
+      random = list(
+        ~ 1 | id_article,                   # Random effect for between-study variability
+        ~ 1 | id_article/response_variable, # Nested random effect for within-study variability
+        ~ 1 | exp_id                       # Random effect for experiment-level variability
+      ),
+      data = data,            # Meta-analysis data
+      verbose = TRUE,         # Enable verbose output for tracking progress
+      control = list(
+        optimizer = "optim",         # Use 'optim' optimizer
+        optim.method = "BFGS",       # Use BFGS optimization method
+        iter.max = 1000,             # Maximum number of iterations
+        rel.tol = 1e-8               # Convergence tolerance
+      ),
+      method = "ML"           # Use Maximum Likelihood estimation
+    )
+  }, error = function(e) {
+    cat("Error in model fitting for", dataset_name, ":", e$message, "\n")
+    return(NULL)
+  })
+
+  # End time tracking
+  end_time <- Sys.time()
+  cat("Model fitting completed for", dataset_name, "in", round(difftime(end_time, start_time, units = "mins"), 2), "minutes.\n")
+
+  return(model)
+}
+
+# Apply the function to both non-imputed and imputed datasets
+cat("\nFitting model for Non-Imputed Data:\n")
+model_non_imp <- fit_meta_model(non_imp_dataset, "Non-Imputed Data")
+
+cat("\nFitting model for Imputed Data:\n")
+model_imp <- fit_meta_model(imp_dataset, "Imputed Data")
+
+# Check and compare model summaries
+if (!is.null(model_non_imp)) {
+  cat("\nSummary of Non-Imputed Model:\n")
+  print(summary(model_non_imp))
+}
+
+if (!is.null(model_imp)) {
+  cat("\nSummary of Imputed Model:\n")
+  print(summary(model_imp))
+}
+
+# Calculate the time taken for both models
+cat("\nTotal time taken for model fitting:\n")
+total_time <- Sys.time() - start_time
+print(total_time)
+```
+
+```{r}
+summary(model_non_imp)
+summary(model_imp)
+
+```
+```{r}
+# Fixed effects estimates
+fixed_effects_non_imp <- coef(model_non_imp)
+fixed_effects_imp <- coef(model_imp)
+
+print(fixed_effects_non_imp)
+print(fixed_effects_imp)
+
+```
+
+```{r}
+# Variance components (random effects)
+var_components_non_imp <- model_non_imp$sigma2
+var_components_imp <- model_imp$sigma2
+
+cat("Variance components for Non-Imputed Model:", var_components_non_imp, "\n")
+cat("Variance components for Imputed Model:", var_components_imp, "\n")
+
+```
+
+```{r}
+# Heterogeneity statistics
+# Function to calculate I2 for a given model
+calculate_I2 <- function(model) {
+  # Extract variance components
+  tau2 <- sum(model$sigma2) # Sum of all random effect variance components
+  sigma2 <- mean(model$vi)  # Mean of the within-study variances
+
+  # Calculate I^2
+  I2 <- tau2 / (tau2 + sigma2)
+  return(I2 * 100) # Convert to percentage
+}
+
+# Calculate I^2 for non-imputed and imputed models
+I2_non_imp <- calculate_I2(model_non_imp)
+I2_imp <- calculate_I2(model_imp)
+
+cat("I^2 for Non-Imputed Model:", round(I2_non_imp, 2), "%\n")
+cat("I^2 for Imputed Model:", round(I2_imp, 2), "%\n")
+
+```
+
+```{r}
+# Residuals
+residuals_non_imp <- residuals(model_non_imp)
+residuals_imp <- residuals(model_imp)
+
+# Fitted values
+fitted_values_non_imp <- fitted(model_non_imp)
+fitted_values_imp <- fitted(model_imp)
+
+# Print a few residuals and fitted values
+head(data.frame(Residuals_Non_Imp = residuals_non_imp, Fitted_Non_Imp = fitted_values_non_imp))
+head(data.frame(Residuals_Imp = residuals_imp, Fitted_Imp = fitted_values_imp))
+```
+
+```{r}
+# Log-Likelihood, AIC, and BIC
+logLik_non_imp <- logLik(model_non_imp)
+logLik_imp <- logLik(model_imp)
+
+AIC_non_imp <- AIC(model_non_imp)
+AIC_imp <- AIC(model_imp)
+
+BIC_non_imp <- BIC(model_non_imp)
+BIC_imp <- BIC(model_imp)
+
+cat("Non-Imputed Model - Log-Likelihood:", logLik_non_imp, "AIC:", AIC_non_imp, "BIC:", BIC_non_imp, "\n")
+cat("Imputed Model - Log-Likelihood:", logLik_imp, "AIC:", AIC_imp, "BIC:", BIC_imp, "\n")
+
+```
+
+```{r}
+# Confidence intervals
+conf_int_non_imp <- confint(model_non_imp)
+conf_int_imp <- confint(model_imp)
+
+print(conf_int_non_imp)
+print(conf_int_imp)
+
+```
+
+```{r}
+# Forest plot for non-imputed data
+cat("\nForest Plot for Non-Imputed Model:\n")
+forest(model_non_imp, showweights = TRUE, xlab = "Effect Size (yi)")
+
+# Forest plot for imputed data
+cat("\nForest Plot for Imputed Model:\n")
+forest(model_imp, showweights = TRUE, xlab = "Effect Size (yi)")
+
+```
+
+```{r}
+# Standardized residuals
+rstandard_non_imp <- rstandard(model_non_imp)
+rstandard_imp <- rstandard(model_imp)
+
+# Plot standardized residuals
+plot(rstandard_non_imp, main = "Standardized Residuals - Non-Imputed Data")
+plot(rstandard_imp, main = "Standardized Residuals - Imputed Data")
+
+```
+
+```{r}
+# Extract key results into a data frame
+results_df <- data.frame(
+  Dataset = c("Non-Imputed", "Imputed"),
+  Fixed_Effect = c(fixed_effects_non_imp, fixed_effects_imp),
+  Tau2 = c(var_components_non_imp[1], var_components_imp[1]),
+  I2 = c(I2_non_imp, I2_imp),
+  AIC = c(AIC_non_imp, AIC_imp),
+  BIC = c(BIC_non_imp, BIC_imp)
+)
+
+print(results_df)
+
+```
 
