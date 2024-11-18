@@ -138,6 +138,7 @@ conflict_prefer("mutate", "dplyr")
 conflict_prefer("arrange", "dplyr")
 conflict_prefer("locale", "readr")
 conflict_prefer("extract", "raster")
+conflict_prefer("intersect", "base")
 ```
 
 
@@ -147,15 +148,752 @@ Loading the datasets
 # Set the working directory automatically using 'here'
 setwd(here::here())
 
-# Define the output directory using 'here'
+
+# Define your working directory using 'here'
 output_dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
 
-# Load all datasets and models
+# Load datasets
 non_imp_dataset <- readRDS(file.path(output_dir, "non_imp_dataset.rds"))
 imp_dataset <- readRDS(file.path(output_dir, "imp_dataset.rds"))
 non_imp_dataset_imputed <- readRDS(file.path(output_dir, "non_imp_dataset_imputed.rds"))
 imp_dataset_imputed <- readRDS(file.path(output_dir, "imp_dataset_imputed.rds"))
 ```
+
+```{r}
+non_imp_dataset |> glimpse()
+```
+
+```{r}
+# Check the unique response variables and sub-response variables
+unique(non_imp_dataset$response_variable)
+# unique(non_imp_dataset$sub_response_variable)
+```
+```{r}
+response_summary <- 
+  non_imp_dataset |> 
+  count(response_variable) |> 
+  arrange(desc(n))
+
+# Bar plot for response variable counts
+response_var_summary_plot <- 
+  response_summary |> 
+  ggplot(aes(x = reorder(response_variable, -n), y = n)) +
+  geom_bar(stat = "identity", fill = "#0072B2") +
+  coord_flip() +
+  labs(title = "Count of Observations per Response Variable",
+       x = "Response Variable",
+       y = "Count of Observations") +
+  theme_minimal()
+
+response_var_summary_plot
+```
+
+```{r}
+# Check the unique response variables and sub-response variables
+unique_articles <- unique(non_imp_dataset$id_article)
+unique_response_vars <- unique(non_imp_dataset$response_variable)
+
+print(unique_response_vars)
+print(length(unique_articles))  # Total number of unique articles
+
+```
+
+```{r}
+# Count the number of unique articles for each response variable
+article_summary <- non_imp_dataset %>%
+  group_by(response_variable) %>%
+  summarise(unique_articles = n_distinct(id_article)) %>%
+  arrange(desc(unique_articles))
+
+article_summary
+
+```
+```{r}
+# Bar plot for unique article counts by response variable
+article_summary_plot <-
+  article_summary |> 
+  ggplot(aes(x = reorder(response_variable, -unique_articles), y = unique_articles)) +
+  geom_bar(stat = "identity", fill = "#E69F00") +
+  coord_flip() +
+  labs(title = "Count of Unique Articles per Response Variable",
+       x = "Response Variable",
+       y = "Number of Unique Articles") +
+  theme_minimal()
+
+article_summary_plot
+```
+
+```{r}
+# Boxplot of effect sizes by response variable (unique articles)
+sampled_data |> 
+  ggplot(aes(x = response_variable, y = yi, fill = response_variable)) +
+  geom_boxplot() +
+  coord_flip() +
+  labs(title = "Boxplot of Effect Sizes (yi) by Response Variable (Unique Articles)",
+       x = "Response Variable",
+       y = "Effect Size (yi)") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+The boxplot shows the distribution of effect sizes (yi) for each response variable. In the context of this meta-analysis, the effect size (yi) represents the standardized difference between the treatment group (agroforestry systems) and the control group (monoculture).
+
+Biodiversity: the effect sizes are mostly positive, suggesting that agroforestry systems might have a higher effect on biodiversity compared to monoculture.
+Crop Yield: the effect sizes are genrally negative, indicating potential yield reductions in agroforestry systems.
+Soil Quality: tend to show positive effect sizes, suggesting an improvement in these aspects under agroforestry systems.
+Product Quality: 
+Pest and Diseases:
+Greenhouse gas emissions:
+
+The variation in the effect sizes for each response variable indicates heterogeneity, showing that the impact of agroforestry varies across different studies and contexts. However, the effect sizes in this plot do not account for potential study-level covariates or moderators, which could influence the observed differences. It will be important to consider the sampling variance (vi) associated with each effect size when interpreting these results, as larger studies (with smaller variance) provide more reliable estimates.
+
+
+
+
+
+```{r}
+# Sample one observation per article per response variable
+sampled_data <- non_imp_dataset %>%
+  group_by(id_article, response_variable) %>%
+  slice_head(n = 1)
+
+# Calculate mean effect size and number of unique articles for each response variable
+response_summary <- sampled_data %>%
+  group_by(response_variable) %>%
+  summarise(
+    mean_yi = mean(yi, na.rm = TRUE),
+    num_articles = n_distinct(id_article)
+  )
+
+# Merge the summary data back into the sampled data for ordering
+sampled_data <- sampled_data %>%
+  left_join(response_summary, by = "response_variable")
+
+# Plot histogram of effect sizes with additional improvements
+ggplot(sampled_data, aes(x = yi, fill = response_variable)) +
+  geom_histogram(binwidth = 0.05, alpha = 0.7, color = "black") +
+  # mean yi line
+  geom_vline(data = response_summary, aes(xintercept = mean_yi, color = response_variable),
+             linetype = "dashed", size = 0.8) +
+  facet_wrap(~ reorder(response_variable, -num_articles), scales = "free_y") +
+  labs(
+    title = "Distribution of Effect Sizes (yi) by Response Variable (Unique Articles)",
+    x = "Effect Size (yi)",
+    y = "Frequency"
+  ) +
+  scale_fill_brewer(palette = "Set2") +
+  scale_color_brewer(palette = "Set2") +
+  theme_minimal() +
+  theme(
+    legend.position = "none",
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    plot.title = element_text(hjust = 0.5, size = 16)
+  )
+
+```
+
+```{r}
+# Sample one observation per article per response variable
+sampled_data <- non_imp_dataset %>%
+  group_by(id_article, response_variable) %>%
+  slice_head(n = 1)
+
+# Calculate mean effect size and number of unique articles for each response variable
+response_summary <- sampled_data %>%
+  group_by(response_variable) %>%
+  summarise(
+    mean_yi = mean(yi, na.rm = TRUE),
+    num_articles = n_distinct(id_article)
+  ) %>%
+  arrange(desc(num_articles))
+
+# Merge the summary data back into the sampled data for ordering
+sampled_data <- sampled_data %>%
+  left_join(response_summary, by = "response_variable") %>%
+  mutate(response_variable = factor(response_variable, levels = response_summary$response_variable))
+
+# Reshape the data to long format for plotting
+long_data <- sampled_data %>%
+  select(id_article, response_variable, silvo_mean, control_mean) %>%
+  pivot_longer(cols = c(silvo_mean, control_mean), 
+               names_to = "group", 
+               values_to = "mean_value") %>%
+  mutate(group = recode(group, "silvo_mean" = "Silvo (Agroforestry)", "control_mean" = "Control (Monoculture)"))
+
+# Calculate mean values for each group and response variable
+group_summary <- long_data %>%
+  group_by(response_variable, group) %>%
+  summarise(
+    mean_value = mean(mean_value, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+
+# Plot the distribution of mean values for Silvo and Control groups with free x-scales
+ggplot(long_data, aes(x = mean_value, fill = group)) +
+  geom_histogram(binwidth = 5, alpha = 0.7, color = "black", position = "identity") +
+  geom_vline(data = group_summary, aes(xintercept = mean_value, color = group),
+             linetype = "dashed", size = 0.8) +
+  facet_wrap(~ response_variable, scales = "free_x") +  # Set scales to "free_x"
+  labs(
+    title = "Distribution of Mean Values for Silvo (Agroforestry) and Control (Monoculture)",
+    x = "Mean Value",
+    y = "Frequency"
+  ) +
+  scale_fill_manual(values = c("#0072B2", "#D55E00")) +
+  scale_color_manual(values = c("#0072B2", "#D55E00")) +
+  theme_minimal() +
+  theme(
+    legend.position = "top",
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    plot.title = element_text(hjust = 0.5, size = 16)
+  )
+
+```
+
+```{r}
+# List of response variables and moderators
+response_variables <- c("Biodiversity", "Crop yield", "Water quality", "Pest and Disease", 
+                        "Soil quality", "Greenhouse gas emission", "Product quality")
+
+moderators <- c("tree_type", "crop_type", "age_system", "season", 
+                "soil_texture", "no_tree_per_m", "tree_height", "alley_width")
+```
+
+```{r}
+# Define a generic function for counting unique values
+count_unique_response_and_moderator <- function(data, response_col, moderators) {
+  
+  # Count of unique response variables for each moderator
+  unique_response_var_per_moderator <- data %>%
+    select(all_of(response_col), all_of(moderators)) %>%
+    pivot_longer(cols = all_of(moderators), names_to = "moderator", values_to = "moderator_value") %>%
+    filter(!is.na(moderator_value)) %>%
+    group_by(moderator) %>%
+    summarise(unique_responses = n_distinct(.data[[response_col]]), .groups = "drop")
+
+  # Count of unique moderator levels for each response variable
+  unique_moderators_per_response_var <- data %>%
+    select(all_of(response_col), all_of(moderators)) %>%
+    pivot_longer(cols = all_of(moderators), names_to = "moderator", values_to = "moderator_value") %>%
+    filter(!is.na(moderator_value)) %>%
+    group_by(.data[[response_col]]) %>%
+    summarise(unique_moderators = n_distinct(moderator_value), .groups = "drop")
+
+  # Return both summaries as a list
+  list(
+    unique_response_var_per_moderator = unique_response_var_per_moderator,
+    unique_moderators_per_response_var = unique_moderators_per_response_var
+  )
+}
+
+```
+
+```{r}
+# Define your response column and list of moderators
+response_col <- "response_variable"
+moderators <- c("tree_type", "crop_type", "age_system", "season", 
+                "soil_texture", "no_tree_per_m", "tree_height", "alley_width")
+
+# Apply the function to the non-imputed dataset
+non_imp_summary <- count_unique_response_and_moderator(non_imp_dataset, response_col, moderators)
+
+# Apply the function to the imputed dataset
+imp_summary <- count_unique_response_and_moderator(imp_dataset, response_col, moderators)
+
+# View the summaries
+print(non_imp_summary$unique_response_var_per_moderator)
+print(non_imp_summary$unique_moderators_per_response_var)
+
+print(imp_summary$unique_response_var_per_moderator)
+print(imp_summary$unique_moderators_per_response_var)
+
+```
+
+
+Visualize the Summary Data
+
+Plot 1: Number of Unique Response Variables per Moderator
+```{r}
+# Bar plot for unique response variables per moderator
+unique_response_var_per_moderator |> 
+  ggplot(aes(x = reorder(moderator, unique_responses), y = unique_responses, fill = moderator)) +
+  geom_bar(stat = "identity", color = "black") +
+  coord_flip() +
+  labs(
+    title = "Number of Unique Response Variables per Moderator",
+    x = "Moderator",
+    y = "Number of Unique Response Variables"
+  ) +
+  scale_fill_brewer(palette = "Set3") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+```
+
+
+Plot 2: Number of Unique Moderators per Response Variable
+```{r}
+# Bar plot for unique moderators per response variable
+unique_moderators_per_response_var |> 
+  ggplot(aes(x = reorder(response_variable, unique_moderators), y = unique_moderators, fill = response_variable)) +
+  geom_bar(stat = "identity", color = "black") +
+  coord_flip() +
+  labs(
+    title = "Number of Unique Moderators per Response Variable",
+    x = "Response Variable",
+    y = "Number of Unique Moderator Levels"
+  ) +
+  scale_fill_brewer(palette = "Set2") +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+Alternative Visualization: Heatmap
+comprehensive view of the data in a heatmap to show the interaction between moderators and response variables
+
+```{r}
+# Create a heatmap data frame
+heatmap_data <- non_imp_dataset %>%
+  select(response_variable, all_of(moderators)) %>%
+  pivot_longer(cols = all_of(moderators), names_to = "moderator", values_to = "moderator_value") %>%
+  filter(!is.na(moderator_value)) %>%
+  group_by(response_variable, moderator) %>%
+  summarise(count = n_distinct(moderator_value), .groups = "drop")
+
+# Heatmap plot
+ggplot(heatmap_data, aes(x = moderator, y = response_variable, fill = count)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient(low = "lightblue", high = "darkblue") +
+  labs(
+    title = "Heatmap of Unique Moderator Levels by Response Variable",
+    x = "Moderator",
+    y = "Response Variable",
+    fill = "Count of Unique Levels"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    plot.title = element_text(hjust = 0.5)
+  )
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+To make the meta-analysis more robust and comparable to the approach taken in the cabbage meta-analysis, its important to consider the following key steps to  address study heterogeneity, incorporate important moderators, and validate your findings in a rigorous manner. 
+
+Outline based on the cabbage meta-analysis methodology:
+Identify Key Moderators:
+Conduct Subgroup Analysis:
+Include Moderators in a Meta-Regression Model:
+Assess Model Fit and Heterogeneity:
+Check for Multicollinearity Among Moderators:
+Leave-One-Out Sensitivity Analysis:
+Publication Bias Assessment:
+Visualize the Results:
+
+Refined Plan for Moderator Analysis in the Meta-Analysis
+
+Split the data by response variable (ecosystem service).
+Recalculate the V_matrix for each subset, using robust variance estimation if needed.
+Conduct moderator analysis (both subgroup analysis and meta-regression) within each ecosystem service subset.
+Include heterogeneity diagnostics and sensitivity analysis (e.g., leave-one-out analysis).
+Explore additional study-level covariates in the meta-regression models.
+
+
+#############
+# STEP 1
+##########################################################################################################################################
+SPLIT DATA BY RESPONSE VARIABLE
+##########################################################################################################################################
+
+Split by Response Variable (Ecosystem Service)
+
+Split the data by response variable (ecosystem service).
+Generate new variance-covariance matrices (V_matrix) for each subset.
+Conduct moderator analysis within each ecosystem service subset, examining how each moderator affects the effect size.
+
+Split Data by Response Variable
+
+```{r}
+# Define response variables (ecosystem services)
+response_variables <- c("Biodiversity", 
+                        "Crop yield", 
+                        "Water quality", 
+                        "Pest and Disease", 
+                        "Soil quality", 
+                        "Greenhouse gas emission", 
+                        "Product quality"
+                        )
+
+```
+
+```{r}
+# Function to split dataset by response variable
+split_data_by_response <- function(data, response_var) {
+  cat("\nSplitting dataset by response variable:", response_var, "\n")
+  subset(data, response_variable == response_var)
+}
+
+# Split non-imputed and imputed datasets by response variable
+response_splits <- list(
+  non_imp = lapply(response_variables, split_data_by_response, data = non_imp_dataset),
+  imp = lapply(response_variables, split_data_by_response, data = imp_dataset)
+)
+
+# Name the lists by response variables
+names(response_splits$non_imp) <- response_variables
+names(response_splits$imp) <- response_variables
+
+```
+
+
+
+#############
+# STEP 2
+##########################################################################################################################################
+RE-CALCULATE VARIANCE-CO-VARIANCE MATRICES
+##########################################################################################################################################
+
+Recalculate Variance-Covariance Matrices (V_matrix)
+
+```{r}
+# Function to calculate V_matrix with robust estimation
+calculate_v_matrix_for_subset <- function(data, correlation = 0.5) {
+  if (nrow(data) > 1) {
+    cat("Calculating V_matrix for subset with robust estimation...\n")
+    tryCatch({
+      calculate_v_matrix(data, correlation = correlation)
+    }, error = function(e) {
+      cat("Error in V_matrix calculation:", e$message, "\n")
+      return(NULL)
+    })
+  } else {
+    cat("Insufficient data points. Skipping V_matrix calculation.\n")
+    NULL
+  }
+}
+
+# Generate V_matrices for each response subset
+v_matrices <- list(
+  v_matrix_non_imp = lapply(response_splits$non_imp, calculate_v_matrix_for_subset),
+  v_matrix_imp = lapply(response_splits$imp, calculate_v_matrix_for_subset)
+)
+
+# Name the V_matrices by response variables
+names(v_matrices$v_matrix_non_imp) <- response_variables
+names(v_matrices$v_matrix_imp) <- response_variables
+
+```
+
+
+#############
+# STEP 3
+##########################################################################################################################################
+PERFORM MODERATOR ANALYSIS FOR SUBGROUPS AND THEN INCLUDE IN GENERAL META-REGRESSION
+##########################################################################################################################################
+
+Moderator Analysis (Subgroup and Meta-Regression)
+
+```{r}
+# Define moderators
+moderators <- c("tree_type", "crop_type", "age_system", "season", 
+                "soil_texture", "no_tree_per_m", "tree_height", "alley_width")
+```
+
+
+```{r}
+# Function for subgroup analysis and meta-regression
+run_moderator_analysis <- function(data, V_matrix, moderator) {
+  cat("\nAnalyzing moderator:", moderator, "\n")
+  
+  # Check if the moderator has enough levels for analysis
+  if (length(unique(data[[moderator]])) < 2) {
+    cat("Insufficient levels for moderator:", moderator, "\n")
+    return(NULL)
+  }
+  
+  # Meta-regression model with the moderator
+  tryCatch({
+    model <- rma.mv(
+      yi = yi,
+      V = V_matrix,
+      mods = as.formula(paste("~", moderator)),
+      random = list(~ 1 | id_article, ~ 1 | id_article/response_variable, ~ 1 | exp_id),
+      data = data,
+      method = "REML"
+    )
+    return(summary(model))
+  }, error = function(e) {
+    cat("Error in meta-regression for moderator:", moderator, "-", e$message, "\n")
+    return(NULL)
+  })
+}
+```
+
+```{r}
+# Apply moderator analysis for each response subset
+moderator_results <- lapply(response_variables, function(response_var) {
+  cat("\nAnalyzing response variable:", response_var, "\n")
+  data_subset <- response_splits$non_imp[[response_var]]
+  V_matrix_subset <- v_matrices$v_matrix_non_imp[[response_var]]
+  
+  lapply(moderators, run_moderator_analysis, data = data_subset, V_matrix = V_matrix_subset)
+})
+
+names(moderator_results) <- response_variables
+
+```
+
+
+############
+# STEP 4
+##########################################################################################################################################
+HETEROGENITY DIAGNOSTICS AND SENSITIVITY ANALYSIS
+##########################################################################################################################################
+
+Heterogeneity Diagnostics and Sensitivity Analysis
+
+```{r}
+# Function to calculate heterogeneity statistics
+calculate_heterogeneity <- function(model) {
+  if (!is.null(model)) {
+    I2 <- 100 * model$tau2 / (model$tau2 + model$sigma2)
+    cat("I² Statistic:", round(I2, 2), "%\n")
+  }
+}
+
+# Check heterogeneity for each model
+lapply(moderator_results, function(result) {
+  lapply(result, calculate_heterogeneity)
+})
+```
+
+
+
+
+
+
+
+
+
+
+```{r}
+# Let's inspect one of the splits
+example_split <- tree_type_splits[["Biomass"]]
+
+# View the structure of the subset
+str(example_split)
+
+# Plot the effect size (yi) distribution for this subset
+ggplot(example_split, aes(x = yi)) +
+  geom_histogram(bins = 20, fill = "#0072B2", color = "black") +
+  labs(title = "Effect Size Distribution for 'Biomass' Tree Type",
+       x = "Effect Size (yi)",
+       y = "Frequency") +
+  theme_minimal()
+
+```
+
+```{r}
+# Function to calculate the variance-covariance matrix
+calculate_v_matrix <- function(data, correlation = 0.5) {
+  cat("Calculating variance-covariance matrix...\n")
+  
+  # Assuming 'vi' column is the variance of each effect size
+  vi <- data$vi
+  
+  # Construct the V matrix using the correlation parameter
+  V_matrix <- outer(vi, vi, function(x, y) correlation * sqrt(x * y))
+  diag(V_matrix) <- vi  # Set the diagonal to the variances
+  
+  return(V_matrix)
+}
+
+```
+
+```{r}
+# Example subset data
+subset_data <- non_imp_dataset[1:10, ]  # Just an example, use your real subset
+V_matrix_subset <- calculate_v_matrix(subset_data, correlation = 0.5)
+print(V_matrix_subset)
+
+```
+
+
+```{r}
+# Define a function to fit a simple meta-analysis model for a subset
+# Define the list of moderators
+moderators <- c("tree_type", "crop_type", "age_system", "season", 
+                "soil_texture", "no_tree_per_m", "tree_height", "alley_width")
+
+# Function to split the dataset by a specific moderator
+split_data_by_moderator <- function(data, moderator) {
+  cat("\nSplitting dataset by moderator:", moderator, "\n")
+  split(data, data[[moderator]])
+}
+
+# Function to calculate the variance-covariance matrix for a subset
+calculate_v_matrix_subset <- function(subset_data) {
+  cat("Calculating V_matrix for subset...\n")
+  calculate_v_matrix(subset_data, correlation = 0.5)  # Adjust correlation if needed
+}
+
+# Function to fit a meta-analysis model using a newly calculated V_matrix
+fit_meta_model_subset <- function(data, V_matrix) {
+  tryCatch({
+    rma.mv(
+      yi = yi,
+      V = V_matrix,
+      mods = ~ 1,
+      random = list(~ 1 | id_article, ~ 1 | id_article/response_variable, ~ 1 | exp_id),
+      data = data,
+      method = "REML",
+      control = list(optimizer = "optim", optim.method = "BFGS")
+ )
+  }, error = function(e) {
+    cat("Model fitting error:", e$message, "\n")
+    return(NULL)
+  })
+}
+
+# Initialize a list to store results
+moderator_analysis_results <- list()
+
+# Loop through each moderator
+for (moderator in moderators) {
+  cat("\nAnalyzing moderator:", moderator, "\n")
+  
+  # Split the data by moderator for both non-imputed and imputed datasets
+  non_imp_splits <- split_data_by_moderator(non_imp_dataset, moderator)
+  imp_splits <- split_data_by_moderator(imp_dataset, moderator)
+
+  # Initialize lists to store models for each level of the moderator
+  non_imp_models <- list()
+  imp_models <- list()
+
+  # Loop through each level of the moderator for non-imputed dataset
+  for (level in names(non_imp_splits)) {
+    subset_data <- non_imp_splits[[level]]
+    
+    # Skip if there are insufficient data points
+    if (nrow(subset_data) < 5) {
+      cat("Insufficient data for level:", level, "- Skipping model fitting.\n")
+      next
+    }
+
+    # Calculate a new V_matrix for the subset
+    V_matrix_subset <- calculate_v_matrix_subset(subset_data)
+
+    # Fit the model and store the results
+    non_imp_models[[level]] <- fit_meta_model_subset(subset_data, V_matrix_subset)
+  }
+
+  # Loop through each level of the moderator for imputed dataset
+  for (level in names(imp_splits)) {
+    subset_data <- imp_splits[[level]]
+    
+    # Skip if there are insufficient data points
+    if (nrow(subset_data) < 5) {
+      cat("Insufficient data for level:", level, "- Skipping model fitting.\n")
+      next
+    }
+
+    # Calculate a new V_matrix for the subset
+    V_matrix_subset <- calculate_v_matrix_subset(subset_data)
+
+    # Fit the model and store the results
+    imp_models[[level]] <- fit_meta_model_subset(subset_data, V_matrix_subset)
+  }
+
+  # Store the models for this moderator
+  moderator_analysis_results[[moderator]] <- list(
+    non_imputed = non_imp_models,
+    imputed = imp_models
+  )
+}
+
+# Define the output directory using 'here'
+output_dir <- here::here("DATA", "OUTPUT_FROM_R")
+# Save the analysis results
+saveRDS(moderator_analysis_results, file = file.path(output_dir, "moderator_analysis_results.rds"))
+
+cat("Moderator analysis results saved to:", file.path(output_dir, "moderator_analysis_results.rds"), "\n")
+
+```
+
+
+```{r}
+# Check the distribution of variances for each subset
+lapply(split_data_by_moderator(non_imp_dataset, "tree_type"), function(subset) {
+  hist(subset$vi, main = "Distribution of Variances", xlab = "Variance")
+})
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -175,7 +913,8 @@ split_data_by_moderator <- function(data, moderator) {
   return(split_data)
 }
 
-
+non_imp_dataset_split <- split_data_by_moderator(data = non_imp_dataset,
+                                                 moderator = moderators)
 
 ```
 
