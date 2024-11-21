@@ -5,26 +5,381 @@ date: "2024-11-17"
 output: html_document
 ---
 
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## R Markdown
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+################################################################################
+Sources for developing approaches in meta-analysis: 
 
-```{r cars}
-summary(cars)
+https://wviechtb.github.io/metafor/reference/rma.mv.html 
+https://www.taylorfrancis.com/chapters/edit/10.1201/9780429061240-8/multivariate-meta-analysis-ding-geng-din-chen-karl-peace 
+https://training.cochrane.org/handbook/current/chapter-06 
+https://training.cochrane.org/handbook/current/chapter-10
+
+
+It is not uncommon for studies to have multiple outcome measures which lead to statistical multivariate analysis. The results of studies with multiple outcomes and/or endpoints are typically synthesized via conventional univariate meta-analysis (UMA) on each outcome separately, ignoring the correlations between the outcomes. The impact of ignoring the within-study correlation has been explored extensively in the statistical literature, with issues including overestimated variance of the pooled eﬀect size and biased estimates, which in turn may inﬂuence statistical inferences. In this case, multivariate meta-analysis should be used to synthesize multiple outcomes while taking into account their correlations, often resulting in superior parameter estimation. With study-level moderators or predictors, multivariate meta-regression can also be developed in parallel with multivariate regression techniques.
+
+Meta-Analysis with R Package metafor. Rearrange the Data Format. In order to use the metafor package for multivariate meta-analysis, meta-data
+should be rearranged accordingly. With this rearranged data format, we then construct a list of the variance-covariance matrices of the observed outcomes for the ﬁve studies to create a block diagonal matrix, V, for metafor.
+With the rearranged data and variance-covariance matrix, V, we now ﬁt the ﬁxed-eﬀects meta-analysis model using metafor with the option of
+method="FE". To ﬁt the random-eﬀects multivariate meta-analysis model using the metafor package, we simply change the option to method="REML". We note that this reproduces the results, with this random-effects model, we can also test the difference between
+
+#####################################################
+
+Response Variables are measured on a continuous scale, where each individual outcome is a measurement of a numerical quantity
+Chosen Effect Size:  
+
+Formulas to estimate effects (and their standard errors)?
+
+#####################################################
+Step-by-Step Framework for Meta-Analysis
+
+1) Data Preparation
+Clean and transform the data.
+Standardize location information and create unique identifiers.
+Classify locations by continent.
+--- DESCRIPTIVE_VIZ: Exploratory data analysis and visualization.
+Standardize measures of variation and convert SE to SD (save this version).
+Impute missing values (silvo_se, control_se, silvo_n, control_n).
+Convert SE to SD in the imputed dataset (save this version).
+Calculate effect sizes (ROM) for both non-imputed and imputed datasets.
+Compare the imputed and non-imputed datasets using descriptive statistics (mean, SD, median) and tests (density plots, boxplots, t-tests, Kolmogorov-Smirnov test).
+
+2) Meta-Analysis Model Fitting
+Use multivariate/multilevel mixed-effects models (rma.mv).
+Fit models on both non-imputed and imputed datasets.
+Compare results side by side, including effect sizes, confidence intervals, and heterogeneity statistics.
+
+3) Sensitivity Analysis and Diagnostics
+Perform sensitivity analysis, including leave-one-out analysis.
+Conduct trim-and-fill analysis to check for publication bias.
+
+4) Moderator Analysis
+Split the dataset by moderators and conduct analyses on both imputed and non-imputed data.
+Consider meta-regression to formally test for differences in moderator effects between the datasets.
+
+5) Visualizations
+Create comprehensive visual summaries, including caterpillar plots, forest plots, and geographical maps of study locations.
+
+#############
+# STEP 0
+##########################################################################################################################################
+PREPARING SCRIPT AND READ IN THE DATA
+##########################################################################################################################################
+
+```{r}
+# Clean workspace
+rm(list = ls())
 ```
 
-## Including Plots
 
-You can also embed plots, for example:
+## Loading required packages and libraries
 
-```{r pressure, echo=FALSE}
-plot(pressure)
+```{r Loading other needed packages, warning=FALSE}
+# Suppress warnings to avoid clutter in the console output
+suppressWarnings({
+
+  # Load multiple add-on packages using pacman::p_load for efficiency
+  pacman::p_load(
+    # Data Manipulation / Transformation
+    tidyverse,        # Comprehensive collection of R packages for data science
+    readr,            # Read and write csv 
+    dlookr,           # Diagnose, explore, and transform data with dlookr
+    skimr,            # Provides easy summary statistics about variables in data frames, tibbles, data tables and vectors
+    janitor,          # For cleaning and renaming data columns
+    readxl,           # To read Excel files
+    vroom,            # Fast reading of large datasets from local disk
+    missForest,       # Random Forest method for imputing missing data
+    mice,             # For dealing with missing data by creating multiple imputations for multivariate missing data
+    missRanger,       # Fast missing value imputation by chained random forest
+    conflicted,       # An alternative conflict resolution strategy
+    future,           # Parallel processing
+    future.apply,     # Parallel processing
+    ###################################################################################################################
+    # Data Visualization
+    ggplot2,          # Data visualization package (part of tidyverse)
+    patchwork,        # ggplot2 API for sequentially building up a plot
+    purrr, 
+    ###################################################################################################################
+    # Spatial Data
+    tidygeocoder,     # Unified interface for performing both forward and reverse geocoding queries
+    raster,           # For spatial data analysis, especially BioClim variables from WorldClim
+    sp,               # For spatial data classes and methods
+    sf,               # For simple features in R, handling vector data
+    rnaturalearth,    # For world map data
+    rnaturalearthdata, 
+    ###################################################################################################################
+    # Meta-Analysis
+    metafor,          # For conducting meta-analysis, effect sizes, and response ratios
+    clubSandwich,     # Cluster-robust variance estimators for ordinary and weighted least squares linear regression models
+    ###################################################################################################################
+    # Exploratory Data Analysis (EDA)
+    DataExplorer,     # For exploratory data analysis
+    SmartEDA,         # For smart exploratory data analysis
+    ###################################################################################################################
+    # Project Management and Code Styling
+    here,             # Easy file referencing using the top-level directory of a file project
+    styler            # For code formatting and styling
+  )
+  
+  # If encountering issues with raster::getData(), consider using geodata::worldclim_global() from the geodata package
+})
+
+###################################################################################################################
+# Set preferences for conflicting functions
+conflict_prefer("filter", "dplyr")
+conflict_prefer("select", "dplyr")
+conflict_prefer("group_by", "dplyr") 
+conflict_prefer("summarise", "dplyr")
+conflict_prefer("mutate", "dplyr")
+conflict_prefer("arrange", "dplyr")
+conflict_prefer("locale", "readr")
+conflict_prefer("extract", "raster")
+conflict_prefer("intersect", "base")
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+Loading the datasets
+
+```{r Loading database, warning=FALSE, message=FALSE}
+# Set the working directory automatically using 'here'
+setwd(here::here())
+
+
+# Define your working directory using 'here'
+output_dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
+
+# Load datasets
+non_imp_dataset <- readRDS(file.path(output_dir, "non_imp_dataset.rds"))
+imp_dataset <- readRDS(file.path(output_dir, "imp_dataset.rds"))
+non_imp_dataset_imputed <- readRDS(file.path(output_dir, "non_imp_dataset_imputed.rds"))
+imp_dataset_imputed <- readRDS(file.path(output_dir, "imp_dataset_imputed.rds"))
+```
+
+```{r}
+imp_dataset_imputed |> glimpse()
+```
+
+
+#############
+# STEP 1
+##########################################################################################################################################
+FORREST PLOT
+##########################################################################################################################################
+
+```{r}
+# Filter and prepare the data for Forest plot
+forest_plot_data <- imp_dataset_imputed %>%
+  mutate(
+    lower_ci = yi - 1.96 * sqrt(vi),
+    upper_ci = yi + 1.96 * sqrt(vi)
+  ) |> 
+  select(
+    # Key response variables (Ecosystem Services)
+    response_variable, 
+    # Key Moderators
+    crop_type, 
+    tree_type,
+    age_system,
+    season,
+    soil_texture,
+    # Effect Size Measure
+    yi, 
+    lower_ci, 
+    upper_ci
+    ) |> 
+  filter(!is.na(yi), !is.na(lower_ci), !is.na(upper_ci))
+
+forest_plot_data
+```
+
+```{r}
+forest_plot_data |> 
+  ggplot(aes(x = yi, y = tree_type, color = response_variable)) +
+  geom_point(size = 3) +  # Effect size
+  geom_errorbarh(aes(xmin = lower_ci, xmax = upper_ci), height = 0.2) +  # Confidence intervals
+  facet_grid(response_variable ~ ., scales = "free_x", switch = "y") +  # Stack facets vertically
+  geom_vline(xintercept = 0, linetype = "dashed", color = "red") +  # Reference line
+  labs(
+    title = "Forest Plot by Ecosystem Service",
+    x = "Effect Size (yi)",
+    y = "Crop Type"
+  ) +
+  theme_minimal() +
+  theme(
+    strip.text.y = element_text(size = 12, face = "bold"),  # Bold facet labels
+    strip.placement = "outside",  # Place facet labels outside the axis
+    axis.text.y = element_text(size = 10),
+    axis.text.x = element_text(size = 10),
+    legend.position = "bottom",
+    panel.spacing = unit(1, "lines")  # Increase spacing between panels
+  )
+```
+
+```{r}
+# Adjusted forest plot with free x-axis scale
+forest_plot_data |> 
+  ggplot(aes(x = yi, y = tree_type, color = response_variable)) +
+  geom_point(size = 3) +  # Effect size
+  geom_errorbarh(aes(xmin = lower_ci, xmax = upper_ci), height = 0.2) +  # Confidence intervals
+  facet_wrap(~response_variable, scales = "free_x") +  # Free x-axis scale for each facet
+  geom_vline(xintercept = 0, linetype = "dashed", color = "red") +  # Reference line
+  labs(
+    title = "Forest Plot by Ecosystem Service",
+    x = "Effect Size (yi)",
+    y = "Crop Type"
+  ) +
+  theme_minimal() +
+  theme(
+    strip.text = element_text(size = 12, face = "bold"),
+    axis.text.y = element_text(size = 10),
+    axis.text.x = element_text(size = 10),
+    legend.position = "bottom"
+  )
+```
+```{r}
+forest_plot_data |> 
+  ggplot(aes(x = yi, y = tree_type, color = response_variable)) +
+  geom_point(size = 3) +  # Effect size
+  geom_errorbarh(aes(xmin = lower_ci, xmax = upper_ci), height = 0.2) +  # Confidence intervals
+  facet_wrap(~response_variable, scales = "free_x") +  # Free x-axis scale for each facet
+  geom_vline(xintercept = 0, linetype = "dashed", color = "red") +  # Reference line
+  labs(
+    title = "Forest Plot by Ecosystem Service",
+    x = "Effect Size (yi)",
+    y = "Crop Type"
+  ) +
+  theme_minimal() +
+  theme(
+    strip.text = element_text(size = 12, face = "bold"),
+    axis.text.y = element_text(size = 10),
+    axis.text.x = element_text(size = 10),
+    legend.position = "bottom"
+  )
+```
+
+
+
+```{r}
+# Generic function to create forest plots
+create_forest_plots <- function(data, moderators, response_var_col, yi_col, vi_col) {
+
+  # Validate inputs
+  if (!all(c(response_var_col, yi_col, vi_col) %in% names(data))) {
+    stop("The specified column names do not exist in the data.")
+  }
+  if (!all(moderators %in% names(data))) {
+    stop("Some specified moderators are not in the data.")
+  }
+
+  # Add confidence intervals to the data
+  forest_plot_data <- data %>%
+    mutate(
+      lower_ci = !!sym(yi_col) - 1.96 * sqrt(!!sym(vi_col)),
+      upper_ci = !!sym(yi_col) + 1.96 * sqrt(!!sym(vi_col))
+    ) %>%
+    select(
+      all_of(response_var_col),
+      all_of(moderators),
+      !!sym(yi_col),
+      lower_ci,
+      upper_ci
+    ) %>%
+    filter(!is.na(!!sym(yi_col)), !is.na(lower_ci), !is.na(upper_ci)) %>%
+    pivot_longer(cols = all_of(moderators), names_to = "moderator", values_to = "moderator_value") %>%
+    filter(!is.na(moderator_value))
+
+  # Create plots for each combination of response variable and moderator
+  forest_plots <- forest_plot_data %>%
+    group_by(across(all_of(response_var_col)), moderator) %>%
+    group_split() %>%
+    map(~ {
+      response_variable <- unique(.x[[response_var_col]])
+      moderator <- unique(.x$moderator)
+
+      ggplot(.x, aes(
+        x = !!sym(yi_col),
+        y = moderator_value,
+        color = !!sym(response_var_col)
+      )) +
+        geom_point(size = 3) +  # Effect size
+        geom_errorbarh(aes(xmin = lower_ci, xmax = upper_ci), height = 0.2) +  # Confidence intervals
+        facet_grid(moderator ~ ., scales = "free_x", switch = "y") +  # Stack facets vertically
+        geom_vline(xintercept = 0, linetype = "dashed", color = "red") +  # Reference line
+        labs(
+          title = paste("Forest Plot: ", moderator, "vs", response_variable),
+          x = "Effect Size (yi)",
+          y = moderator
+        ) +
+        theme_minimal() +
+        theme(
+          strip.text.y = element_text(size = 12, face = "bold"),
+          strip.placement = "outside",
+          axis.text.y = element_text(size = 10),
+          axis.text.x = element_text(size = 10),
+          legend.position = "bottom",
+          panel.spacing = unit(1, "lines")
+        )
+    })
+
+  # Return the list of ggplot objects
+  return(forest_plots)
+}
+```
+
+```{r}
+# Specify the required arguments
+forest_plots <- create_forest_plots(
+  data = imp_dataset_imputed,
+  moderators = c("crop_type", "tree_type", "age_system", "season", "soil_texture"),
+  response_var_col = "response_variable",
+  yi_col = "yi",
+  vi_col = "vi"
+)
+
+# Display plots (example for the first plot)
+forest_plots[[20]]
+
+# Save all plots (optional)
+# map2(forest_plots, seq_along(forest_plots), ~ ggsave(
+#   filename = paste0("forest_plot_", .y, ".png"),
+#   plot = .x,
+#   width = 10,
+#   height = 8
+# ))
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

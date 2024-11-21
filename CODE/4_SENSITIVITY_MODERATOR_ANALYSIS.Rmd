@@ -99,6 +99,7 @@ suppressWarnings({
     conflicted,       # An alternative conflict resolution strategy
     future,           # Parallel processing
     future.apply,     # Parallel processing
+    Matrix,           # Matrix operations
     ###################################################################################################################
     # Data Visualization
     ggplot2,          # Data visualization package (part of tidyverse)
@@ -224,6 +225,11 @@ article_summary_plot
 ```
 
 ```{r}
+# Sample one observation per article per response variable
+sampled_data <- non_imp_dataset %>%
+  group_by(id_article, response_variable) %>%
+  slice_head(n = 1)
+
 # Boxplot of effect sizes by response variable (unique articles)
 sampled_data |> 
   ggplot(aes(x = response_variable, y = yi, fill = response_variable)) +
@@ -416,6 +422,17 @@ Visualize the Summary Data
 
 Plot 1: Number of Unique Response Variables per Moderator
 ```{r}
+# Define your response column and list of moderators
+response_col <- "response_variable"
+moderators <- c("tree_type", "crop_type", "age_system", "season", 
+                "soil_texture", "no_tree_per_m", "tree_height", "alley_width")
+
+# Generate the summaries using the function
+results <- count_unique_response_and_moderator(non_imp_dataset, response_col, moderators)
+
+# Extract the specific summary for plotting
+unique_response_var_per_moderator <- results$unique_response_var_per_moderator
+
 # Bar plot for unique response variables per moderator
 unique_response_var_per_moderator |> 
   ggplot(aes(x = reorder(moderator, unique_responses), y = unique_responses, fill = moderator)) +
@@ -435,6 +452,18 @@ unique_response_var_per_moderator |>
 
 Plot 2: Number of Unique Moderators per Response Variable
 ```{r}
+# Define your response column and list of moderators
+response_col <- "response_variable"
+moderators <- c("tree_type", "crop_type", "age_system", "season", 
+                "soil_texture", "no_tree_per_m", "tree_height", "alley_width")
+
+# Generate summaries
+results <- count_unique_response_and_moderator(non_imp_dataset, response_col, moderators)
+
+# Extract the specific summary for plotting
+unique_moderators_per_response_var <- results$unique_moderators_per_response_var
+
+
 # Bar plot for unique moderators per response variable
 unique_moderators_per_response_var |> 
   ggplot(aes(x = reorder(response_variable, unique_moderators), y = unique_moderators, fill = response_variable)) +
@@ -542,6 +571,9 @@ response_variables <- c("Biodiversity",
                         "Product quality"
                         )
 
+# Define moderators
+moderators <- c("tree_type", "crop_type", "age_system", "season", 
+                "soil_texture", "no_tree_per_m", "tree_height", "alley_width")
 ```
 
 ```{r}
@@ -574,6 +606,32 @@ RE-CALCULATE VARIANCE-CO-VARIANCE MATRICES
 Recalculate Variance-Covariance Matrices (V_matrix)
 
 ```{r}
+# source("path/to/function/calculate_v_matrix.R")
+calculate_v_matrix <- function(data, correlation = 0.5) {
+  cat("Calculating variance-covariance matrix...\n")
+  
+  # Check if 'yi' and 'vi' columns exist
+  if (!("yi" %in% colnames(data)) || !("vi" %in% colnames(data))) {
+    stop("Data must contain 'yi' (effect size) and 'vi' (variance) columns.")
+  }
+
+  # Extract variances
+  variances <- data$vi
+  n <- length(variances)
+
+  # Create a correlation matrix
+  correlation_matrix <- matrix(correlation, nrow = n, ncol = n)
+  diag(correlation_matrix) <- 1  # Set diagonal elements to 1
+
+  # Calculate the variance-covariance matrix
+  v_matrix <- outer(variances, variances) * correlation_matrix
+  rownames(v_matrix) <- rownames(data)
+  colnames(v_matrix) <- rownames(data)
+
+  return(v_matrix)
+}
+
+
 # Function to calculate V_matrix with robust estimation
 calculate_v_matrix_for_subset <- function(data, correlation = 0.5) {
   if (nrow(data) > 1) {
@@ -589,7 +647,9 @@ calculate_v_matrix_for_subset <- function(data, correlation = 0.5) {
     NULL
   }
 }
+```
 
+```{r}
 # Generate V_matrices for each response subset
 v_matrices <- list(
   v_matrix_non_imp = lapply(response_splits$non_imp, calculate_v_matrix_for_subset),
@@ -599,7 +659,93 @@ v_matrices <- list(
 # Name the V_matrices by response variables
 names(v_matrices$v_matrix_non_imp) <- response_variables
 names(v_matrices$v_matrix_imp) <- response_variables
+```
 
+
+Checking v_matrices
+
+```{r}
+# Function to print a random sample of the variance-covariance matrix
+print_sample_v_matrix <- function(v_matrices, n = 5) {
+  # Loop through each response variable
+  for (response_var in names(v_matrices)) {
+    cat("\n*** Checking V_matrix for:", response_var, "***\n")
+    
+    # Get the V_matrix for the current response variable
+    v_matrix <- v_matrices[[response_var]]
+    
+    # Check if the V_matrix exists and is not NULL
+    if (is.null(v_matrix)) {
+      cat("V_matrix is NULL. Skipping...\n")
+      next
+    }
+    
+    # Ensure that the matrix is large enough for sampling
+    if (nrow(v_matrix) < n || ncol(v_matrix) < n) {
+      cat("V_matrix is too small for sampling. Displaying full matrix instead:\n")
+      print(v_matrix)
+    } else {
+      # Randomly select 'n' rows and columns to print a submatrix
+      random_indices <- sample(1:nrow(v_matrix), n)
+      sampled_v_matrix <- v_matrix[random_indices, random_indices]
+      
+      # Print the sampled submatrix
+      cat("Sampled V_matrix (first", n, "rows and columns):\n")
+      print(sampled_v_matrix)
+    }
+  }
+}
+
+# Example usage with your V_matrices
+cat("\nNon-Imputed Dataset:\n")
+print_sample_v_matrix(v_matrices$v_matrix_non_imp, n = 5)
+
+cat("\nImputed Dataset:\n")
+print_sample_v_matrix(v_matrices$v_matrix_imp, n = 5)
+```
+
+```{r}
+# Function to check data quality
+inspect_data <- function(data, moderator) {
+  summary_stats <- data %>%
+    group_by(!!sym(moderator)) %>%
+    summarise(
+      n = n(),
+      unique_ids = n_distinct(id_article),
+      var_yi = var(yi, na.rm = TRUE)
+    )
+  print(summary_stats)
+}
+
+# Inspect data for a specific response variable and moderator
+inspect_data(response_splits$non_imp[["Biodiversity"]], "tree_type")
+inspect_data(response_splits$non_imp[["Crop yield"]], "tree_type")
+inspect_data(response_splits$non_imp[["Soil quality"]], "tree_type")
+```
+
+```{r}
+# Helper function to filter out single-level factors
+
+# Enhanced helper function to filter out unsuitable data for meta-regression
+filter_data_for_moderator_analysis <- function(data, moderators) {
+  # Ensure `yi` and `vi` are included and remove single-level factors
+  filtered_data <- data %>%
+    select(yi, vi, response_variable, id_article, exp_id, all_of(moderators)) %>%
+    filter(n_distinct(id_article) > 1)
+  
+  # Check each moderator and keep only those with at least two distinct levels
+  valid_moderators <- moderators[sapply(moderators, function(mod) {
+    n_distinct(filtered_data[[mod]], na.rm = TRUE) > 1
+  })]
+
+  # Remove rows with missing values for valid moderators
+  filtered_data <- filtered_data %>%
+    select(yi, vi, response_variable, id_article, exp_id, all_of(valid_moderators)) %>%
+    drop_na()
+
+  # Return the filtered data and the list of valid moderators
+  list(data = filtered_data, valid_moderators = valid_moderators)
+}
 ```
 
 
@@ -609,37 +755,69 @@ names(v_matrices$v_matrix_imp) <- response_variables
 PERFORM MODERATOR ANALYSIS FOR SUBGROUPS AND THEN INCLUDE IN GENERAL META-REGRESSION
 ##########################################################################################################################################
 
-Moderator Analysis (Subgroup and Meta-Regression)
-
 ```{r}
-# Define moderators
-moderators <- c("tree_type", "crop_type", "age_system", "season", 
-                "soil_texture", "no_tree_per_m", "tree_height", "alley_width")
+# Helper function to align data and V_matrix
+align_data_and_v_matrix <- function(data, V_matrix) {
+  common_ids <- intersect(rownames(data), rownames(V_matrix))
+  if (length(common_ids) < 2) {
+    cat("Warning: Too few common rownames between data and V_matrix. Skipping analysis.\n")
+    return(NULL)
+  }
+  data <- data[common_ids, , drop = FALSE]
+  V_matrix <- V_matrix[common_ids, common_ids, drop = FALSE]
+  return(list(data = data, V_matrix = V_matrix))
+}
+
+# Helper function to filter moderators with at least two levels
+filter_valid_moderators <- function(data, moderators) {
+  valid_moderators <- sapply(moderators, function(moderator) {
+    n_distinct(data[[moderator]]) > 1
+  })
+  return(moderators[valid_moderators])
+}
 ```
 
-
 ```{r}
-# Function for subgroup analysis and meta-regression
-run_moderator_analysis <- function(data, V_matrix, moderator) {
-  cat("\nAnalyzing moderator:", moderator, "\n")
-  
-  # Check if the moderator has enough levels for analysis
-  if (length(unique(data[[moderator]])) < 2) {
+# Function for subgroup analysis
+run_subgroup_analysis <- function(data, moderator) {
+  if (n_distinct(data[[moderator]]) < 2) {
     cat("Insufficient levels for moderator:", moderator, "\n")
     return(NULL)
   }
   
-  # Meta-regression model with the moderator
+  subgroup_summary <- data %>%
+    group_by(!!sym(moderator)) %>%
+    summarise(
+      mean_yi = mean(yi, na.rm = TRUE),
+      ci_low = mean_yi - 1.96 * sd(yi) / sqrt(n()),
+      ci_high = mean_yi + 1.96 * sd(yi) / sqrt(n())
+    )
+  
+  print(subgroup_summary)
+  return(subgroup_summary)
+}
+```
+
+```{r}
+# Function for meta-regression analysis
+run_meta_regression <- function(data, V_matrix, moderator) {
+  cat("\nAnalyzing moderator:", moderator, "\n")
+  if (n_distinct(data[[moderator]]) < 2) {
+    cat("Insufficient levels for moderator:", moderator, "\n")
+    return(NULL)
+  }
+  
   tryCatch({
     model <- rma.mv(
       yi = yi,
       V = V_matrix,
       mods = as.formula(paste("~", moderator)),
-      random = list(~ 1 | id_article, ~ 1 | id_article/response_variable, ~ 1 | exp_id),
+      random = list(~ 1 | id_article, ~ 1 | id_article/response_variable),
       data = data,
       method = "REML"
     )
-    return(summary(model))
+    print(summary(model))
+    return(model)
   }, error = function(e) {
     cat("Error in meta-regression for moderator:", moderator, "-", e$message, "\n")
     return(NULL)
@@ -648,16 +826,196 @@ run_moderator_analysis <- function(data, V_matrix, moderator) {
 ```
 
 ```{r}
-# Apply moderator analysis for each response subset
-moderator_results <- lapply(response_variables, function(response_var) {
-  cat("\nAnalyzing response variable:", response_var, "\n")
-  data_subset <- response_splits$non_imp[[response_var]]
-  V_matrix_subset <- v_matrices$v_matrix_non_imp[[response_var]]
-  
-  lapply(moderators, run_moderator_analysis, data = data_subset, V_matrix = V_matrix_subset)
-})
+# List to store results
+moderator_results <- list()
 
-names(moderator_results) <- response_variables
+# Loop through response variables
+for (response_var in response_variables) {
+  cat("\nAnalyzing response variable:", response_var, "\n")
+  
+  # Get the subset and corresponding V_matrix
+  data_subset <- response_splits$non_imp[[response_var]]
+  V_matrix <- v_matrices$v_matrix_non_imp[[response_var]]
+  
+  # Align data and V_matrix
+  aligned_data <- align_data_and_v_matrix(data_subset, V_matrix)
+  if (is.null(aligned_data)) next
+  
+  data_subset <- aligned_data$data
+  V_matrix <- aligned_data$V_matrix
+  
+  # Filter valid moderators
+  valid_moderators <- filter_valid_moderators(data_subset, moderators)
+  if (length(valid_moderators) == 0) {
+    cat("No valid moderators for analysis. Skipping...\n")
+    next
+  }
+  
+  # Perform subgroup and meta-regression analysis
+  response_results <- list()
+  for (moderator in valid_moderators) {
+    subgroup_result <- run_subgroup_analysis(data_subset, moderator)
+    meta_regression_result <- run_meta_regression(data_subset, V_matrix, moderator)
+    response_results[[moderator]] <- list(
+      subgroup = subgroup_result,
+      meta_regression = meta_regression_result
+    )
+  }
+  
+  moderator_results[[response_var]] <- response_results
+}
+
+##############################################################################
+# Save the moderator results
+# Define output directory using 'here'
+output_dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
+# Create the output directory if it doesn't exist
+if (!dir.exists(output_dir)) {
+  dir.create(output_dir, recursive = TRUE)
+}
+# Define the file path for saving the results
+output_file <- file.path(output_dir, "moderator_analysis_results.rds")
+# Save the moderator results
+saveRDS(moderator_results, file = output_file)
+cat("Moderator analysis results saved to:", output_file, "\n")
+```
+
+##########################################################################################################################################
+Check moderator analysis results
+##########################################################################################################################################
+
+Next Steps: Reporting
+Once you have inspected the results, performed heterogeneity diagnostics, and completed sensitivity analyses, you can proceed to:
+
+Summarize your findings, including which moderators showed significant effects and the overall heterogeneity (I²).
+Interpret the results in the context of the agroforestry studies and compare with the findings from the cabbage meta-analysis.
+Consider any additional analyses or data adjustments based on the outcomes of the sensitivity checks.
+
+
+1. Inspect the Output
+
+```{r}
+# Load the results if not already loaded
+# moderator_results <- readRDS(file.path(output_dir, "moderator_analysis_results.rds"))
+
+##########################################################################
+# Set up the parallel processing plan
+plan(multisession, workers = parallel::detectCores() - 1)
+##################################################
+# Start time tracking
+start.time <- Sys.time()
+##################################################
+##################################################
+
+
+# Quick overview of the structure
+# str(moderator_results)
+
+# Function to check which analyses were successful
+check_results <- function(results) {
+  successful_analyses <- list()
+  
+  for (response_var in names(results)) {
+    cat("\nResponse Variable:", response_var, "\n")
+    response_results <- results[[response_var]]
+    
+    for (moderator in names(response_results)) {
+      cat("Moderator:", moderator, "\n")
+      
+      subgroup <- response_results[[moderator]]$subgroup
+      meta_regression <- response_results[[moderator]]$meta_regression
+      
+      if (!is.null(subgroup)) {
+        cat("  Subgroup Analysis: Successful\n")
+        successful_analyses[[response_var]][[moderator]]$subgroup <- "Successful"
+      } else {
+        cat("  Subgroup Analysis: Failed\n")
+      }
+      
+      if (!is.null(meta_regression)) {
+        cat("  Meta-Regression: Successful\n")
+        successful_analyses[[response_var]][[moderator]]$meta_regression <- "Successful"
+      } else {
+        cat("  Meta-Regression: Failed\n")
+      }
+    }
+  }
+  return(successful_analyses)
+}
+
+##################################################
+# End time tracking
+end.time <- Sys.time()
+# Calculate time taken
+time.taken <- end.time - start.time
+time.taken
+##############################################################
+# Last go: (17/11-24)
+
+
+##############################################################
+# Check the results
+successful_analyses <- check_results(moderator_results)
+# print(successful_analyses)
+```
+
+```{r}
+# Function to extract successful subgroup analysis
+extract_successful <- function(results) {
+  data_frame <- list()
+  for (response in names(results)) {
+    for (moderator in names(results[[response]])) {
+      if (!is.null(results[[response]][[moderator]]$subgroup) &&
+          results[[response]][[moderator]]$subgroup == "Successful") {
+        data_frame <- append(
+          data_frame,
+          list(data.frame(response_variable = response, moderator = moderator, status = "Successful"))
+        )
+      }
+    }
+  }
+  bind_rows(data_frame)
+}
+
+# Create a data frame of successful analyses
+success_df <- extract_successful(successful_analyses)
+```
+
+```{r}
+# Plot the heatmap
+success_df |> 
+  ggplot(aes(x = moderator, y = response_variable, fill = status)) +
+  geom_tile(color = "white") +
+  scale_fill_manual(values = c("Successful" = "#1b9e77", "Unsuccessful" = "#d95f02"), na.value = "grey80") +
+  labs(
+    title = "Summary of Successful Subgroup Analyses",
+    x = "Moderator",
+    y = "Response Variable",
+    fill = "Analysis Status"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    plot.title = element_text(hjust = 0.5, size = 16)
+  )
+```
+```{r}
+# Count the number of successful analyses per response variable
+success_count <- success_df %>%
+  count(response_variable)
+
+# Bar plot of successful analyses
+success_count |> 
+  ggplot(aes(x = reorder(response_variable, n), y = n, fill = response_variable)) +
+  geom_col() +
+  coord_flip() +
+  labs(
+    title = "Number of Successful Subgroup Analyses per Response Variable",
+    x = "Response Variable",
+    y = "Count of Successful Analyses"
+  ) +
+  scale_fill_brewer(palette = "Set3") +
+  theme_minimal()
 
 ```
 
@@ -665,331 +1023,1245 @@ names(moderator_results) <- response_variables
 ############
 # STEP 4
 ##########################################################################################################################################
-HETEROGENITY DIAGNOSTICS AND SENSITIVITY ANALYSIS
+HETEROGENITY DIAGNOSTICS
 ##########################################################################################################################################
 
 Heterogeneity Diagnostics and Sensitivity Analysis
 
 ```{r}
-# Function to calculate heterogeneity statistics
-calculate_heterogeneity <- function(model) {
+# Function to calculate I² statistic for meta-regression models
+calculate_I2 <- function(model) {
   if (!is.null(model)) {
-    I2 <- 100 * model$tau2 / (model$tau2 + model$sigma2)
-    cat("I² Statistic:", round(I2, 2), "%\n")
+    tau2 <- model$tau2
+    sigma2 <- model$sigma2
+    I2 <- 100 * (tau2 / (tau2 + sigma2))
+    return(round(I2, 2))
+  } else {
+    return(NA)
   }
 }
 
-# Check heterogeneity for each model
-lapply(moderator_results, function(result) {
-  lapply(result, calculate_heterogeneity)
+# Iterate through results and calculate I²
+I2_diagnostics <- list()
+
+for (response_var in names(moderator_results)) {
+  response_results <- moderator_results[[response_var]]
+  
+  I2_diagnostics[[response_var]] <- list()
+  
+  for (moderator in names(response_results)) {
+    meta_regression <- response_results[[moderator]]$meta_regression
+    
+    if (!is.null(meta_regression)) {
+      I2_stat <- calculate_I2(meta_regression)
+      I2_diagnostics[[response_var]][[moderator]] <- I2_stat
+      cat("I² for", response_var, "and", moderator, ":", I2_stat, "%\n")
+    }
+  }
+}
+
+# Print the heterogeneity diagnostics
+print(I2_diagnostics)
+```
+
+Many/all moderator analyses resulted in NaN values for the heterogeneity statistic (I²), which is often due to issues such as:
+
+Insufficient Data: When the sample size for certain subgroups is too low, the variance components cannot be estimated properly.
+Zero Between-Study Variance (tau2): If there is no detected between-study variance, I² becomes zero, which might be misleading.
+V_matrix Issues: Problems like non-positive definite matrices can affect the calculation of heterogeneity statistics.
+
+
+
+############
+# STEP 5
+##########################################################################################################################################
+ADDITIONAL MODEL COMPARISON AND DIAGNOSTICS
+##########################################################################################################################################
+
+Extract Model Fit Statistics
+
+```{r}
+# Helper function to extract model diagnostics
+extract_model_diagnostics <- function(model) {
+  if (!is.null(model)) {
+    AIC_value <- AIC(model)
+    BIC_value <- BIC(model)
+    logLik_value <- logLik(model)
+    k_all <- model$k.all  # Total number of studies included
+    QM <- model$QM        # Omnibus test for moderators
+    pval_QM <- model$pval.QM
+
+    list(
+      AIC = AIC_value,
+      BIC = BIC_value,
+      LogLik = logLik_value,
+      k_all = k_all,
+      QM = QM,
+      pval_QM = pval_QM
+    )
+  } else {
+    NULL
+  }
+}
+
+# Extract diagnostics for each model
+model_diagnostics <- lapply(moderator_results, function(response_result) {
+  lapply(response_result, function(mod_result) {
+    if (!is.null(mod_result$meta_regression)) {
+      extract_model_diagnostics(mod_result$meta_regression)
+    } else {
+      NULL
+    }
+  })
 })
+
+# Print a summary of the model diagnostics
+# print(model_diagnostics)
+
+
+# Helper function to filter non-NULL diagnostics
+filter_meaningful_diagnostics <- function(diagnostics) {
+  meaningful_results <- list()
+
+  for (response_var in names(diagnostics)) {
+    response_results <- diagnostics[[response_var]]
+    valid_results <- list()
+
+    for (moderator in names(response_results)) {
+      if (!is.null(response_results[[moderator]])) {
+        valid_results[[moderator]] <- response_results[[moderator]]
+      }
+    }
+
+    if (length(valid_results) > 0) {
+      meaningful_results[[response_var]] <- valid_results
+    }
+  }
+
+  return(meaningful_results)
+}
+
+# Apply the function to filter the model diagnostics
+filtered_diagnostics <- filter_meaningful_diagnostics(model_diagnostics)
+
+# Print the filtered diagnostics
+print(filtered_diagnostics)
+
+```
+```{r}
+# Convert the filtered diagnostics to a tidy data frame for visualization
+extract_diagnostics_df <- function(filtered_diagnostics) {
+  diagnostics_list <- list()
+
+  for (response_var in names(filtered_diagnostics)) {
+    for (moderator in names(filtered_diagnostics[[response_var]])) {
+      diag <- filtered_diagnostics[[response_var]][[moderator]]
+      if (!is.null(diag)) {
+        diagnostics_list <- append(diagnostics_list, list(
+          data.frame(
+            Response = response_var,
+            Moderator = moderator,
+            AIC = diag$AIC,
+            BIC = diag$BIC,
+            LogLik = as.numeric(diag$LogLik),
+            k_all = diag$k_all,
+            QM = diag$QM
+          )
+        ))
+      }
+    }
+  }
+
+  return(do.call(rbind, diagnostics_list))
+}
+
+# Create a data frame for visualization
+diagnostics_df <- extract_diagnostics_df(filtered_diagnostics)
+
+# Plot AIC and BIC values
+ggplot(diagnostics_df, aes(x = Moderator, y = AIC, fill = Response)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "AIC Values by Moderator and Response Variable",
+       x = "Moderator", y = "AIC") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Plot number of studies (k_all) for each analysis
+ggplot(diagnostics_df, aes(x = Moderator, y = k_all, fill = Response)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Number of Studies (k_all) by Moderator and Response Variable",
+       x = "Moderator", y = "Number of Studies") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+Assessing Diagnostics Across Response Variables
+
+```{r}
+# Function to extract diagnostics for both moderators and response variables
+extract_diagnostics_df <- function(filtered_diagnostics) {
+  diagnostics_list <- list()
+
+  for (response_var in names(filtered_diagnostics)) {
+    for (moderator in names(filtered_diagnostics[[response_var]])) {
+      diag <- filtered_diagnostics[[response_var]][[moderator]]
+      if (!is.null(diag) && !is.na(diag$AIC)) { # Filter out missing diagnostics
+        diagnostics_list <- append(diagnostics_list, list(
+          data.frame(
+            Response = response_var,
+            Moderator = moderator,
+            AIC = diag$AIC,
+            BIC = diag$BIC,
+            LogLik = as.numeric(diag$LogLik),
+            k_all = diag$k_all,
+            QM = diag$QM,
+            I2 = ifelse(!is.null(diag$I2), diag$I2, NA)
+          )
+        ))
+      }
+    }
+  }
+
+  return(do.call(rbind, diagnostics_list))
+}
+
+# Create a data frame for diagnostics
+diagnostics_df <- extract_diagnostics_df(filtered_diagnostics)
+
+# Check the structure of the data frame
+str(diagnostics_df)
+
+```
+
+Plotting AIC and BIC by Response Variable
+
+```{r}
+# AIC values by Response and Moderator
+ggplot(diagnostics_df, aes(x = Moderator, y = AIC, fill = Response)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "AIC Values by Moderator and Response Variable",
+       x = "Moderator", y = "AIC") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+Plotting Number of Studies (k_all)
+
+```{r}
+# Number of Studies (k_all) by Response and Moderator
+ggplot(diagnostics_df, aes(x = Moderator, y = k_all, fill = Response)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Number of Studies (k_all) by Moderator and Response Variable",
+       x = "Moderator", y = "Number of Studies") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+Plotting I² Heterogeneity Statistics
+
+```{r}
+# I² Statistics by Response and Moderator
+ggplot(diagnostics_df, aes(x = Moderator, y = I2, fill = Response)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "I² Heterogeneity Statistics by Moderator and Response Variable",
+       x = "Moderator", y = "I² (%)") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+Plotting Log-Likelihood Values
+
+```{r}
+# Log-Likelihood by Response and Moderator
+ggplot(diagnostics_df, aes(x = Moderator, y = LogLik, fill = Response)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Log-Likelihood by Moderator and Response Variable",
+       x = "Moderator", y = "Log-Likelihood") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 
 
 
 
 
+Check Fixed Effects Estimates
+
+```{r}
+# Function to extract fixed effects estimates
+extract_fixed_effects <- function(model) {
+  if (!is.null(model)) {
+    coef_table <- summary(model)$b
+    ci_lower <- summary(model)$ci.lb
+    ci_upper <- summary(model)$ci.ub
+    p_values <- summary(model)$pval
+
+    data.frame(
+      Estimate = coef_table,
+      CI_Lower = ci_lower,
+      CI_Upper = ci_upper,
+      P_Value = p_values
+    )
+  } else {
+    NULL
+  }
+}
+
+# Extract fixed effects for each model
+fixed_effects_summary <- lapply(moderator_results, function(response_result) {
+  lapply(response_result, function(mod_result) {
+    if (!is.null(mod_result$meta_regression)) {
+      extract_fixed_effects(mod_result$meta_regression)
+    } else {
+      NULL
+    }
+  })
+})
+
+# Print the fixed effects estimates
+print(fixed_effects_summary)
+```
 
 
+############
+# STEP 6
+##########################################################################################################################################
+SENSITIVITY ANALYSIS (Leave-One-Out Sensitivity Analysis)
+##########################################################################################################################################
 
+non_imp_dataset 
+imp_dataset 
+non_imp_dataset_imputed 
+imp_dataset_imputed 
+
+
+Performing a Leave-One-Out (LOO) sensitivity analysis on the full datasets and full model can be justified. This analysis would complement the LOO performed on each individual meta-regression model and provide additional insights. Here’s a detailed explanation:
+
+Justification for LOO Sensitivity Analysis on Full Model
+Assess Overall Model Robustness:
+
+Applying LOO sensitivity analysis to the full model allows you to evaluate the robustness of the overall meta-analytic findings. It helps identify if specific studies have a disproportionate influence on the aggregated results.
+This is particularly useful when you have concerns about the quality or heterogeneity of the included studies. If the removal of a single study drastically changes the overall effect size or model fit, this study might need further investigation.
+Comparison Between Datasets (Imputed vs Non-Imputed):
+
+Conducting LOO on both non_imp_dataset and imp_dataset allows you to compare the stability of the results between datasets with and without imputation.
+It helps validate the imputation process by checking whether imputed data introduces or mitigates influential observations.
+Insights Across All Moderators:
+
+The LOO analysis on individual meta-regression models examines the impact of leaving out observations within each moderator level. However, performing LOO on the full model assesses the overall influence of each study across all moderators combined.
+This provides a broader view of the dataset and highlights influential studies that might not be detected when focusing only on specific moderators.
+Pros and Cons of LOO on the Full Model
+Pros:
+Comprehensive Sensitivity Check: It provides a complete picture of the influence of each study across the entire dataset.
+Validation of Imputed Data: It allows you to test the robustness of results obtained from imputed datasets, helping ensure that imputation did not introduce bias.
+Identification of Influential Studies: It can detect influential studies that have a large impact on the overall meta-analytic effect size or variance components.
+Cons:
+Computational Intensity: The LOO analysis on the full model can be computationally expensive, especially with large datasets and complex random-effects structures.
+Potential Overlap: If individual meta-regression models are already analyzed with LOO, the full-model LOO might yield redundant information. However, this risk is mitigated by focusing on the broader dataset perspective.
+Complex Interpretation: If a study is found to be influential in the full model LOO but not in specific meta-regression models, interpretation can be challenging. It may indicate complex interactions or issues with the overall model specification.
+Implementation Plan
+You can implement the LOO sensitivity analysis on the full model using both imputed and non-imputed datasets. Here’s how to proceed:
+
+Fit the Full Model on each dataset (non_imp_dataset, imp_dataset, non_imp_dataset_imputed, imp_dataset_imputed).
+Run LOO Sensitivity Analysis using a function that iteratively removes one study at a time and refits the model.
+Summarize the Results: Report changes in the effect size, heterogeneity statistics (I²), and model fit metrics (AIC, BIC, LogLik).
+
+Why Split by Response Variable?
+Distinct Moderation Effects: Response variables (e.g., ecosystem services like greenhouse gas emissions, soil quality, etc.) likely differ in how moderators (e.g., tree type, crop type, season) influence them. Splitting allows the model to isolate the unique relationships within each response variable.
+
+Interpretability: Without splitting, estimates may conflate effects across distinct response variables, making it difficult to attribute results to a specific ecosystem service.
+
+Appropriate LOO Sensitivity: Running LOO sensitivity on mixed-response datasets can be misleading, as the omitted studies might affect multiple response variables differently, introducing biases or artifacts.
+
+Fits the Cabbage Approach: This methodology inherently groups analyses by discrete categories, and splitting by response variable mirrors that logic.
 
 
 ```{r}
-# Let's inspect one of the splits
-example_split <- tree_type_splits[["Biomass"]]
+# Set the working directory automatically using 'here'
+setwd(here::here())
 
-# View the structure of the subset
-str(example_split)
 
-# Plot the effect size (yi) distribution for this subset
-ggplot(example_split, aes(x = yi)) +
-  geom_histogram(bins = 20, fill = "#0072B2", color = "black") +
-  labs(title = "Effect Size Distribution for 'Biomass' Tree Type",
-       x = "Effect Size (yi)",
-       y = "Frequency") +
-  theme_minimal()
+# Define your working directory using 'here'
+output_dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
 
+# Load datasets and V_matrices
+non_imp_dataset <- readRDS(file.path(output_dir, "non_imp_dataset.rds"))
+imp_dataset <- readRDS(file.path(output_dir, "imp_dataset.rds"))
+non_imp_dataset_imputed <- readRDS(file.path(output_dir, "non_imp_dataset_imputed.rds"))
+imp_dataset_imputed <- readRDS(file.path(output_dir, "imp_dataset_imputed.rds"))
+
+V_matrix_non_imp <- readRDS(file.path(output_dir, "V_matrix_non_imp_dataset.rds"))
+V_matrix_imp <- readRDS(file.path(output_dir, "V_matrix_imp_dataset.rds"))
+V_matrix_non_imp_imputed <- readRDS(file.path(output_dir, "V_matrix_non_imp_dataset_imputed.rds"))
+V_matrix_imp_imputed <- readRDS(file.path(output_dir, "V_matrix_imp_dataset_imputed.rds"))
 ```
 
 ```{r}
-# Function to calculate the variance-covariance matrix
-calculate_v_matrix <- function(data, correlation = 0.5) {
-  cat("Calculating variance-covariance matrix...\n")
+##########################################################################
+# Define the moderator formula
+moderator_formula <- as.formula("~ tree_type + crop_type + age_system + season + soil_texture")
+
+##########################################################################
+```
+
+
+Create test sub-set of data (because it takes too long to run the code)
+
+```{r}
+# Helper functions for processing - (validate, and subset creation of data and v_matrix)
+is_positive_definite <- function(mat) {
+  if (!isSymmetric(mat)) {
+    return(FALSE)
+  }
+  eigenvalues <- eigen(mat, symmetric = TRUE, only.values = TRUE)$values
+  return(all(eigenvalues > 0))
+}
+
+make_positive_definite <- function(V_matrix) {
+  if (!is_positive_definite(V_matrix)) {
+    diag(V_matrix) <- diag(V_matrix) + 1e-6
+  }
+  return(V_matrix)
+}
+
+validate_data_and_v_matrix <- function(data, V_matrix) {
+  if (!isSymmetric(V_matrix)) {
+    V_matrix <- (V_matrix + t(V_matrix)) / 2
+    cat("V_matrix has been symmetrized.\n")
+  }
   
-  # Assuming 'vi' column is the variance of each effect size
-  vi <- data$vi
+  if (!is_positive_definite(V_matrix)) {
+    diag(V_matrix) <- diag(V_matrix) + 1e-6
+    cat("V_matrix adjusted for positive definiteness.\n")
+  }
   
-  # Construct the V matrix using the correlation parameter
-  V_matrix <- outer(vi, vi, function(x, y) correlation * sqrt(x * y))
-  diag(V_matrix) <- vi  # Set the diagonal to the variances
+  if (!identical(rownames(V_matrix), rownames(data))) {
+    stop("Row names of V_matrix and data do not match!")
+  }
   
   return(V_matrix)
 }
 
-```
-
-```{r}
-# Example subset data
-subset_data <- non_imp_dataset[1:10, ]  # Just an example, use your real subset
-V_matrix_subset <- calculate_v_matrix(subset_data, correlation = 0.5)
-print(V_matrix_subset)
-
-```
-
-
-```{r}
-# Define a function to fit a simple meta-analysis model for a subset
-# Define the list of moderators
-moderators <- c("tree_type", "crop_type", "age_system", "season", 
-                "soil_texture", "no_tree_per_m", "tree_height", "alley_width")
-
-# Function to split the dataset by a specific moderator
-split_data_by_moderator <- function(data, moderator) {
-  cat("\nSplitting dataset by moderator:", moderator, "\n")
-  split(data, data[[moderator]])
-}
-
-# Function to calculate the variance-covariance matrix for a subset
-calculate_v_matrix_subset <- function(subset_data) {
-  cat("Calculating V_matrix for subset...\n")
-  calculate_v_matrix(subset_data, correlation = 0.5)  # Adjust correlation if needed
-}
-
-# Function to fit a meta-analysis model using a newly calculated V_matrix
-fit_meta_model_subset <- function(data, V_matrix) {
-  tryCatch({
-    rma.mv(
-      yi = yi,
-      V = V_matrix,
-      mods = ~ 1,
-      random = list(~ 1 | id_article, ~ 1 | id_article/response_variable, ~ 1 | exp_id),
-      data = data,
-      method = "REML",
-      control = list(optimizer = "optim", optim.method = "BFGS")
- )
-  }, error = function(e) {
-    cat("Model fitting error:", e$message, "\n")
-    return(NULL)
-  })
-}
-
-# Initialize a list to store results
-moderator_analysis_results <- list()
-
-# Loop through each moderator
-for (moderator in moderators) {
-  cat("\nAnalyzing moderator:", moderator, "\n")
+# Subset creation helper
+# Updated function for creating a test subset
+create_test_subset <- function(data, V_matrix, sample_size = 150) {
+  if (nrow(data) < sample_size) {
+    stop("Sample size is larger than the dataset.")
+  }
   
-  # Split the data by moderator for both non-imputed and imputed datasets
-  non_imp_splits <- split_data_by_moderator(non_imp_dataset, moderator)
-  imp_splits <- split_data_by_moderator(imp_dataset, moderator)
-
-  # Initialize lists to store models for each level of the moderator
-  non_imp_models <- list()
-  imp_models <- list()
-
-  # Loop through each level of the moderator for non-imputed dataset
-  for (level in names(non_imp_splits)) {
-    subset_data <- non_imp_splits[[level]]
-    
-    # Skip if there are insufficient data points
-    if (nrow(subset_data) < 5) {
-      cat("Insufficient data for level:", level, "- Skipping model fitting.\n")
-      next
-    }
-
-    # Calculate a new V_matrix for the subset
-    V_matrix_subset <- calculate_v_matrix_subset(subset_data)
-
-    # Fit the model and store the results
-    non_imp_models[[level]] <- fit_meta_model_subset(subset_data, V_matrix_subset)
+  # Ensure both data and V_matrix have row names
+  if (is.null(rownames(data))) {
+    rownames(data) <- seq_len(nrow(data))
   }
-
-  # Loop through each level of the moderator for imputed dataset
-  for (level in names(imp_splits)) {
-    subset_data <- imp_splits[[level]]
-    
-    # Skip if there are insufficient data points
-    if (nrow(subset_data) < 5) {
-      cat("Insufficient data for level:", level, "- Skipping model fitting.\n")
-      next
-    }
-
-    # Calculate a new V_matrix for the subset
-    V_matrix_subset <- calculate_v_matrix_subset(subset_data)
-
-    # Fit the model and store the results
-    imp_models[[level]] <- fit_meta_model_subset(subset_data, V_matrix_subset)
+  if (is.null(rownames(V_matrix))) {
+    rownames(V_matrix) <- colnames(V_matrix) <- seq_len(nrow(V_matrix))
   }
+  
+  # Sample row indices (ensure the sampled indices are consistent)
+  sampled_indices <- sample(rownames(data), size = sample_size, replace = FALSE)
+  
+  # Subset data and V_matrix using the sampled indices
+  data_subset <- data[sampled_indices, , drop = FALSE]
+  V_matrix_subset <- V_matrix[sampled_indices, sampled_indices, drop = FALSE]
+  
+  # Validate alignment
+  if (!identical(rownames(data_subset), rownames(V_matrix_subset))) {
+    stop("Row names of V_matrix and data do not match!")
+  }
+  
+  # Return subsets
+  list(data = data_subset, V_matrix = V_matrix_subset)
+}
+```
 
-  # Store the models for this moderator
-  moderator_analysis_results[[moderator]] <- list(
-    non_imputed = non_imp_models,
-    imputed = imp_models
-  )
+```{r}
+# Split data and V_matrix by response variable with preselection
+split_by_response_variable <- function(test_data, selected_response_variables = NULL) {
+  data <- test_data$data
+  V_matrix <- test_data$V_matrix
+  
+  # If selected_response_variables is provided, filter the data
+  if (!is.null(selected_response_variables)) {
+    data <- data[data$response_variable %in% selected_response_variables, , drop = FALSE]
+  }
+  
+  # Check if any data remains after filtering
+  if (nrow(data) == 0) {
+    stop("No data remains after filtering for selected response variables.")
+  }
+  
+  # Split data by response variable
+  response_splits <- split(data, data$response_variable)
+  
+  # Align each subset's V_matrix
+  splits <- lapply(response_splits, function(sub_data) {
+    indices <- rownames(sub_data)
+    V_matrix_subset <- V_matrix[indices, indices, drop = FALSE]
+    
+    # Validate alignment and return
+    validate_data_and_v_matrix(sub_data, V_matrix_subset)
+    list(data = sub_data, V_matrix = V_matrix_subset)
+  })
+  
+  return(splits)
+}
+```
+
+```{r}
+# Custom transformation function
+apply_transf <- function(results, transf = NULL) {
+  if (!is.null(transf) && is.function(transf)) {
+    results$estimate <- transf(results$estimate)
+    results$ci.lb <- transf(results$ci.lb)
+    results$ci.ub <- transf(results$ci.ub)
+  }
+  return(results)
 }
 
-# Define the output directory using 'here'
-output_dir <- here::here("DATA", "OUTPUT_FROM_R")
-# Save the analysis results
-saveRDS(moderator_analysis_results, file = file.path(output_dir, "moderator_analysis_results.rds"))
 
-cat("Moderator analysis results saved to:", file.path(output_dir, "moderator_analysis_results.rds"), "\n")
-
-```
-
-
-```{r}
-# Check the distribution of variances for each subset
-lapply(split_data_by_moderator(non_imp_dataset, "tree_type"), function(subset) {
-  hist(subset$vi, main = "Distribution of Variances", xlab = "Variance")
-})
-
-```
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-2. Splitting by Moderator Subset Data
-Define the moderators and create a function to split the dataset by each moderator.
-
-```{r}
-# Define the list of moderators
-moderators <- c("tree_type", "crop_type", "age_system", "season", 
-                "soil_texture", "no_tree_per_m", "tree_height", "alley_width")
-
-# Function to split the dataset by a specific moderator
-split_data_by_moderator <- function(data, moderator) {
-  cat("\nSplitting dataset by moderator:", moderator, "\n")
-  split_data <- split(data, data[[moderator]])
-  return(split_data)
-}
-
-non_imp_dataset_split <- split_data_by_moderator(data = non_imp_dataset,
-                                                 moderator = moderators)
-
-```
-
-
-3. Generating V_matrix for Each Moderator Subset Split Dataset
-Generate the variance-covariance matrix for each subset of data.
-
-```{r}
-# Function to create V_matrix for each subset
-generate_v_matrix_for_subset <- function(subset_data, V_matrix) {
-  subset_indices <- rownames(subset_data)
-  V_subset <- V_matrix[subset_indices, subset_indices]
-  return(V_subset)
-}
-
-```
-
-
-4. Running rma.mv for Each Subset Moderator Dataset
-Fit the multivariate random-effects model for each level of the moderator.
-
-```{r}
-# Function to fit the rma.mv model for each level of the moderator
-fit_models_for_moderator_levels <- function(split_data, V_matrix, dataset_name) {
-  model_results <- list()
-
-  for (level in names(split_data)) {
-    cat("\nFitting model for level:", level, "in", dataset_name, "\n")
-
-    # Subset data for the current level
-    subset_data <- split_data[[level]]
-
-    # Skip if there are insufficient data points
-    if (nrow(subset_data) < 5) {
-      cat("Insufficient data for level:", level, "- Skipping model fitting.\n")
-      next
-    }
-
-    # Generate V_matrix for the subset
-    V_subset <- generate_v_matrix_for_subset(subset_data, V_matrix)
-
-    # Fit the model
-    model <- tryCatch({
-      rma.mv(
-        yi = subset_data$yi,
-        V = V_subset,
-        mods = ~ 1,
-        random = list(
-          ~ 1 | id_article,
-          ~ 1 | id_article/response_variable,
-          ~ 1 | exp_id
-        ),
-        data = subset_data,
-        method = "ML"
+manual_leave1out <- function(model, data, V_matrix, transf = NULL) {
+  results <- lapply(seq_len(nrow(data)), function(i) {
+    tryCatch({
+      # Subset data and V_matrix
+      reduced_data <- data[-i, , drop = FALSE]
+      reduced_V_matrix <- V_matrix[-i, -i, drop = FALSE]
+      
+      # Refit the model
+      reduced_model <- rma.mv(
+        yi = yi,
+        V = reduced_V_matrix,
+        mods = model$mods,
+        random = model$random,
+        data = reduced_data,
+        method = "REML"
       )
+      
+      # Extract relevant diagnostics
+      res <- list(
+        estimate = coef(reduced_model),
+        ci.lb = confint(reduced_model)$random["lower"],
+        ci.ub = confint(reduced_model)$random["upper"]
+      )
+      
+      # Apply transformation if specified
+      apply_transf(res, transf = transf)
     }, error = function(e) {
-      cat("Error in model fitting for level:", level, "-", e$message, "\n")
-      return(NULL)
+      cat("Error in iteration", i, ":", conditionMessage(e), "\n")
+      NULL
     })
+  })
+  
+  # Return results as a data frame
+  do.call(rbind, results)
+}
+```
 
-    # Store the model results
-    if (!is.null(model)) {
-      model_results[[level]] <- list(
-        model = model,
-        summary = summary(model),
-        aic = AIC(model),
-        bic = BIC(model),
-        logLik = logLik(model)
-      )
-      cat("Model fitting complete for level:", level, "\n")
-    }
+
+```{r}
+run_loo_sensitivity <- function(data, V_matrix, moderator_formula, random_effects = NULL, output_dir = NULL, transf = NULL) {
+  # Ensure the V_matrix is positive definite
+  V_matrix <- make_positive_definite(V_matrix)
+  
+  # Combine moderator_formula and random_effects
+  full_formula <- if (!is.null(random_effects)) {
+    as.formula(paste(deparse(moderator_formula), deparse(random_effects), sep = " + "))
+  } else {
+    moderator_formula
   }
+  
+  # Fit the model
+  model <- tryCatch(
+    rma.mv(yi = yi, 
+           V = V_matrix, 
+           mods = full_formula, 
+           data = data, 
+           method = "REML"),
+    error = function(e) {
+      cat("Error in model fitting:", conditionMessage(e), "\n")
+      NULL
+    }
+  )
+  
+  # Run leave-one-out diagnostics manually
+  loo_results <- if (!is.null(model)) {
+    tryCatch(
+      manual_leave1out(model = model, data = data, V_matrix = V_matrix, transf = transf),
+      error = function(e) {
+        cat("Error in manual leave-one-out diagnostics:", conditionMessage(e), "\n")
+        NULL
+      }
+    )
+  } else {
+    NULL
+  }
+##########################################################################  
+  # Save the model and diagnostics
+  if (!is.null(output_dir) && !is.null(model)) {
+    if (!dir.exists(output_dir)) {
+      dir.create(output_dir, recursive = TRUE)
+    }
+    save_path_model <- file.path(output_dir, paste0("model_", make.names(deparse(moderator_formula)), ".rds"))
+    save_path_loo <- file.path(output_dir, paste0("loo_results_", make.names(deparse(moderator_formula)), ".rds"))
+    tryCatch({
+      saveRDS(model, file = save_path_model)
+      if (!is.null(loo_results)) {
+        saveRDS(loo_results, file = save_path_loo)
+      }
+    }, error = function(e) {
+      cat("Error saving results:", conditionMessage(e), "\n")
+    })
+  }
+##########################################################################  
+  # Return the model and diagnostics
+  list(model = model, loo_results = loo_results)
+}
+```
 
-  return(model_results)
+```{r}
+# Define a directory to save results
+# output_model_dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
+# if (!dir.exists(output_model_dir)) {
+#   dir.create(output_model_dir, recursive = TRUE)
+# }
+```
+
+```{r}
+# Define the function to run and save LOO sensitivity results
+run_loo_sensitivity_for_splits <- function(splits, formula, random_effects = NULL, output_dir = NULL) {
+  results <- lapply(names(splits), function(response_var) {
+    split <- splits[[response_var]]
+    
+    # Fit model and run diagnostics
+    loo_result <- run_loo_sensitivity(
+      data = split$data,
+      V_matrix = split$V_matrix,
+      moderator_formula = formula,
+      random_effects = random_effects
+    )
+    
+    # Add response variable metadata
+    loo_result$response_variable <- response_var
+    
+    # Save each result in a structured way
+    response_dir <- file.path(output_dir, response_var)
+    if (!dir.exists(response_dir)) {
+      dir.create(response_dir, recursive = TRUE)
+    }
+    
+    # Save model and diagnostics separately
+    if (!is.null(loo_result$model)) {
+      saveRDS(loo_result$model, file = file.path(response_dir, "model.rds"))
+    }
+    if (!is.null(loo_result$loo_results)) {
+      saveRDS(loo_result$loo_results, file = file.path(response_dir, "loo_results.rds"))
+    }
+    
+    # Return the results in memory
+    loo_result
+  })
+  
+  # Combine results into a single list
+  return(results)
+}
+```
+
+```{r}
+split_by_response_variable <- function(test_data, selected_response_variables = NULL) {
+  data <- test_data$data
+  V_matrix <- test_data$V_matrix
+  
+  # Optionally filter for selected response variables
+  if (!is.null(selected_response_variables)) {
+    data <- data[data$response_variable %in% selected_response_variables, ]
+    V_matrix <- V_matrix[rownames(data), rownames(data), drop = FALSE]
+  }
+  
+  # Split data by response variable
+  response_splits <- split(data, data$response_variable)
+  
+  # Align each subset's V_matrix
+  splits <- lapply(response_splits, function(sub_data) {
+    indices <- rownames(sub_data)
+    V_matrix_subset <- V_matrix[indices, indices, drop = FALSE]
+    
+    # Validate alignment
+    validate_data_and_v_matrix(sub_data, V_matrix_subset)
+    list(data = sub_data, V_matrix = V_matrix_subset)
+  })
+  
+  return(splits)
+}
+```
+
+```{r}
+# Create test subsets
+test_non_imp <- create_test_subset(non_imp_dataset, V_matrix_non_imp, sample_size = 150)
+test_imp <- create_test_subset(imp_dataset, V_matrix_imp, sample_size = 150)
+test_non_imp_imputed <- create_test_subset(non_imp_dataset_imputed, V_matrix_non_imp_imputed, sample_size = 150)
+test_imp_imputed <- create_test_subset(imp_dataset_imputed, V_matrix_imp_imputed, sample_size = 150)
+
+# View sneak-peak
+head(test_non_imp)
+```
+
+```{r}
+# Define the selected response variables
+selected_responses <- c("Crop yield", "Soil quality", "Biodiversity")
+
+
+####################################################################################################
+
+# Create splits for the non-imputed dataset
+split_non_imp <- split_by_response_variable(test_non_imp, 
+                                            selected_response_variables = selected_responses)
+
+# Create splits for the imputed dataset
+split_imp <- split_by_response_variable(test_imp, 
+                                        selected_response_variables = selected_responses)
+
+# Create splits for the non-imputed, imputed dataset
+split_non_imp_imputed <- split_by_response_variable(test_non_imp_imputed, 
+                                                    selected_response_variables = selected_responses)
+
+# Create splits for the imputed, imputed dataset
+split_imp_imputed <- split_by_response_variable(test_imp_imputed, 
+                                                selected_response_variables = selected_responses)
+
+# View sneak-peak
+head(split_non_imp)
+```
+
+
+```{r}
+# Define model formulas
+moderator_formula <- as.formula("~ tree_type + crop_type + age_system + season + soil_texture")
+
+# Define the random effects formula
+random_effects_formula <- as.formula("~ 1 | id_article/exp_id")
+
+# random_effects_formula <- list(~ 1 | id_article,
+#                                ~ 1 | id_article/response_variable,
+#                                ~ 1 | exp_id)
+```
+
+
+**OBS! This is a subset because it takes long with the full datasets**
+```{r, eval=FALSE}
+##########################################################################
+# Set up the parallel processing plan
+plan(multisession, workers = parallel::detectCores() - 1)
+##################################################
+# Start time tracking
+start.time <- Sys.time()
+##################################################
+##################################################
+
+# Define a directory to save results
+output_model_dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
+if (!dir.exists(output_model_dir)) {
+  dir.create(output_model_dir, recursive = TRUE)
+}
+
+##########################################################################
+# Run LOO sensitivity analysis on test subsets and each response variable split with integrated saving and collect results
+results <- list(
+  non_imp = run_loo_sensitivity_for_splits(
+    splits = split_non_imp,
+    formula = moderator_formula,
+    random_effects = random_effects_formula,
+    output_dir = file.path(output_model_dir, "Non_Imputed")
+  ),
+  imp = run_loo_sensitivity_for_splits(
+    splits = split_imp,
+    formula = moderator_formula,
+    random_effects = random_effects_formula,
+    output_dir = file.path(output_model_dir, "Imputed")
+  ),
+  non_imp_imputed = run_loo_sensitivity_for_splits(
+    splits = split_non_imp_imputed,
+    formula = moderator_formula,
+    random_effects = random_effects_formula,
+    output_dir = file.path(output_model_dir, "Non_Imputed_Imputed")
+  ),
+  imp_imputed = run_loo_sensitivity_for_splits(
+    splits = split_imp_imputed,
+    formula = moderator_formula,
+    random_effects = random_effects_formula,
+    output_dir = file.path(output_model_dir, "Imputed_Imputed")
+  )
+)
+
+# Save all results to a single file
+results_path <- file.path(output_model_dir, "meta_model_results_with_loo_test_subsets.rds")
+saveRDS(results, file = results_path)
+cat("Results saved to:", results_path, "\n")
+
+# str(loo_non_imp)
+
+
+
+##################################################
+# End time tracking
+end.time <- Sys.time()
+# Calculate time taken
+time.taken <- end.time - start.time
+time.taken
+##############################################################
+# Last go: (21/11-24)
+# Time difference of 17.70906 mins
+# Time difference of 12.06283 mins
+# Time difference of 1.435304 mins
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Diagnostics of LOO sensitivity analysis
+
+```{r}
+# Load results from saved RDS file
+results_path <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R", "meta_model_results_with_loo_test_subsets.rds")
+if (file.exists(results_path)) {
+  results <- readRDS(results_path)
+  cat("Results loaded from:", results_path, "\n")
+} else {
+  stop("Results file not found! Please run the model fitting and saving step first.")
 }
 
 ```
+```{r}
+#str(results)  
+
+# Example for Non-Imputed Dataset
+str(results$non_imp)
+
+results$non_imp[[1]] |> 
+  glimpse()
+```
+```{r}
+# Print response variables with missing models
+missing_models <- purrr::map(names(results$non_imp), function(response_var) {
+  if (is.null(results$non_imp[[response_var]]$model)) {
+    response_var
+  }
+}) %>% purrr::compact()
+
+cat("Response variables without valid models:\n", missing_models)
+```
+
+```{r}
+visualize_moderator_response <- function(results, moderator, response_variable) {
+  extract_models <- function(results_group) {
+    map(results_group, ~ list(
+      model_object = .x$model,
+      response_variable = .x$response_variable
+    ))
+  }
+  
+  all_models <- c(
+    extract_models(results$non_imp),
+    extract_models(results$imp),
+    extract_models(results$non_imp_imputed),
+    extract_models(results$imp_imputed)
+  )
+  
+  matching_models <- keep(all_models, ~ .x$response_variable == response_variable)
+  
+  if (length(matching_models) == 0) {
+    stop(paste("No models found for response variable:", response_variable))
+  }
+  
+  selected_model <- NULL
+  for (model_info in matching_models) {
+    predictors <- rownames(model_info$model_object$beta)
+    if (any(grepl(moderator, predictors, ignore.case = TRUE))) {
+      selected_model <- model_info
+      break
+    }
+  }
+  
+  if (is.null(selected_model)) {
+    available_predictors <- unique(unlist(lapply(matching_models, function(m) rownames(m$model_object$beta))))
+    stop(
+      paste0(
+        "No model found with moderator matching: '", moderator, "'.\n",
+        "Available predictors: ", paste(available_predictors, collapse = ", ")
+      )
+    )
+  }
+  
+  # Debugging: Check selected_model structure
+  message("Selected model structure:")
+  print(str(selected_model$model_object))
+  
+  # Extract forest plot data
+  forestplot_data <- extract_forestplot_data(selected_model$model_object)
+  
+  # Generate plot
+  plot <- plot_forestplot(forestplot_data, title = paste("Forest Plot:", moderator, "vs", response_variable))
+  return(plot)
+}
+
+# str(forestplot_data)
+```
+
+```{r}
+extract_forestplot_data <- function(model_object) {
+  # Validate structure
+  if (!is.list(model_object) || !is.matrix(model_object$beta) || is.null(rownames(model_object$beta))) {
+    stop("The input model_object does not have the expected structure.")
+  }
+  
+  # Extract components
+  beta <- model_object$beta[, 1]  # Extract estimates
+  se <- model_object$se           # Extract standard errors
+  ci.lb <- model_object$ci.lb     # Lower bounds of confidence intervals
+  ci.ub <- model_object$ci.ub     # Upper bounds of confidence intervals
+  pval <- model_object$pval       # P-values
+  term_names <- rownames(model_object$beta)  # Predictor names
+
+  # Combine into a tibble for easy manipulation
+  forestplot_data <- tibble(
+    term = term_names,
+    estimate = beta,
+    std_error = se,
+    ci_lower = ci.lb,
+    ci_upper = ci.ub,
+    p_value = pval
+  )
+  
+  return(forestplot_data)
+}
+```
+
+
+```{r}
+forestplot_data <- extract_forestplot_data(results$non_imp[[1]])
+
+# Check the structure of the resulting tibble
+# str(forestplot_data)
+forestplot_data |> glimpse()
+
+results$non_imp[[1]]$response_variable
+```
+
+
+```{r}
+forestplot_data |> 
+  ggplot(aes(x = term, y = estimate, ymin = ci_lower, ymax = ci_upper)) +
+  geom_pointrange() +
+  coord_flip() +
+  theme_minimal() +
+  labs(title = "Forest Plot", y = "Effect Estimate", x = "Predictors")
+```
+```{r}
+# Visualize forest plot for a specific moderator and response variable
+forest_plot <- visualize_moderator_response(
+  results = results,
+  moderator = "crop_type",  # Match is case-insensitive and partial
+  response_variable = "Soil quality"
+)
+
+forest_plot
+
+```
+```{r}
+combine_forestplot_data <- function(results, moderator) {
+  extract_models <- function(results_group) {
+    map(results_group, ~ list(
+      model_object = .x$model,
+      response_variable = .x$response_variable
+    ))
+  }
+  
+  all_models <- c(
+    extract_models(results$non_imp),
+    extract_models(results$imp),
+    extract_models(results$non_imp_imputed),
+    extract_models(results$imp_imputed)
+  )
+  
+  combined_data <- map_dfr(all_models, function(model_info) {
+    model_object <- model_info$model_object
+    response_variable <- model_info$response_variable
+    
+    # Skip if no matching predictors
+    term_names <- rownames(model_object$beta)
+    if (!any(grepl(moderator, term_names, ignore.case = TRUE))) {
+      return(NULL)
+    }
+    
+    # Extract the data
+    forestplot_data <- extract_forestplot_data(model_object, moderator)
+    
+    # Add response variable as a column
+    forestplot_data <- forestplot_data %>%
+      mutate(response_variable = response_variable)
+    
+    return(forestplot_data)
+  })
+  
+  if (nrow(combined_data) == 0) {
+    stop(paste("No terms found matching moderator:", moderator))
+  }
+  
+  return(combined_data)
+}
+```
+
+```{r}
+visualize_forestplot_facet <- function(results, moderator) {
+  # Combine data across all models
+  combined_data <- combine_forestplot_data(results, moderator)
+  
+  # Create the plot
+  plot <- combined_data %>%
+    ggplot(aes(x = estimate, y = term, xmin = ci_lower, xmax = ci_upper, color = response_variable)) +
+    geom_pointrange(position = position_dodge(width = 0.5)) +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
+    facet_grid(rows = vars(term), cols = vars(response_variable), scales = "free", space = "free") +
+    theme_minimal() +
+    labs(
+      title = "Forest Plot by Ecosystem Service",
+      x = "Effect Size (Estimate)",
+      y = "Predictors",
+      color = "Response Variable"
+    ) +
+    theme(
+      strip.text = element_text(size = 10, face = "bold"),
+      legend.position = "bottom"
+    )
+  
+  return(plot)
+}
+```
+
+```{r}
+forest_plot <- visualize_forestplot_facet(
+  results = results,
+  moderator = "crop_type"  # Specify the moderator to visualize
+)
+
+forest_plot
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Summarize and Visualize LOO Results:
+
+Create plots of the change in effect size estimates, I², and model fit metrics (AIC, BIC).
+Highlight any influential studies that cause large changes when removed.
+Integrate Findings:
+
+Compare the LOO results from the full model with those from the individual meta-regression models.
+Discuss any discrepancies or notable findings with your collaborators.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Key Problems Identified:
+Optimizer Did Not Achieve Convergence: The nlminb optimizer is failing to converge. This is often caused by poor model fit, extreme variance ratios, or insufficient data.
+Warnings About Variance Ratios: The warning "Ratio of largest to smallest sampling variance extremely large" suggests that your data may have high variability, which could make the models unstable.
+Single-Level Factors in Random Effects: The error "Single-level factor(s) found in 'random' argument" indicates that some random effects have only one level, which causes issues in the meta-regression model.
+Insufficient Levels for Moderators: For some moderators, there are not enough unique levels, leading to errors during analysis.
+Null Model Outputs: Many of your moderator models are returning NULL, indicating that the model fitting process is failing.
+
+
+##########################################################################################################################################
+ASSESSING THE SPLITS
+##########################################################################################################################################
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
