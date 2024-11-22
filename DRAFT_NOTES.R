@@ -938,7 +938,74 @@ all_diagnostics_df |>
 
 
 
+Create test sub-set of data (because it takes too long to run the code)
 
+```{r}
+# Helper functions for processing - (validate, and subset creation of data and v_matrix)
+is_positive_definite <- function(mat) {
+  if (!isSymmetric(mat)) {
+    return(FALSE)
+  }
+  eigenvalues <- eigen(mat, symmetric = TRUE, only.values = TRUE)$values
+  return(all(eigenvalues > 0))
+}
+
+make_positive_definite <- function(V_matrix) {
+  if (!is_positive_definite(V_matrix)) {
+    diag(V_matrix) <- diag(V_matrix) + 1e-6
+  }
+  return(V_matrix)
+}
+
+validate_data_and_v_matrix <- function(data, V_matrix) {
+  if (!isSymmetric(V_matrix)) {
+    V_matrix <- (V_matrix + t(V_matrix)) / 2
+    cat("V_matrix has been symmetrized.\n")
+  }
+  
+  if (!is_positive_definite(V_matrix)) {
+    diag(V_matrix) <- diag(V_matrix) + 1e-6
+    cat("V_matrix adjusted for positive definiteness.\n")
+  }
+  
+  if (!identical(rownames(V_matrix), rownames(data))) {
+    stop("Row names of V_matrix and data do not match!")
+  }
+  
+  return(V_matrix)
+}
+
+# Subset creation helper
+# Updated function for creating a test subset
+create_test_subset <- function(data, V_matrix, sample_size = 150) {
+  if (nrow(data) < sample_size) {
+    stop("Sample size is larger than the dataset.")
+  }
+  
+  # Ensure both data and V_matrix have row names
+  if (is.null(rownames(data))) {
+    rownames(data) <- seq_len(nrow(data))
+  }
+  if (is.null(rownames(V_matrix))) {
+    rownames(V_matrix) <- colnames(V_matrix) <- seq_len(nrow(V_matrix))
+  }
+  
+  # Sample row indices (ensure the sampled indices are consistent)
+  sampled_indices <- sample(rownames(data), size = sample_size, replace = FALSE)
+  
+  # Subset data and V_matrix using the sampled indices
+  data_subset <- data[sampled_indices, , drop = FALSE]
+  V_matrix_subset <- V_matrix[sampled_indices, sampled_indices, drop = FALSE]
+  
+  # Validate alignment
+  if (!identical(rownames(data_subset), rownames(V_matrix_subset))) {
+    stop("Row names of V_matrix and data do not match!")
+  }
+  
+  # Return subsets
+  list(data = data_subset, V_matrix = V_matrix_subset)
+}
+```
 
 
 ```{r,  eval=FALSE}
@@ -1017,5 +1084,426 @@ time.taken
 ```
 
 
+
+
+```{r}
+split_by_response_variable <- function(test_data, selected_response_variables = NULL) {
+  data <- test_data$data
+  V_matrix <- test_data$V_matrix
+  
+  # Optionally filter for selected response variables
+  if (!is.null(selected_response_variables)) {
+    data <- data[data$response_variable %in% selected_response_variables, ]
+    row_indices <- rownames(data)
+    V_matrix <- V_matrix[row_indices, row_indices, drop = FALSE]
+  }
+  
+  # Split data by response variable
+  response_splits <- split(data, data$response_variable)
+  
+  # Align each subset's V_matrix
+  splits <- lapply(response_splits, function(sub_data) {
+    indices <- rownames(sub_data)
+    V_matrix_subset <- V_matrix[indices, indices, drop = FALSE]
+    
+    # Validate alignment
+    validate_data_and_v_matrix(sub_data, V_matrix_subset)
+    list(data = sub_data, V_matrix = V_matrix_subset)
+  })
+  
+  return(splits)
+}
+```
+
+```{r}
+# Define the selected response variables
+selected_responses <- c("Crop yield", "Soil quality", "Biodiversity")
+
+
+####################################################################################################
+
+# Create splits for the non-imputed dataset
+split_non_imp <- split_by_response_variable(test_non_imp, 
+                                            selected_response_variables = selected_responses)
+
+# Create splits for the imputed dataset
+split_imp <- split_by_response_variable(test_imp, 
+                                        selected_response_variables = selected_responses)
+
+# Create splits for the non-imputed, imputed dataset
+split_non_imp_imputed <- split_by_response_variable(test_non_imp_imputed, 
+                                                    selected_response_variables = selected_responses)
+
+# Create splits for the imputed, imputed dataset
+split_imp_imputed <- split_by_response_variable(test_imp_imputed, 
+                                                selected_response_variables = selected_responses)
+
+# View sneak-peak
+split_non_imp |> glimpse()
+```
+
+```{r}
+split_non_imp$Biodiversity$data |> glimpse()
+
+split_non_imp$Biodiversity$V_matrix |> glimpse()
+```
+```{r}
+validate_data_and_v_matrix <- function(data, V_matrix) {
+  if (!identical(rownames(data), rownames(V_matrix))) {
+    stop("Row names of data and V_matrix do not match!")
+  }
+}
+
+# Validate the split
+split_non_imp$Biodiversity$data |> glimpse()
+split_non_imp$Biodiversity$V_matrix |> glimpse()
+```
+```{r}
+# Define model formulas
+# as.formula("yi ~ 0 + tree_type + crop_type + age_system + season + soil_texture")
+# Define the moderator formula
+moderator_formula <- as.formula("~ tree_type + soil_texture")
+
+# Define the random effects formula
+random_effects_formula <- as.formula("~ 1 | id_article/exp_id")
+
+
+# random_effects_formula <- list(~ 1 | id_article,
+#                                ~ 1 | id_article/response_variable,
+#                                ~ 1 | exp_id)
+```
+
+
+**OBS! This is a subset because it takes long with the full datasets**
+  ```{r, eval=FALSE}
+##########################################################################
+# Set up the parallel processing plan
+plan(multisession, workers = parallel::detectCores() - 1)
+##################################################
+# Start time tracking
+start.time <- Sys.time()
+##################################################
+##################################################
+
+# Define a directory to save results
+output_model_dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
+if (!dir.exists(output_model_dir)) {
+  dir.create(output_model_dir, recursive = TRUE)
+}
+
+##########################################################################
+# Run LOO sensitivity analysis on test subsets and each response variable split with integrated saving and collect results
+
+# Run LOO sensitivity analysis
+results <- list(
+  non_imp = run_loo_sensitivity_for_splits(
+    splits = split_non_imp,
+    moderator_formula = moderator_formula,
+    random_effects = random_effects_formula,
+    output_dir = file.path(output_model_dir, "Non_Imputed")
+  ),
+  imp = run_loo_sensitivity_for_splits(
+    splits = split_imp,
+    moderator_formula = moderator_formula,
+    random_effects = random_effects_formula,
+    output_dir = file.path(output_model_dir, "Imputed")
+  ),
+  non_imp_imputed = run_loo_sensitivity_for_splits(
+    splits = split_non_imp_imputed,
+    moderator_formula = moderator_formula,
+    random_effects = random_effects_formula,
+    output_dir = file.path(output_model_dir, "Non_Imputed_Imputed")
+  ),
+  imp_imputed = run_loo_sensitivity_for_splits(
+    splits = split_imp_imputed,
+    moderator_formula = moderator_formula,
+    random_effects = random_effects_formula,
+    output_dir = file.path(output_model_dir, "Imputed_Imputed")
+  )
+)
+
+# Save all results
+results_path <- file.path(output_model_dir, "meta_model_results_with_loo_test_subsets.rds")
+saveRDS(results, file = results_path)
+cat("Results saved to:", results_path, "\n")
+
+
+# str(loo_non_imp)
+
+
+
+##################################################
+# End time tracking
+end.time <- Sys.time()
+# Calculate time taken
+time.taken <- end.time - start.time
+time.taken
+##############################################################
+# Last go: (21/11-24)
+# Time difference of 17.70906 mins
+# Time difference of 12.06283 mins
+# Time difference of 1.435304 mins
+
+```
+
+Diagnostics of LOO sensitivity analysis
+
+```{r}
+# Load results from saved RDS file
+results_path <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R", "meta_model_results_with_loo_test_subsets.rds")
+if (file.exists(results_path)) {
+  results <- readRDS(results_path)
+  cat("Results loaded from:", results_path, "\n")
+} else {
+  stop("Results file not found! Please run the model fitting and saving step first.")
+}
+```
+
+```{r}
+#str(results)  
+
+# Example for Non-Imputed Dataset
+str(results$non_imp)
+
+results$non_imp[[1]] |> 
+  glimpse()
+
+# Confirm the presence of key components
+names(results$non_imp[[1]])
+# Check 'model' and 'data' structures
+glimpse(results$non_imp[[1]]$model)
+glimpse(results$non_imp[[1]]$data)
+
+```
+
+```{r}
+valid_model_objects <- purrr::keep(results$non_imp, ~ is.list(.x) && !is.null(.x$model))
+valid_model_objects
+```
+
+
+```{r}
+extract_forestplot_data <- function(model_object, moderator) {
+  # Extract relevant components
+  beta <- model_object$model$beta[, 1]
+  se <- model_object$model$se
+  ci.lb <- model_object$model$ci.lb
+  ci.ub <- model_object$model$ci.ub
+  pval <- model_object$model$pval
+  term_names <- rownames(model_object$model$beta)
+  
+  # Match terms for the specified moderator
+  matching_terms <- grep(moderator, term_names, ignore.case = TRUE, value = TRUE)
+  if (length(matching_terms) == 0) {
+    return(tibble())  # Return empty tibble if moderator not found
+  }
+  
+  # Construct tibble for matching terms
+  forestplot_data <- tibble(
+    term = term_names,
+    estimate = beta,
+    std_error = se,
+    ci_lower = ci.lb,
+    ci_upper = ci.ub,
+    p_value = pval
+  ) %>%
+    filter(term %in% matching_terms) %>%
+    mutate(
+      moderator_level = gsub(".*_", "", term)  # Extract only the level
+    )
+  
+  return(forestplot_data)
+}
+```
+
+```{r}
+forest_plot_data <- purrr::map_dfr(valid_model_objects, ~ {
+  purrr::map_dfr(selected_responses, function(response_variable) {
+    tryCatch(
+      {
+        data <- extract_forestplot_data(
+          .x,
+          moderator = selected_moderator
+        )
+        data <- data %>% mutate(response_variable = response_variable)
+        data
+      },
+      error = function(e) {
+        message("Error in data extraction: ", e$message)
+        tibble()
+      }
+    )
+  })
+})
+
+# Inspect final data
+forest_plot_data |> glimpse() 
+```
+
+```{r}
+forest_plot_data_agg <- forest_plot_data %>%
+  group_by(response_variable, moderator_level) %>%
+  summarize(
+    yi = mean(estimate, na.rm = TRUE),       # Mean effect size
+    lower_ci = mean(ci_lower, na.rm = TRUE), # Mean lower CI
+    upper_ci = mean(ci_upper, na.rm = TRUE), # Mean upper CI
+    .groups = "drop"                         # Drop grouping
+  )
+
+forest_plot_data_agg |> glimpse()
+```
+
+```{r}
+forest_plot <- forest_plot_data_agg %>%
+  ggplot(aes(x = yi, y = moderator_level, color = response_variable)) +
+  geom_point(size = 3) +  # Effect size
+  geom_errorbarh(aes(xmin = lower_ci, xmax = upper_ci), height = 0.2) +  # Confidence intervals
+  facet_wrap(~response_variable, scales = "free_x", ncol = 1) +  # Facet by response variable
+  geom_vline(xintercept = 0, linetype = "dashed", color = "red") +  # Reference line at zero
+  labs(
+    title = glue("Forest Plot: {selected_moderator}"),
+    x = "Effect Size (Estimate)",
+    y = "Moderator Levels"
+  ) +
+  theme_minimal() +
+  theme(
+    strip.text = element_text(size = 12, face = "bold"),
+    axis.text.y = element_text(size = 10),
+    axis.text.x = element_text(size = 10),
+    legend.position = "bottom"
+  )
+
+forest_plot
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Summarize and Visualize LOO Results:
+  
+  Create plots of the change in effect size estimates, I², and model fit metrics (AIC, BIC).
+Highlight any influential studies that cause large changes when removed.
+Integrate Findings:
+  
+  Compare the LOO results from the full model with those from the individual meta-regression models.
+Discuss any discrepancies or notable findings with your collaborators.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Key Problems Identified:
+  Optimizer Did Not Achieve Convergence: The nlminb optimizer is failing to converge. This is often caused by poor model fit, extreme variance ratios, or insufficient data.
+Warnings About Variance Ratios: The warning "Ratio of largest to smallest sampling variance extremely large" suggests that your data may have high variability, which could make the models unstable.
+Single-Level Factors in Random Effects: The error "Single-level factor(s) found in 'random' argument" indicates that some random effects have only one level, which causes issues in the meta-regression model.
+Insufficient Levels for Moderators: For some moderators, there are not enough unique levels, leading to errors during analysis.
+Null Model Outputs: Many of your moderator models are returning NULL, indicating that the model fitting process is failing.
+
+
+##########################################################################################################################################
+ASSESSING THE SPLITS
+##########################################################################################################################################
 
 
