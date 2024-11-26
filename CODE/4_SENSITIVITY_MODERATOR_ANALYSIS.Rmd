@@ -100,6 +100,7 @@ suppressWarnings({
     future,           # Parallel processing
     future.apply,     # Parallel processing
     Matrix,           # Matrix operations
+    progressr,
     ###################################################################################################################
     # Data Visualization
     ggplot2,          # Data visualization package (part of tidyverse)
@@ -1061,7 +1062,7 @@ for (response_var in names(moderator_results)) {
 }
 
 # Print the heterogeneity diagnostics
-print(I2_diagnostics)
+I2_diagnostics
 ```
 
 Many/all moderator analyses resulted in NaN values for the heterogeneity statistic (I²), which is often due to issues such as:
@@ -1396,220 +1397,80 @@ V_matrix_non_imp_imputed <- readRDS(file.path(output_dir, "V_matrix_non_imp_data
 V_matrix_imp_imputed <- readRDS(file.path(output_dir, "V_matrix_imp_dataset_imputed.rds"))
 ```
 
-```{r}
-##########################################################################
-# Define the moderator formula
-moderator_formula <- as.formula("~ tree_type + crop_type + age_system + season + soil_texture")
 
-##########################################################################
+
+```{r}
+# Define random effects structure
+random_effects_formular <- ~ 1 | id_article/id_obs
+
+# Define all potential moderators
+moderator_formula <- c("tree_type", "crop_type", "season", "soil_texture")  
 ```
+OBS
 
-
+Are they calculating the effect size on the full dataset or seperately on the subset datasets on each reponse variable? - it should be the same approach!
+Are they running the LOO on the full dataset or the subset datasets (subsetted on individual responsive variables) seperately?
+Are they doing publication bias evaluation (e.g. funnel plot) on the full dataset or the subset datasets (subsetted on individual responsive variables) seperately?
+Is the current LOO assessment running through each study (id_article) or using another identifier (i.e. id_obs)? - because it should be using id_article!
+I want to make a plot of overall effect size on the three main response variables (Biodiversity, Crop yield and Soil quality), like Fig. 1, however the plot I wish to make should have overall effects of agroforestry for each response variable relative to monocropping, this plot should include error bars represent 95% confidence intervals. Hence, visualising how confidence intervals overlapping zero indicate no significant differences with the monocropping and for each response variable numbers should be shown in parentheses indicating 1) the number of studies for the respective response variable and 2) the number of data records (observations) for the respective response variable
+Progress bar refined classes
 
 
 ```{r}
-# Split data and V_matrix by response variable with pre selection
-split_by_response_variable <- function(test_data, selected_response_variables = NULL) {
-  data <- test_data$data
-  V_matrix <- test_data$V_matrix
-  
+split_by_response_variable <- function(dataset, selected_response_variables = NULL) {
+  # Extract data and V_matrix
+  data <- dataset$data
+  V_matrix <- dataset$V_matrix
+
+  # Ensure rownames for data
+  if (is.null(rownames(data))) {
+    rownames(data) <- as.character(data$id_obs)
+  }
+
+  # Ensure V_matrix dimnames align with data rownames
+  if (is.null(dimnames(V_matrix))) {
+    dimnames(V_matrix) <- list(rownames(data), rownames(data))
+  }
+
   # If selected_response_variables is provided, filter the data
   if (!is.null(selected_response_variables)) {
     data <- data[data$response_variable %in% selected_response_variables, , drop = FALSE]
+
+    # Check if any data remains after filtering
+    if (nrow(data) == 0) {
+      stop("No data remains after filtering for selected response variables.")
+    }
+
+    # Subset V_matrix to match filtered data
+    indices <- rownames(data)
+    V_matrix <- V_matrix[indices, indices, drop = FALSE]
   }
-  
-  # Check if any data remains after filtering
-  if (nrow(data) == 0) {
-    stop("No data remains after filtering for selected response variables.")
-  }
-  
+
   # Split data by response variable
   response_splits <- split(data, data$response_variable)
-  
-  # Align each subset's V_matrix
+
+  # Align and validate V_matrix for each subset
   splits <- lapply(response_splits, function(sub_data) {
     indices <- rownames(sub_data)
     V_matrix_subset <- V_matrix[indices, indices, drop = FALSE]
-    
-    # Validate alignment and return
-    validate_data_and_v_matrix(sub_data, V_matrix_subset)
+    if (!all(rownames(sub_data) == rownames(V_matrix_subset))) {
+      stop("Mismatch between data rows and V_matrix rows.")
+    }
     list(data = sub_data, V_matrix = V_matrix_subset)
   })
-  
+
   return(splits)
 }
 ```
 
 ```{r}
-# Custom transformation function
-apply_transf <- function(results, transf = NULL) {
-  if (!is.null(transf) && is.function(transf)) {
-    results$estimate <- transf(results$estimate)
-    results$ci.lb <- transf(results$ci.lb)
-    results$ci.ub <- transf(results$ci.ub)
-  }
-  return(results)
-}
+# Define the selected response variables
+selected_responses <- c("Crop yield", "Soil quality", "Biodiversity")
 
 
-manual_leave1out <- function(model, data, V_matrix, transf = NULL) {
-  results <- lapply(seq_len(nrow(data)), function(i) {
-    tryCatch({
-      # Subset data and V_matrix
-      reduced_data <- data[-i, , drop = FALSE]
-      reduced_V_matrix <- V_matrix[-i, -i, drop = FALSE]
-      
-      # Refit the model
-      reduced_model <- rma.mv(
-        yi = yi,
-        V = reduced_V_matrix,
-        mods = model$mods,
-        random = model$random,
-        data = reduced_data,
-        method = "REML"
-      )
-      
-      # Extract relevant diagnostics
-      res <- list(
-        estimate = coef(reduced_model),
-        ci.lb = confint(reduced_model)$random["lower"],
-        ci.ub = confint(reduced_model)$random["upper"]
-      )
-      
-      # Apply transformation if specified
-      apply_transf(res, transf = transf)
-    }, error = function(e) {
-      cat("Error in iteration", i, ":", conditionMessage(e), "\n")
-      NULL
-    })
-  })
-  
-  # Return results as a data frame
-  do.call(rbind, results)
-}
-```
+####################################################################################################
 
 
-```{r}
-# Define a directory to save results
-# output_model_dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
-# if (!dir.exists(output_model_dir)) {
-#   dir.create(output_model_dir, recursive = TRUE)
-# }
-```
-
-```{r}
-run_loo_sensitivity <- function(data, 
-                                V_matrix, 
-                                moderator_formula, 
-                                random_effects = NULL, 
-                                output_dir = NULL, 
-                                transf = NULL) {
- 
-  # Ensure the V_matrix is positive definite
-  V_matrix <- make_positive_definite(V_matrix)
-  
-  # Fit the model
-  model <- tryCatch(
-    rma.mv(
-      yi = yi,
-      V = V_matrix,
-      mods = moderator_formula,
-      random = random_effects,
-      data = data,
-      method = "ML",
-      control = list(
-        optimizer = "optim",
-        optim.method = "BFGS",
-        iter.max = 1000,
-        rel.tol = 1e-8
-      )
-    ),
-    error = function(e) {
-      cat("Error in model fitting:", conditionMessage(e), "\n")
-      NULL
-    }
-  )
-  
-  # Run leave-one-out diagnostics manually
-  loo_results <- if (!is.null(model)) {
-    tryCatch(
-      manual_leave1out(model = model, data = data, V_matrix = V_matrix, transf = transf),
-      error = function(e) {
-        cat("Error in manual leave-one-out diagnostics:", conditionMessage(e), "\n")
-        NULL
-      }
-    )
-  } else {
-    NULL
-  }
-  
-  # Save the model and diagnostics
-  if (!is.null(output_dir) && !is.null(model)) {
-    if (!dir.exists(output_dir)) {
-      dir.create(output_dir, recursive = TRUE)
-    }
-    save_path_model <- file.path(output_dir, paste0("model_", make.names(deparse(moderator_formula)), ".rds"))
-    save_path_loo <- file.path(output_dir, paste0("loo_results_", make.names(deparse(moderator_formula)), ".rds"))
-    tryCatch({
-      saveRDS(model, file = save_path_model)
-      if (!is.null(loo_results)) {
-        saveRDS(loo_results, file = save_path_loo)
-      }
-    }, error = function(e) {
-      cat("Error saving results:", conditionMessage(e), "\n")
-    })
-  }
-  
-  # Return the model and diagnostics
-  list(model = model, loo_results = loo_results)
-}
-```
-
-```{r}
-run_loo_sensitivity_for_splits <- function(splits, 
-                                           moderator_formula, 
-                                           random_effects = NULL, 
-                                           output_dir = NULL) {
-  
-  results <- lapply(names(splits), function(response_var) {
-    split <- splits[[response_var]]
-    
-    # Fit model and run diagnostics
-    loo_result <- run_loo_sensitivity(
-      data = split$data,
-      V_matrix = split$V_matrix,
-      moderator_formula = moderator_formula,
-      random_effects = random_effects
-    )
-    
-    # Add response variable metadata
-    loo_result$response_variable <- response_var
-    
-    # Save each result in a structured way
-    response_dir <- file.path(output_dir, response_var)
-    if (!dir.exists(response_dir)) {
-      dir.create(response_dir, recursive = TRUE)
-    }
-    
-    # Save model and diagnostics separately
-    if (!is.null(loo_result$model)) {
-      saveRDS(loo_result$model, file = file.path(response_dir, "model.rds"))
-    }
-    if (!is.null(loo_result$loo_results)) {
-      saveRDS(loo_result$loo_results, file = file.path(response_dir, "loo_results.rds"))
-    }
-    
-    # Return the results in memory
-    loo_result
-  })
-  
-  # Combine results into a single list
-  return(results)
-}
-```
-
-```{r}
 # Prepare datasets and their corresponding V_matrices
 datasets <- list(
   non_imp_dataset = list(data = non_imp_dataset, V_matrix = V_matrix_non_imp),
@@ -1617,11 +1478,21 @@ datasets <- list(
   non_imp_dataset_imputed = list(data = non_imp_dataset_imputed, V_matrix = V_matrix_non_imp_imputed),
   imp_dataset_imputed = list(data = imp_dataset_imputed, V_matrix = V_matrix_imp_imputed)
 )
+
+# Split datasets
+splits <- lapply(datasets, function(ds) {
+  split_by_response_variable(ds, selected_response_variables = selected_responses)
+})
+
+# Inspect the splits
+str(splits)
+
+# View sneak-peak
+splits$non_imp_dataset$Biodiversity |> glimpse()
 ```
 
-```{r}
-non_imp_dataset |> glimpse()
-```
+
+
 ```{r}
 # Get unique response variables
 unique_response_vars <- unique(non_imp_dataset$response_variable)
@@ -1633,145 +1504,522 @@ split_data <- split(non_imp_dataset, non_imp_dataset$response_variable)
 # Assign names to the list elements
 names(split_data) <- unique_response_vars
 ```
-```{r}
-split_by_response_variable <- function(test_data, selected_response_variables = NULL) {
-  data <- test_data$data
-  V_matrix <- test_data$V_matrix
 
-  # Ensure data has row names
-  if (is.null(rownames(data))) {
-    rownames(data) <- as.character(data$id_obs)
-  }
 
-  # Ensure V_matrix has dimnames
-  if (is.null(dimnames(V_matrix))) {
-    dimnames(V_matrix) <- list(rownames(data), rownames(data))
-  }
-
-  # Filter the data if selected_response_variables is provided
-  if (!is.null(selected_response_variables)) {
-    data <- data[data$response_variable %in% selected_response_variables, , drop = FALSE]
-    # Also filter V_matrix to match the filtered data
-    indices <- rownames(data)
-    V_matrix <- V_matrix[indices, indices, drop = FALSE]
-  }
-
-  # Check if any data remains after filtering
-  if (nrow(data) == 0) {
-    stop("No data remains after filtering for selected response variables.")
-  }
-
-  # Split data by response variable
-  response_splits <- split(data, data$response_variable)
-
-  # Align each subset's V_matrix
-  splits <- lapply(response_splits, function(sub_data) {
-    indices <- rownames(sub_data)
-    V_matrix_subset <- V_matrix[indices, indices, drop = FALSE]
-
-    # Return the subset
-    list(data = sub_data, V_matrix = V_matrix_subset)
-  })
-
-  return(splits)
-}
-```
+Based on the description in the methods section, the "cabbage approach" for Leave-One-Out (LOO) sensitivity analysis does not include moderators. Instead, it uses a global model to assess the overall effect size without accounting for moderators. This approach focuses solely on the effect size and how its confidence intervals change when individual studies are excluded.
 
 ```{r}
-# Set row names for your data
-rownames(non_imp_dataset) <- as.character(non_imp_dataset$id_obs)
-
-# Ensure V_matrix is a matrix and assign dimnames
-V_matrix_non_imp <- as.matrix(V_matrix_non_imp)
-dimnames(V_matrix_non_imp) <- list(rownames(non_imp_dataset), rownames(non_imp_dataset))
-
-# Prepare test_data
-test_data <- list(data = non_imp_dataset, V_matrix = V_matrix_non_imp)
-
-```
-
-```{r}
-# Define the selected response variables
-selected_responses <- c("Crop yield", "Soil quality", "Biodiversity")
-```
-
-```{r}
-# Split the data with selected response variables
-splits <- split_by_response_variable(test_data, selected_response_variables = selected_responses)
-```
-```{r}
-splits$Biodiversity$data |> glimpse()
-splits$Biodiversity$V_matrix |> glimpse()
-```
-
-```{r}
-# Function to create a moderator formula excluding variables with only one level
-create_moderator_formula <- function(data, moderators) {
-  # Identify moderators with more than one level
-  valid_moderators <- moderators[sapply(data[, moderators, drop = FALSE], function(x) length(unique(x)) > 1)]
-  if (length(valid_moderators) == 0) {
-    # If no moderators vary, return an intercept-only model
-    return(~ 1)
-  }
-  # Create the formula
-  formula_str <- paste("~", paste(valid_moderators, collapse = " + "))
-  as.formula(formula_str)
-}
-```
-
-```{r}
-# Define random effects structure
-random_effects <- ~ 1 | id_article/id_obs
-```
-
-```{r}
-# Define all potential moderators
-all_moderators <- c("tree_type", "crop_type", "season", "soil_texture")
-
-# Loop over each response variable
-for (response_var in names(splits)) {
-  subset <- splits[[response_var]]
-  data_subset <- subset$data
-  V_matrix_subset <- subset$V_matrix
-
-  cat("Processing response variable:", response_var, "\n")
-
-  # Create moderator formula dynamically
-  moderator_formula <- create_moderator_formula(data_subset, all_moderators)
-  cat("Using moderator formula:", deparse(moderator_formula), "\n")
-
-  # Fit the model
-  model <- tryCatch(
-    rma.mv(
-      yi = yi,
-      V = V_matrix_subset,
-      mods = moderator_formula,
-      random = random_effects,
-      data = data_subset,
-      method = "REML"
-    ),
-    error = function(e) {
-      cat("Error in model fitting for", response_var, ":", conditionMessage(e), "\n")
-      NULL
+# Generic Leave-One-Out Sensitivity Analysis Function with Additional Metrics
+loo_analysis <- function(data_split, response_var_name) {
+  # Extract data and V_matrix for the current response variable
+  data <- data_split$data
+  V_matrix <- data_split$V_matrix
+  
+  # Initialize a data frame to store results
+  exclude_study <- data.frame(
+    id_article = character(0),
+    estimate = numeric(0),
+    se = numeric(0),
+    p.value = numeric(0),
+    tau2 = numeric(0),
+    I2 = numeric(0),
+    AIC = numeric(0),
+    BIC = numeric(0),
+    logLik = numeric(0),
+    QM = numeric(0),
+    pval_QM = numeric(0)
+  )
+  
+  # Perform Leave-One-Out (LOO) analysis
+  for (id in base::unique(data$id_article)) {
+    # Exclude the current article
+    reduced_data <- subset(data, id_article != id)
+    
+    # Subset the variance-covariance matrix
+    indices <- which(data$id_article != id)
+    reduced_V_matrix <- V_matrix[indices, indices, drop = FALSE]
+    
+    # Ensure the dimensions of the data and V_matrix match
+    if (nrow(reduced_data) != nrow(reduced_V_matrix)) {
+      cat("Skipping id_article", id, ": Dimension mismatch!\n")
+      next
     }
+    
+    # Try to fit the model
+    tryCatch({
+      # Fit the model without the current article
+      model_without_one <- rma.mv(
+        yi = yi,
+        V = reduced_V_matrix,
+        random = ~1 | id_article,
+        data = reduced_data,
+        method = "REML"
+      )
+      
+      # Collect results
+      exclude_study <- rbind(
+        exclude_study,
+        data.frame(
+          id_article = id,
+          estimate = as.numeric(coef(model_without_one)),
+          se = as.numeric(summary(model_without_one)$se),
+          p.value = as.numeric(summary(model_without_one)$pval),
+          tau2 = if (!is.null(model_without_one$tau2)) model_without_one$tau2 else NA,
+          I2 = if (!is.null(model_without_one$tau2) && !is.null(model_without_one$sigma2)) {
+            100 * model_without_one$tau2 / (model_without_one$tau2 + sum(model_without_one$sigma2))
+          } else {
+            NA
+          },
+          AIC = tryCatch(AIC(model_without_one), error = function(e) NA),
+          BIC = tryCatch(BIC(model_without_one), error = function(e) NA),
+          logLik = tryCatch(logLik(model_without_one), error = function(e) NA),
+          QM = if (!is.null(model_without_one$QM)) model_without_one$QM else NA,
+          pval_QM = if (!is.null(model_without_one$pval.QM)) model_without_one$pval.QM else NA
+        )
+      )
+    }, error = function(e) {
+      # Log errors but continue
+      cat("Error excluding id_article", id, ":", conditionMessage(e), "\n")
+    })
+  }
+  
+  # Add a response variable column for clarity
+  exclude_study$response_variable <- response_var_name
+  
+  return(exclude_study)
+}
+```
+
+```{r, eval=FALSE}
+##########################################################################
+# Set up the parallel processing plan
+plan(multisession, workers = parallel::detectCores() - 1)
+##################################################
+# Start time tracking
+start.time <- Sys.time()
+##################################################
+##################################################
+# Run Leave-One-Out (LOO) Sensitivity Analysis on dataset subsets for each response variable [SUBSET DATASETS]
+# Simplified Leave-One-Out Sensitivity Analysis
+# Perform LOO for all datasets and response variables
+loo_results <- lapply(names(splits), function(dataset_name) {
+  dataset_splits <- splits[[dataset_name]]
+  
+  # Perform LOO for each response variable in the dataset
+  response_results <- lapply(names(dataset_splits), function(response_var) {
+    cat("Processing dataset:", dataset_name, ", Response variable:", response_var, "\n")
+    
+    # Run the LOO analysis and add dataset and response variable columns
+    loo_analysis(dataset_splits[[response_var]], response_var) %>%
+      mutate(
+        dataset = dataset_name,  # Add the dataset name
+        response_variable = response_var  # Add the response variable
+      )
+  })
+  
+  # Combine results for all response variables in this dataset
+  do.call(rbind, response_results)
+})
+
+# Combine LOO results across all datasets
+final_loo_results <- do.call(rbind, loo_results)
+
+##############################################################
+# Define the output directory
+output_dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
+
+# Ensure the directory exists
+if (!dir.exists(output_dir)) {
+  dir.create(output_dir, recursive = TRUE)
+}
+
+# Save the full combined results
+saveRDS(
+  final_loo_results,
+  file = file.path(output_dir, "final_loo_results_combined.rds")
+)
+
+# Save results for each dataset individually
+names(loo_results) <- names(splits)  # Assign names for individual datasets
+saveRDS(
+  loo_results,
+  file = file.path(output_dir, "loo_results_individual_datasets.rds")
+)
+
+# Messages for saved files
+cat("Combined LOO sensitivity results saved to:", file.path(output_dir, "final_loo_results_combined.rds"), "\n")
+cat("Individual LOO sensitivity results saved to:", file.path(output_dir, "loo_results_individual_datasets.rds"), "\n")
+##############################################################
+
+##################################################
+# End time tracking
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+cat("Total time taken:", time.taken, "\n")
+##############################################################
+# Last go: (24/11-24)
+
+```
+
+```{r}
+# Load the saved results
+# Load combined results
+combined_loo_res <- readRDS(file.path(output_dir, "final_loo_results_combined.rds"))
+combined_loo_res
+# str(combined_loo_res)  # Inspect structure
+
+# Load individual dataset results
+# individual_results <- readRDS(file.path(output_dir, "loo_results_individual_datasets.rds"))
+# names(individual_results)  # Should show dataset names
+# str(individual_results[[1]])  # Inspect the first dataset's LOO results
+
+```
+
+Influence Diagnostics
+```{r}
+# Step 1: Identify overlapping studies
+overlapping_studies <- all_loo_results_for_plotting %>%
+  distinct(response_variable, id_article) %>%  # Get unique combinations
+  count(id_article) %>%  # Count how many response variables each study appears in
+  filter(n > 1) %>%  # Filter studies that appear in more than 1 response variable
+  pull(id_article)  # Extract the IDs of these studies
+
+# Step 2: Add a flag for overlapping studies
+all_loo_results_for_plotting <- all_loo_results_for_plotting %>%
+  mutate(
+    overlap_flag = ifelse(id_article %in% overlapping_studies, TRUE, FALSE)
   )
 
-  # Proceed if model fitting was successful
-  if (!is.null(model)) {
-    # Run LOO analysis
-    loo_results <- manual_leave1out(
-      model = model,
-      data = data_subset,
-      V_matrix = V_matrix_subset,
-      transf = NULL  # Replace with your transformation function if needed
-    )
+# Step 3: Create the forest plot with highlights
+all_loo_results_plot <- all_loo_results_for_plotting %>%
+  ggplot(aes(y = as.factor(id_article), x = estimate, color = response_variable)) +
+  geom_point(aes(shape = overlap_flag), size = 3) +  # Different shape for overlapping studies
+  geom_errorbarh(aes(xmin = lower_ci, xmax = upper_ci), height = 0.2, alpha = 0.7) +  # Horizontal CI bars
+  geom_vline(xintercept = 0, linetype = "dashed", color = "red") +  # Reference line at 0
+  facet_wrap(~response_variable, scales = "free_y") +  # Facet by response variable
+  labs(
+    y = "Excluded Study (ID)",
+    x = "Estimated Effect Size",
+    title = "Top 10 Most Influential Unique Studies (Leave-One-Out Analysis)",
+    subtitle = "Highlighted studies appear in more than one response variable",
+    color = "Response Variable",
+    shape = "Overlapping Study"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    axis.text.y = element_text(size = 10),
+    legend.position = "bottom",
+    strip.text = element_text(size = 12)  # Larger facet labels
+  )
 
-    # Save or process the results as needed
-    # For example, save the model and LOO results
-    # saveRDS(model, file = paste0("model_", response_var, ".rds"))
-    # saveRDS(loo_results, file = paste0("loo_results_", response_var, ".rds"))
-  }
+all_loo_results_plot
+# potentially highlight studies that are to-influential and present in more than 1 response variable, e.g. study 32 (in both crop yield and soil quality)
+```
+
+
+
+Between-Study Heterogeneity
+```{r}
+# Check data structure
+str(non_imp_dataset)
+
+# Check dimensions of V_matrix
+dim(V_matrix_non_imp)
+
+```
+
+
+```{r}
+# Simplified model fitting on non_imp_dataset
+tryCatch({
+  model <- rma.mv(
+    yi = yi, 
+    V = V_matrix_non_imp, 
+    random = ~ 1 | id_article,  # Simplified random structure
+    data = non_imp_dataset, 
+    method = "REML"
+  )
+  summary(model)  # Print model summary
+}, error = function(e) {
+  message("Error: ", e$message)
+})
+
+```
+```{r}
+# Check dimensions
+dim(V_matrix_non_imp)
+nrow(non_imp_dataset)
+
+# Check if V_matrix is symmetric
+is_symmetric <- all.equal(V_matrix_non_imp, t(V_matrix_non_imp))
+print(is_symmetric)
+
+# Check diagonal elements
+diag_positive <- all(diag(V_matrix_non_imp) > 0)
+print(diag_positive)
+
+# Inspect potential outliers in vi
+summary(non_imp_dataset$vi)
+
+```
+```{r}
+calculate_between_study_variance <- function(data, V_matrix, random_formula, dataset_name) {
+  tryCatch({
+    # Validate V_matrix and ensure positive definiteness
+    is_symmetric <- all.equal(V_matrix, t(V_matrix))
+    diag_positive <- all(diag(V_matrix) > 0)
+    
+    if (!is_symmetric || !diag_positive) {
+      stop("V_matrix is invalid: Ensure it's symmetric and diagonals are positive.")
+    }
+    
+    # Fit the random-effects model
+    model <- rma.mv(
+      yi = yi, 
+      V = V_matrix, 
+      random = random_formula, 
+      data = data, 
+      method = "ML"
+    )
+    
+    # Extract key metrics
+    tibble(
+      dataset = dataset_name,
+      tau2 = model$tau2,  # Between-study variance
+      I2 = 100 * model$tau2 / (model$tau2 + sum(model$sigma2)),  # Proportion of heterogeneity
+      H2 = 1 + (model$tau2 / mean(model$sigma2)),  # Total variance to sampling variance ratio
+      Q = model$QE,  # Cochran's Q
+      pval_Q = model$QEp,  # p-value for Q
+      QM = model$QM,  # Test for moderators
+      pval_QM = model$pval.QM  # p-value for moderators
+    )
+  }, error = function(e) {
+    # Capture errors and return NA metrics
+    message("Error for dataset: ", dataset_name, " - ", e$message)
+    tibble(
+      dataset = dataset_name,
+      tau2 = NA, I2 = NA, H2 = NA, Q = NA, pval_Q = NA, QM = NA, pval_QM = NA
+    )
+  })
 }
+```
+
+```{r}
+# List of datasets and their V_matrices
+datasets <- list(
+  non_imp_dataset = list(data = non_imp_dataset, V_matrix = V_matrix_non_imp),
+  imp_dataset = list(data = imp_dataset, V_matrix = V_matrix_imp),
+  non_imp_dataset_imputed = list(data = non_imp_dataset_imputed, V_matrix = V_matrix_non_imp_imputed),
+  imp_dataset_imputed = list(data = imp_dataset_imputed, V_matrix = V_matrix_imp_imputed)
+)
+
+# Loop through datasets and compute Between-Study Heterogeneity
+dataset_metrics <- lapply(names(datasets), function(dataset_name) {
+  dataset <- datasets[[dataset_name]]
+  calculate_between_study_variance(
+    data = dataset$data, 
+    V_matrix = dataset$V_matrix, 
+    random_formula = ~ 1 | id_article,  # Adjust random structure if needed
+    dataset_name = dataset_name
+  )
+}) %>% 
+  bind_rows()
+
+# View results
+str(dataset_metrics)
+
+```
+
+
+
+
+
+
+Funnel Plot
+```{r}
+split_data |> str()
+```
+```{r}
+# Function to calculate study-level effects
+get_study_effects <- function(data, id_var, yi, vi, random_formula) {
+  study_effects <- data.frame(id_article = character(0), effect_size = numeric(0), se = numeric(0))
+  
+  for (id in unique(data[[id_var]])) {
+    subset_data <- subset(data, data[[id_var]] == id)
+    cat("Processing id_article:", id, "- Rows:", nrow(subset_data), "\n")
+    
+    if (nrow(subset_data) > 1) {
+      # Fit a random-effects model using metafor
+      study_model <- tryCatch(
+        {
+          rma.mv(
+            yi = subset_data[[yi]], 
+            V = subset_data[[vi]], 
+            random = random_formula, 
+            data = subset_data, 
+            method = "REML"
+          )
+        },
+        error = function(e) {
+          message("Error fitting model for id_article:", id, "-", e$message)
+          return(NULL)
+        }
+      )
+      
+      if (!is.null(study_model)) {
+        study_effects <- rbind(study_effects, data.frame(
+          id_article = id,
+          effect_size = as.numeric(study_model$b),
+          se = as.numeric(study_model$se)
+        ))
+      }
+    } else {
+      # Handle cases with single observations
+      study_effects <- rbind(study_effects, data.frame(
+        id_article = id,
+        effect_size = subset_data[[yi]],
+        se = sqrt(subset_data[[vi]])
+      ))
+    }
+  }
+  
+  return(study_effects)
+}
+
+# Function to generate funnel plots for each response variable
+generate_funnel_plots <- function(split_data) {
+  lapply(names(split_data), function(response_var) {
+    data <- split_data[[response_var]]
+    
+    if (!is.null(data) && all(c("yi", "vi") %in% names(data))) {
+      cat("Generating funnel plots for:", response_var, "\n")
+      
+      # Fit an equal-effects model using metafor
+      res <- tryCatch(
+        {
+          rma(
+            yi = data$yi, 
+            vi = data$vi, 
+            data = data, 
+            measure = "GEN", 
+            method = "EE"
+          )
+        },
+        error = function(e) {
+          message("Error fitting model for ", response_var, ": ", e$message)
+          return(NULL)
+        }
+      )
+      
+      if (!is.null(res)) {
+        # Create a 2x2 grid of metafor funnel plots
+        par(mfrow = c(2, 2))
+        funnel(res, main = paste("Standard Error -", response_var))
+        funnel(res, yaxis = "vi", main = paste("Sampling Variance -", response_var))
+        funnel(res, yaxis = "seinv", main = paste("Inverse Standard Error -", response_var))
+        funnel(res, yaxis = "vinv", main = paste("Inverse Sampling Variance -", response_var))
+      }
+    } else {
+      message("No valid data for response variable:", response_var)
+    }
+  })
+}
+```
+
+```{r}
+# Main Workflow
+study_effects_results <- lapply(names(split_data), function(response_var) {
+  data <- split_data[[response_var]]
+  
+  if (!is.null(data) && all(c("yi", "vi") %in% names(data))) {
+    cat("Processing response variable:", response_var, "\n")
+    result <- get_study_effects(
+      data = data, 
+      id_var = "id_article", 
+      yi = "yi", 
+      vi = "vi",
+      random_formula = ~ 1 | exp_id / id_obs  # Hierarchical structure
+    )
+    
+    if (!is.null(result)) {
+      result <- result %>% mutate(response_variable = response_var)
+    }
+    return(result)
+  } else {
+    message("No valid data for:", response_var)
+    return(NULL)
+  }
+})
+
+# Combine results into a single data frame
+study_effects_df <- do.call(rbind, study_effects_results)
+
+# Debugging: Check structure of results
+cat("Final study_effects_df structure:\n")
+glimpse(study_effects_df)
+
+# Generate and display funnel plots
+cat("Generating funnel plots...\n")
+generate_funnel_plots(split_data)
+```
+
+Forest Plot in RevMan Style
+
+```{r}
+
+```
+
+Key Model Metrics and Regression Estimates
+
+```{r}
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Heterogeneity Metrics Across Response Variables
+```{r}
+
+```
+
+
+
+
+
+Extract Model Diagnostics for Response Variables
+
+Prepare and Process LOO Data for Plotting
+
+Visualize LOO Influence
+
+Summarize LOO Results for Each Response Variable
+
+
+
+Metafor Diagnostics Plots
+
+```{r}
 
 ```
 
