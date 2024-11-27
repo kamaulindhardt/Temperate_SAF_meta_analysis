@@ -84,8 +84,11 @@ suppressWarnings({
   # Load multiple add-on packages using pacman::p_load for efficiency
   pacman::p_load(
     # Data Manipulation / Transformation
+    conflicted,
     tidyverse,        # Comprehensive collection of R packages for data science
     readr,            # Read and write csv 
+    dplyr,
+    skimr,
     future,           # Parallel processing
     future.apply,     # Parallel processing
     ###################################################################################################################
@@ -93,10 +96,12 @@ suppressWarnings({
     ggplot2,          # Data visualization package (part of tidyverse)
     patchwork,        # ggplot2 API for sequentially building up a plot
     gridExtra,
+    scales,
     ###################################################################################################################
     # Meta-Analysis
     metafor,          # For conducting meta-analysis, effect sizes, and response ratios
     clubSandwich,     # Cluster-robust variance estimators for ordinary and weighted least squares linear regression models
+    mice,
     ###################################################################################################################
     # Exploratory Data Analysis (EDA)
     DataExplorer,     # For exploratory data analysis
@@ -499,8 +504,6 @@ assess_missing_data(imp_dataset_imputed, moderators, "Imputed Dataset")
 Additional assessment of the moderator imputation
 
 ```{r}
-library(scales)
-
 # Function to calculate missing data proportions
 calculate_missing_proportions <- function(data, moderators) {
   data %>%
@@ -649,10 +652,10 @@ fit_meta_model <- function(data, dataset_name, V_matrix) {
   # Fit the multivariate random-effects model
   model <- tryCatch({
     rma.mv(
-      yi = yi,
+      yi = yi,                      # fixed effects
       V = V_matrix,
       mods = moderator_formula,
-      random = list(
+      random = list(                # random effects
         ~ 1 | id_article,
         ~ 1 | id_article/response_variable,
         ~ 1 | exp_id
@@ -891,7 +894,6 @@ Comparison table of key model statistics
 
 ```{r}
 colnames(model_summaries)
-
 ```
 
 ```{r}
@@ -1183,9 +1185,114 @@ time.taken
 
 Saving plots
 
-```{r}
 
+Fit the simplified multivariate random-effects model for diagnostics
+
+```{r}
+##########################################################################
+# Set up the parallel processing plan
+plan(multisession, workers = parallel::detectCores() - 1)
+##################################################
+# Start time tracking
+start.time <- Sys.time()
+##################################################
+##################################################
+
+# Helper function to run the multivariate random-effects model
+run_meta_analysis <- function(data, dataset_name) {
+  cat("Running analysis for", dataset_name, "\n")
+  
+  # Step 1: Calculate the variance-covariance matrix if needed
+  V_matrix <- as.matrix(data$vi) # Example assumes `vi` is already correct
+  
+  # Step 2: Fit the simplified multivariate random-effects model
+  model_meta_diagnostics <- tryCatch({
+    rma(
+      yi = data$yi,
+      vi = data$vi,
+      random = list(
+        ~ 1 | id_article,
+        ~ 1 | id_article/response_variable,
+        ~ 1 | exp_id
+      ),
+      data = data,
+      method = "ML"
+    )
+  }, error = function(e) {
+    stop("Error in model fitting: ", e$message)
+  })
+  
+  # Step 3: Compute influence diagnostics
+  inf <- influence(model_meta_diagnostics)
+  
+  # Return the model and diagnostics
+  return(list(model = model_meta_diagnostics, influence = inf))
+}
+
+# Step 1: Apply meta-analysis function to each dataset
+results <- lapply(names(datasets), function(dataset_name) {
+  tryCatch({
+    run_meta_analysis(datasets[[dataset_name]], dataset_name)
+  }, error = function(e) {
+    cat("Error in dataset", dataset_name, ":", e$message, "\n")
+    return(NULL)
+  })
+})
+
+# Step 2: Name the results list
+names(results) <- names(datasets)
+
+
+##################################################
+# End time tracking
+end.time <- Sys.time()
+# Calculate time taken
+time.taken <- end.time - start.time
+time.taken
+##############################################################
+# Last go: (27/11-24)
+# Time difference of 2.942727 hours
 ```
+
+
+```{r}
+saveRDS(results, file = "meta_analysis_diagnosis_on_datasets_results.rds")
+```
+
+
+```{r}
+# Step 3: Plot influence diagnostics
+par(mfrow = c(8, 1), oma = c(2, 2, 2, 2)) # Set up plotting area
+for (dataset_name in names(results)) {
+  if (!is.null(results[[dataset_name]])) {
+    plot(results[[dataset_name]]$influence) # Default plot
+    mtext(paste("Influence Diagnostics for", dataset_name), side = 3, line = 0.5, outer = FALSE)
+  }
+}
+
+
+# Optional: Inspect the results
+# str(results)
+```
+
+```{r}
+datasets_effect_sizes$non_imp_dataset %>% glimpse()
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
