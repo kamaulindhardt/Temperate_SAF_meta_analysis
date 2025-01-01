@@ -103,6 +103,7 @@ suppressWarnings({
     # Data Visualization
     ggplot2,          # Data visualization package (part of tidyverse)
     patchwork,        # ggplot2 API for sequentially building up a plot
+    RColorBrewer,
     ###################################################################################################################
     # Spatial Data
     tidygeocoder,     # Unified interface for performing both forward and reverse geocoding queries
@@ -119,6 +120,7 @@ suppressWarnings({
     # Exploratory Data Analysis (EDA)
     DataExplorer,     # For exploratory data analysis
     SmartEDA,         # For smart exploratory data analysis
+    inspectdf,
     ###################################################################################################################
     # Project Management and Code Styling
     here,             # Easy file referencing using the top-level directory of a file project
@@ -138,6 +140,28 @@ conflict_prefer("mutate", "dplyr")
 conflict_prefer("arrange", "dplyr")
 conflict_prefer("locale", "readr")
 conflict_prefer("extract", "raster")
+conflict_prefer("col_factor", "scales")
+conflict_prefer("geocode", "tidygeocoder")
+```
+```{r}
+# Set a global theme and color scale
+# Define the global color palette
+global_palette <- c(
+  "#ffd700", 
+  "#ffb14e", 
+  "#fa8775", 
+  "#ea5f94", 
+  "#cd34b5", 
+  "#9d02d7", 
+  "#0000ff"
+)
+
+# Define global ggplot2 scales for color and fill
+scale_fill_global <- scale_fill_viridis_d(option = "D")  # Discrete
+scale_color_global <- scale_color_viridis_d(option = "D")  # Discrete
+
+scale_fill_global <- scale_fill_viridis_c(option = "D")  # Continuous
+scale_color_global <- scale_color_viridis_c(option = "D")  # Continuous
 ```
 
 
@@ -152,10 +176,19 @@ suppressWarnings({
   # Final database as 'meta-data'
   # Manually modifying the SD columns to "control_sd" and "silvo_sd" in Excel!
   database <- readxl::read_excel(
-    here("DATA", "Meta_data_v2.xlsx"), 
+    here("DATA", "Meta_data_v4.xlsx"), 
     sheet = "Quantatitive data"
   )
+  
+  # Dummy data where silvo_mean has been multiplied with 1.2 to check for larger effect size estimates
+  # database_dummy <- readxl::read_excel(
+  #   here("DATA", "Meta_data_dummy_test_high_silvo_mean_se.xlsx"), 
+  #   sheet = "Quantatitive data"
+  # )
+    
 })
+
+
 ```
 
 **Glimpse (taking a look at the data)**
@@ -184,6 +217,8 @@ GENERIC PREPROCESSING
 
 Manually modifying the SD columns to "control_sd" and "silvo_sd" in Excel!
 
+And in step 4, generate unique study identifier ('exp_id')
+
 ```{r}
 # Function to safely convert to numeric, replacing non-numeric values with NA
 safe_as_numeric <- function(x) {
@@ -192,6 +227,95 @@ safe_as_numeric <- function(x) {
 
 # Data Preprocessing
 database_clean <- database |>
+  # Step 1: Clean column names
+  janitor::clean_names() |>
+  
+  # Step 2: Convert id_article and id_obs to integer
+  mutate(
+    id_article = as.integer(id_article),
+    id_obs = as.integer(id_obs)
+  ) |>
+  
+  # Step 3: Convert standard errors and other numeric columns
+  mutate(
+    silvo_mean = safe_as_numeric(silvo_mean),
+    silvo_se = safe_as_numeric(silvo_se),
+    silvo_sd = safe_as_numeric(silvo_sd),
+    silvo_n = safe_as_numeric(silvo_n),
+    control_mean = safe_as_numeric(control_mean),
+    control_se = safe_as_numeric(control_se),
+    control_sd = safe_as_numeric(control_sd),
+    control_n = safe_as_numeric(control_n),
+    tree_age = safe_as_numeric(tree_age),
+    no_tree_per_m = as.character(no_tree_per_m)) |> 
+  
+  # Step 4: Create Identifiers (Experiment, Treatment, Common Control)
+  # Group data by relevant columns for Treatment ID
+  group_by(id_article, tree_type, crop_type, location, experiment_year) |>
+  mutate(treat_id = cur_group_id()) |>
+  ungroup() |>
+  
+  # Group data by relevant columns for Experiment ID
+  # The exp_id variable is created as a unique identifier for experiments, 
+  # based on grouping by: id_article (the article ID), location (the geographical location of the experiment), and 
+  # the experiment_year (the year the experiment was conducted)
+  group_by(id_article, location, experiment_year) |>
+  mutate(exp_id = cur_group_id()) |>
+  ungroup() |> 
+  
+  # Step 5: Ensure no infinite or NaN values are present in any columns
+  mutate(across(everything(), ~ifelse(is.infinite(.) | is.nan(.), NA, .))
+         ) |> 
+  
+  # Step 6: Convert "NA" strings to real NA values, excluding 'id_article' and 'id_obs'
+  mutate(
+    across(
+      .cols = where(is.character) & !c("id_article", "id_obs"),
+      .fns = ~ na_if(., "NA")
+    )
+  ) |>
+  
+  # Step 7: Convert year columns to date format
+ # Convert to proper Date format using "YYYY-01-01"
+ mutate(
+    experiment_year = as.Date(paste0(experiment_year, "-01-01")),
+    year_est_exp = as.Date(paste0(year_est_exp, "-01-01")),
+    #study_year_start = as.Date(paste0(study_year_start, "-01-01")),
+    #study_year_end = as.Date(paste0(study_year_end, "-01-01"))
+  ) |> 
+  # Step 8: Rename Latitude and Longitude to lat and lon
+  rename(
+    lat = latitude,
+    lon = longitude
+  ) |>
+  
+  # Step 9: Convert lat and lon to numeric coordinates
+  mutate(
+    lat = str_replace_all(lat, "[°NS]", "") |> safe_as_numeric(),
+    lon = str_replace_all(lon, "[°EW]", "") |> safe_as_numeric(),
+    lat = if_else(str_detect(lat, "S$"), -lat, lat),
+    lon = if_else(str_detect(lon, "W$"), -lon, lon)
+  ) |>
+  
+  # Step 10: Create a Coherent 'site_x' Column
+  mutate(
+    # If `lat` and `lon` are present, use them; otherwise, use the `location` name
+    site_x = case_when(
+      !is.na(lat) & !is.na(lon) ~ paste(lat, lon, sep = ", "),
+      !is.na(location) ~ location,
+      TRUE ~ NA_character_
+    )
+  ) 
+```
+
+```{r, eval=FALSE}
+# Function to safely convert to numeric, replacing non-numeric values with NA
+safe_as_numeric <- function(x) {
+  suppressWarnings(as.numeric(x))
+}
+
+# Data Preprocessing
+database_clean_dummy <- database_dummy |>
   # Step 1: Clean column names
   janitor::clean_names() |>
   
@@ -237,7 +361,7 @@ database_clean <- database |>
     )
   ) |>
   
-  # Step 7: Convert year columns to date format
+ # Step 7: Convert year columns to date format
  # Convert to proper Date format using "YYYY-01-01"
  mutate(
     experiment_year = as.Date(paste0(experiment_year, "-01-01")),
@@ -269,6 +393,7 @@ database_clean <- database |>
     )
   ) 
 ```
+
 
 ####################################
 GEOSPATIAL PREPROCESSING
@@ -326,6 +451,10 @@ database_clean <- database_clean |>
 
 # Passing 23 addresses to the Nominatim single address geocoder
 # Query completed in: 23.4 seconds
+
+# Last run (03/12-2024)
+# Passing 4 addresses to the Nominatim single address geocoder
+# Query completed in: 4.3 seconds
 ```
 
 Checking if any missing values in coordinates
@@ -371,80 +500,151 @@ database_clean_sf <- database_clean_sf |>
   )
 
 # Classify sub-regions based on the climate zone
-database_clean_sf <- database_clean_sf |>
+# Refine classifications for temperate climates and assign broader regions for others
+database_clean_sf <- database_clean_sf %>%
   mutate(
-    sub_region = case_when(
-      climate_zone %in% c(11, 12) ~ "Atlantic Europe",
-      climate_zone %in% c(13, 14) ~ "Mediterranean Europe",
-      climate_zone %in% c(15, 16, 17) ~ "Continental Europe",
-      climate_zone %in% c(21, 22) ~ "Boreal Europe",
-      climate_zone %in% c(23, 24) ~ "North-East USA",
-      climate_zone %in% c(25, 26) ~ "Pacific Northwest USA",
-      climate_zone %in% c(27, 28) ~ "Midwest USA",
-      climate_zone %in% c(29, 30) ~ "Southern Canada",
-      climate_zone %in% c(5, 6, 7) ~ "Arid North America",
-      climate_zone %in% c(31, 32) ~ "Tropical South America",
-      climate_zone %in% c(33, 34) ~ "Subtropical South America",
-      climate_zone %in% c(35, 36, 37) ~ "Temperate Asia",
-      climate_zone %in% c(38, 39) ~ "Arid Australia",
-      climate_zone %in% c(40, 41) ~ "Subtropical Australia",
-      climate_zone %in% c(42, 43, 44) ~ "Continental Asia",
-      climate_zone %in% c(45, 46) ~ "Oceanic Asia",
-      climate_zone %in% c(47, 48) ~ "Boreal Asia",
-      climate_zone %in% c(49, 50) ~ "Polar Regions",
-      climate_zone %in% c(51, 52) ~ "Tundra",
-      climate_zone %in% c(53, 54) ~ "Desert",
-      climate_zone %in% c(55, 56) ~ "Steppe",
-      climate_zone %in% c(57, 58) ~ "Savanna",
-      climate_zone %in% c(59, 60) ~ "Rainforest",
+    # Assign specific Köppen-Geiger classifications to climate zones
+    climate_zone = case_when(
+      climate_zone == 1 ~ "Tropical, rainforest",
+      climate_zone == 2 ~ "Tropical, monsoon",
+      climate_zone == 3 ~ "Tropical, savannah",
+      climate_zone == 4 ~ "Arid, desert, hot",
+      climate_zone == 5 ~ "Arid, desert, cold",
+      climate_zone == 6 ~ "Arid, steppe, hot",
+      climate_zone == 7 ~ "Arid, steppe, cold",
+      climate_zone == 8 ~ "Temperate, dry summer, hot summer",
+      climate_zone == 9 ~ "Temperate, dry summer, warm summer",
+      climate_zone == 10 ~ "Temperate, dry summer, cold summer",
+      climate_zone == 11 ~ "Temperate, dry winter, hot summer",
+      climate_zone == 12 ~ "Temperate, dry winter, warm summer",
+      climate_zone == 13 ~ "Temperate, dry winter, cold summer",
+      climate_zone == 14 ~ "Temperate, no dry season, hot summer",
+      climate_zone == 15 ~ "Temperate, no dry season, warm summer",
+      climate_zone == 16 ~ "Temperate, no dry season, cold summer",
+      climate_zone == 17 ~ "Cold, dry summer, hot summer",
+      climate_zone == 18 ~ "Cold, dry summer, warm summer",
+      climate_zone == 19 ~ "Cold dry summer, cold summer",
+      climate_zone == 20 ~ "Cold dry summer, very cold winter",
+      climate_zone == 21 ~ "Cold, dry winter, hot summer",
+      climate_zone == 22 ~ "Cold, dry winter, warm summer",
+      climate_zone == 23 ~ "Cold, dry winter, cold summer",
+      climate_zone == 24 ~ "Cold, dry winter, very cold winter",
+      climate_zone == 25 ~ "Cold, no dry season, hot summer",
+      climate_zone == 26 ~ "Cold, no dry season, warm summer",
+      climate_zone == 27 ~ "Cold, no dry season, cold summer",
+      climate_zone == 28 ~ "Cold, no dry season, very cold winter",
+      climate_zone == 29 ~ "Polar, tundra",
+      climate_zone == 30 ~ "Polar, frost",
+      TRUE ~ "Unclassified"
+    ),
+    
+    # Assign refined geographical regions
+    bioclim_sub_regions = case_when(
+      # Tropical climates
+      climate_zone %in% c(
+        "Tropical, rainforest", "Tropical, monsoon", "Tropical, savannah"
+      ) ~ "Tropical Climates",
+      
+      # Arid climates
+      climate_zone %in% c(
+        "Arid, desert, hot", "Arid, desert, cold", "Arid, steppe, hot", "Arid, steppe, cold"
+      ) ~ "Arid Climates",
+      
+      # Refined temperate climates
+      climate_zone %in% c(
+        "Temperate, dry summer, hot summer", "Temperate, dry summer, warm summer", 
+        "Temperate, dry winter, hot summer", "Temperate, dry winter, warm summer"
+      ) ~ "Dry and Warm Temperate",
+      
+      climate_zone %in% c(
+        "Temperate, no dry season, hot summer", "Temperate, no dry season, warm summer"
+      ) ~ "Wet and Warm Temperate",
+      
+      climate_zone %in% c(
+        "Temperate, dry summer, cold summer", "Temperate, dry winter, cold summer"
+      ) ~ "Dry and Cold Temperate",
+      
+      climate_zone %in% c(
+        "Temperate, no dry season, cold summer"
+      ) ~ "Wet and Cold Temperate",
+      
+      # Cold climates
+      climate_zone %in% c(
+        "Cold, dry summer, hot summer", "Cold, dry summer, warm summer", 
+        "Cold dry summer, cold summer", "Cold dry summer, very cold winter", 
+        "Cold, dry winter, hot summer", "Cold, dry winter, warm summer", 
+        "Cold, dry winter, cold summer", "Cold, dry winter, very cold winter",
+        "Cold, no dry season, hot summer", "Cold, no dry season, warm summer", 
+        "Cold, no dry season, cold summer", "Cold, no dry season, very cold winter"
+      ) ~ "Cold Climates",
+      
+      # Polar climates
+      climate_zone %in% c(
+        "Polar, tundra", "Polar, frost"
+      ) ~ "Polar Climates",
+      
       TRUE ~ "Unclassified"
     )
   )
 ```
+Id_article	Id_obs	Site	Location	Latitude	Longitude	Experimental_design	Experiment_Year	Study_duration	Comparator	Tree_type	Crop_type
+10	366	Leeds	England	53.883333° N	1.5491° W	NA	1992	7	Monoculture	Biomass	Cereal
 
-Checking for unclassified in sub_region
+Id_article	Id_obs	Site	Location	Latitude	Longitude	Experimental_design	Experiment_Year	Study_duration	Comparator	Tree_type	Crop_type	Year_est_exp
+29	873	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	874	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	875	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	876	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	877	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	878	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	879	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	880	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	881	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	882	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	883	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	884	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	885	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	886	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	887	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	888	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	889	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	890	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	891	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	892	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	893	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	894	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	895	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	896	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	897	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	898	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	899	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	900	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	901	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	902	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	903	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	904	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	905	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	906	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	907	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	908	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+
+Id_article	Id_obs	Site	Location	Latitude	Longitude	Experimental_design	Experiment_Year	Study_duration	Comparator	Tree_type	Crop_type	Year_est_exp
+36	1074	Xinjiang	China	73.370° N	34.200° E	Single-factor design	2011	2	Monoculture	Fruit,nut & other	Cereal	2011
+36	1075	Xinjiang	China	73.370° N	34.200° E	Single-factor design	2011	2	Monoculture	Fruit,nut & other	Cereal	2011
+
+
+
+Checking for unclassified in climate_zone and bioclim_sub_regions
 
 ```{r}
-unclassified_sub_region <- database_clean_sf |>
-  filter(sub_region == "Unclassified") 
-
-# Count the number of unclassified rows
-n_unclassified <- nrow(unclassified_sub_region)
-print(paste("Number of unclassified rows:", n_unclassified))
-
-# [1] "Number of unclassified rows: 57"
-
-# Check the unique climate zones that are currently unclassified
-unclassified_climate_zones <- unclassified_sub_region |> 
-  distinct(climate_zone) |> 
-  arrange(climate_zone)
-
-unclassified_climate_zones
-
-# A tibble:2 × 1
-# climate_zone
-# <dbl>
-# 8				
-# NA	
-unclassified_sub_region |> 
-  distinct(location)
+# Check classification coverage
+database_clean_sf %>%
+  filter(climate_zone == "Unclassified" | bioclim_sub_regions == "Unclassified") %>%
+  glimpse()
 ```
 
 
-Correcting unclassified in sub_region
 
-```{r}
-# Manually update the sub-region for the specific locations
-database_clean_sf <- database_clean_sf |>
-  mutate(
-    sub_region = case_when(
-      location == "Vézénobres" ~ "Mediterranean Europe",
-      location == "Restinclières" ~ "Mediterranean Europe",
-      location == "Xinjiang" ~ "Continental Asia",
-      TRUE ~ sub_region
-    )
-  )
-```
 
 ```{r}
 # Rename back to 'database_clean'
@@ -457,7 +657,7 @@ database_clean <- database_clean_sf |>
     # Response variable info
     response_variable, sub_response_variable,
     # Geographic and temporal info
-    location, sub_region, final_lat, final_lon, exp_site_loc, experiment_year,
+    location, climate_zone, bioclim_sub_regions, final_lat, final_lon, exp_site_loc, experiment_year,
     # Moderators info
     tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width,
     # Quantitative mata-analysis effect size info
@@ -473,12 +673,12 @@ database_clean |>
 ```{r}
 # Create the bar chart
 database_clean |> 
-  ggplot(aes(x = sub_region)) +
+  ggplot(aes(x = bioclim_sub_regions)) +
   geom_bar(fill = "skyblue", color = "black") +
   theme_minimal() +
   labs(
-    title = "Distribution of Observations by Sub-Region",
-    x = "Sub-Region",
+    title = "Distribution of Observations by BioClim Subregions",
+    x = "BioClim Subregions",
     y = "Count of Observations"
   ) +
   theme(
@@ -488,6 +688,299 @@ database_clean |>
     axis.title.y = element_text(size = 12)
   )
 ```
+
+
+################################################################################
+ASSESSING THE GENERATED RANDOM-FACTOR VARIABLES exp_id and treat_id 
+################################################################################
+
+Missingness Assessment for exp_id Visualization
+
+```{r}
+database_clean |> as.data.frame() |>
+  str()
+```
+
+
+```{r}
+# Visualize exp_id distribution across components
+database_clean %>%
+  as.data.frame() %>%
+  select(-geometry) %>%
+  mutate(
+    # Convert all columns to character for consistency
+    id_article = as.character(id_article),
+    experiment_year = as.character(experiment_year)
+  ) %>%
+  group_by(id_article, location, experiment_year) %>%
+  summarise(exp_id_count = n_distinct(exp_id), .groups = "drop") %>%
+  pivot_longer(
+    cols = c(id_article, location, experiment_year),
+    names_to = "component",
+    values_to = "value"
+  ) %>%
+  ggplot(aes(x = component, y = exp_id_count, fill = component)) +
+  geom_bar(stat = "identity", show.legend = FALSE) +
+  labs(
+    title = "Distribution of exp_id Across Components",
+    x = "Component",
+    y = "Count of exp_id"
+  ) +
+  scale_fill_brewer(palette = "Set3") +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+```
+```{r}
+# Heatmap for year-location relationship
+# Function to plot heatmap for year and a chosen variable
+plot_heatmap <- function(data, y_var) {
+  data %>%
+    as.data.frame() %>%
+    select(-geometry) %>%
+    group_by(experiment_year, !!sym(y_var)) %>%
+    summarise(n_exp_id = n_distinct(exp_id), .groups = "drop") %>%
+    ggplot(aes(x = experiment_year, y = !!sym(y_var), fill = n_exp_id)) +
+    geom_tile() +
+    labs(
+      title = paste("Heatmap of exp_id by Experiment Year and", y_var),
+      x = "Experiment Year",
+      y = y_var,
+      fill = "Count of exp_id"
+    ) +
+    scale_fill_viridis_c() +
+    theme_minimal(base_size = 14) +
+    theme(
+      plot.title = element_text(face = "bold", hjust = 0.5),
+      axis.text.x = element_text(angle = 45, hjust = 1)
+    )
+}
+
+# Example usage: Plot for location
+plot_heatmap(database_clean, "location")
+
+# Example usage: Plot for site
+plot_heatmap(database_clean, "site")
+
+# Example usage: Plot for bioclim_sub_region
+plot_heatmap(database_clean, "bioclim_sub_regions")
+```
+
+```{r}
+# Function to plot heatmap for year and chosen variable (moderators or response variables)
+plot_heatmap_moderator_response <- function(data, var_type) {
+  data %>%
+    as.data.frame() %>%
+    select(-geometry) %>%
+    group_by(experiment_year, !!sym(var_type)) %>%
+    summarise(n_exp_id = n_distinct(exp_id), .groups = "drop") %>%
+    ggplot(aes(x = experiment_year, y = !!sym(var_type), fill = n_exp_id)) +
+    geom_tile() +
+    labs(
+      title = paste("Heatmap of exp_id by Experiment Year and", var_type),
+      x = "Experiment Year",
+      y = var_type,
+      fill = "Count of exp_id"
+    ) +
+    scale_fill_viridis_c() +
+    theme_minimal(base_size = 14) +
+    theme(
+      plot.title = element_text(face = "bold", hjust = 0.5),
+      axis.text.x = element_text(angle = 45, hjust = 1)
+    )
+}
+
+# Example usage: Plot for moderators
+plot_heatmap_moderator_response(database_clean, "tree_type")
+
+# Example usage: Plot for response variables
+plot_heatmap_moderator_response(database_clean, "response_variable")
+
+```
+
+
+```{r}
+# Step 2: Explore Aggregation Level
+# Count unique `exp_id` values at each location level
+aggregation_summary <- database_clean %>%
+  as.data.frame() |> 
+  select(-geometry) |> 
+  group_by(location) %>%
+  summarise(
+    n_exp_id = n_distinct(exp_id),
+    n_obs = n(),
+    .groups = "drop"
+  )
+
+# View summary of aggregation
+aggregation_summary
+
+# Step 3: Visualize Aggregation Level
+aggregation_summary |> 
+  ggplot(aes(x = reorder(location, n_exp_id), y = n_exp_id)) +
+  geom_col(fill = "skyblue") +
+  coord_flip() +
+  labs(
+    title = "Distribution of exp_id Across Locations",
+    x = "Location",
+    y = "Number of exp_id"
+  ) +
+  theme_minimal()
+```
+```{r}
+# Step 4: Map Visualization (Optional)
+# Simplify the dataset
+geo_data <- database_clean %>%
+  select(lat, lon, exp_id) %>%
+  filter(!is.na(lat) & !is.na(lon)) # Remove rows with missing coordinates
+
+# Base map
+world_map <- map_data("world")
+
+# Plot the map with points
+ggplot() +
+  geom_polygon(
+    data = world_map,
+    aes(x = long, y = lat, group = group),
+    fill = "gray90", color = "gray70", size = 0.3
+  ) +
+  geom_point(
+    data = geo_data,
+    aes(x = lon, y = lat, color = as.factor(exp_id)),
+    size = 3, alpha = 0.7
+  ) +
+  scale_color_viridis_d() +
+  labs(
+    title = "Geographical Distribution of exp_id",
+    x = "Longitude",
+    y = "Latitude",
+    color = "Experiment ID"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    legend.position = "right"
+  )
+
+```
+
+```{r}
+# Summarize missingness across moderators and response variables
+missingness_summary <- database_clean %>%
+  as.data.frame() %>%
+  select(-geometry) %>%
+  group_by(exp_id) %>%
+  summarise(
+    # Count missing values for moderators
+    missing_moderators = sum(
+      is.na(tree_type) | is.na(crop_type) | is.na(age_system) | 
+      is.na(tree_age) | is.na(season) | is.na(soil_texture) | 
+      is.na(no_tree_per_m) | is.na(tree_height) | is.na(alley_width)
+    ),
+    # Count missing values for response variables
+    missing_response = sum(
+      is.na(silvo_mean) | is.na(control_mean)
+    ),
+    total_missing = missing_moderators + missing_response,
+    n_obs = n(),
+    .groups = "drop"
+  )
+```
+
+Visualize Missingness (Facet Plot for Moderators and Responses)
+```{r}
+# Reshape the missingness summary for visualization
+missingness_long <- missingness_summary %>%
+  pivot_longer(
+    cols = c(missing_moderators, missing_response),
+    names_to = "missingness_type",
+    values_to = "missing_count"
+  )
+
+# Summarize missingness data for better grouping and understanding
+missingness_long_summary <- missingness_long %>%
+  group_by(missingness_type, n_obs_group = cut(n_obs, breaks = seq(0, max(n_obs, na.rm = TRUE), by = 10))) %>%
+  summarise(mean_missing = mean(missing_count, na.rm = TRUE), .groups = "drop")
+
+# Separate data for moderators and response variables
+moderators_data <- missingness_summary %>%
+  select(exp_id, n_obs, missing_moderators) %>%
+  mutate(missingness_type = "Moderators")
+
+response_variables_data <- missingness_summary %>%
+  select(exp_id, n_obs, missing_response) %>%
+  mutate(missingness_type = "Response Variables")
+
+# Plot Moderators Missingness
+moderators_data %>%
+  ggplot(aes(x = as.factor(n_obs), y = missing_moderators, fill = missingness_type)) +
+  geom_bar(stat = "identity", show.legend = FALSE) +
+  labs(
+    title = "Missingness Overview for Moderators",
+    x = "Number of Observations per exp_id (Grouped)",
+    y = "Average Missing Values Count"
+  ) +
+  scale_fill_manual(values = c("blue")) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+```
+
+
+Bar Chart: Missingness by Moderators (Exp ID Count)
+```{r}
+# Count missing values for each moderator
+# Ensure all columns have the same data type before pivoting
+missingness_moderators <- database_clean %>%
+  as.data.frame() %>%
+  select(
+    exp_id, tree_type, crop_type, age_system, tree_age, season, 
+    soil_texture, no_tree_per_m, tree_height, alley_width
+  ) %>%
+  mutate(across(-exp_id, as.character)) %>%  # Convert all non-exp_id columns to character
+  pivot_longer(
+    cols = -exp_id,
+    names_to = "moderator",
+    values_to = "value"
+  ) %>%
+  group_by(moderator) %>%
+  summarise(
+    exp_id_with_missing = sum(is.na(value)),  # Count the number of exp_id with missing values
+    .groups = "drop"
+  )
+
+# Bar chart of missingness across moderators
+missingness_moderators |> 
+  ggplot(aes(x = moderator, y = exp_id_with_missing, fill = moderator)) +
+  geom_bar(stat = "identity", show.legend = FALSE) +
+  labs(
+    title = "Missingness in Moderators",
+    subtitle = "Number of exp_id with Missing Values for Each Moderator",
+    x = "Moderator",
+    y = "Count of exp_id with Missing Values"
+  ) +
+  scale_fill_brewer(palette = "Set3") +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+```
+
+
+
+
+
+
+
+
+
+
 
 
 #############
@@ -534,6 +1027,18 @@ database_clean_sd <- database_clean |>
   )
 ```
 
+```{r, eval=FALSE}
+# Calculate standard deviations from standard errors and sample sizes
+database_clean_sd_dummy <- database_clean_dummy |>
+  mutate(
+    # Calculate standard deviation for silvo group
+    silvo_sd = silvo_se * sqrt(silvo_n),
+    
+    # Calculate standard deviation for control group
+    control_sd = control_se * sqrt(control_n)
+  )
+```
+
 Checking for missing data in control_sd and silvo_sd
 
 ```{r}
@@ -570,46 +1075,39 @@ database_clean_sd |> glimpse()
 HANDELING OF MISSING VALUES IN THE DATASET
 ##########################################################################################################################################
 
-Perform imputation using "mice" (Multivariate Imputation by Chained Equations)
+Perform imputation on  silvo_se, control_se using "mice" (Multivariate Imputation by Chained Equations), Upper Quartile, and Mean Imputation
 
-```{r, eval = TRUE}
+```{r}
 ##########################################################################
 # Set up the parallel processing plan
 plan(multisession, workers = parallel::detectCores() - 1)
-##################################################
+##########################################################################
+
 # Start time tracking
 start.time <- Sys.time()
-##################################################
-##################################################
 
-############################################################################################################################
-# Set seed for reproducibility
-set.seed(1234)
+##########################################################################
+##########################################################################
+# Set up the parallel processing plan
+plan(multisession, workers = parallel::detectCores() - 1)
+##########################################################################
 
-# Perform imputation using mice
-# - read about mice() here: https://www.metafor-project.org/doku.php/tips:multiple_imputation_with_mice_and_metafor
-# - col_for_impute: the data frame containing the columns to be imputed
-# - m = 5: number of multiple imputations to perform
-# - maxit = 100: maximum number of iterations to perform for each imputation
-# - method = 'pmm': method to use for imputation, 'pmm' stands for predictive mean matching
-# - seed = 500: random seed for reproducibility of the imputations
-# - printFlag: If TRUE, mice will print history on console. Use print=FALSE for silent computation.
+# Start time tracking
+start.time <- Sys.time()
 
-
-
+##########################################################################
 # Step 1: Check and enforce correct data types
 col_for_impute <- database_clean_sd |> 
   as.data.frame() |> 
   select(-geometry) |> 
   select(
     # Columns that need to be imputed
-    silvo_se, control_se, silvo_n, control_n,
+    silvo_se, control_se, 
     # Columns that are used by mice to impute values
-    tree_age, crop_type, tree_type, sub_region, experiment_year, alley_width,
+    tree_age, crop_type, tree_type, sub_region, experiment_year, alley_width, silvo_n, control_n,
     # IDs that are used to back-link imputed values to the dataset
     id_article, id_obs, treat_id, exp_id
   ) |> 
-  # Convert relevant columns to the correct data types
   mutate(
     silvo_se = as.numeric(silvo_se),
     control_se = as.numeric(control_se),
@@ -626,258 +1124,644 @@ col_for_impute <- database_clean_sd |>
     exp_id = as.numeric(exp_id)
   )
 
-# Step 2: Define the predictor matrix
-pred_matrix <- mice::make.predictorMatrix(col_for_impute)
+##########################################################################
+# Step 2: Define the function for each imputation method
+impute_data <- function(data, method_name) {
+  if (method_name == "pmm") {
+    # Predictive Mean Matching
+    pred_matrix <- mice::make.predictorMatrix(data)
+    pred_matrix[, c("tree_age", "crop_type", "tree_type", "sub_region", "experiment_year", "alley_width", 
+                    "id_article", "id_obs", "treat_id", "exp_id")] <- 0
 
-# Allow only specific columns to be imputed
-# Set all columns except 'silvo_se', 'control_se', 'silvo_n', and 'control_n' to be non-imputed
-pred_matrix[, c("tree_age", "crop_type", "tree_type", "sub_region", "experiment_year", "alley_width", "id_article", "id_obs", "treat_id", "exp_id")] <- 0
+    # Define imputation method for PMM
+    method <- c(
+      "silvo_se" = "pmm",
+      "control_se" = "pmm",
+      "silvo_n" = "",            # Not imputed
+      "control_n" = "",          # Not imputed
+      "tree_age" = "",           # Not imputed
+      "crop_type" = "",          # Not imputed
+      "tree_type" = "",          # Not imputed
+      "sub_region" = "",         # Not imputed
+      "experiment_year" = "",    # Not imputed
+      "alley_width" = "",        # Not imputed
+      "id_article" = "",         # Not imputed
+      "id_obs" = "",             # Not imputed
+      "treat_id" = "",           # Not imputed
+      "exp_id" = ""              # Not imputed
+    )
+    
+    # Perform imputation using mice
+    imputed_mids <- mice(
+      data,
+      m = 20,
+      maxit = 100,
+      method = method,
+      predictorMatrix = pred_matrix,
+      seed = 1234,
+      printFlag = FALSE
+    )
+    # Return the raw mids object for PMM
+    return(imputed_mids)
+    
+  } else if (method_name == "upper_quartile") {
+    # Upper Quartile Imputation for Variance
+    upper_quartile_variance <- data %>%
+      # The 75th percentile represents a value higher than the median, ensuring that the imputed variances are not unrealistically small while 
+      # still grounded in observed data. This helps maintain a conservative weighting in the meta-analysis.
+      summarise(across(c(silvo_se, control_se), ~ quantile(.^2, 0.75, na.rm = TRUE))) %>%
+      pivot_longer(cols = everything(), names_to = "variable", values_to = "upper_quartile")
 
-# Step 3: Update the method vector to specify imputation only for target columns
-# Use 'pmm' (predictive mean matching) for numeric columns to be imputed and "" for others
-method <- c(
-  "silvo_se" = "pmm",
-  "control_se" = "pmm",
-  "silvo_n" = "pmm",
-  "control_n" = "pmm",
-  "tree_age" = "",           # Not imputed
-  "crop_type" = "",          # Not imputed
-  "tree_type" = "",          # Not imputed
-  "sub_region" = "",         # Not imputed
-  "experiment_year" = "",    # Not imputed
-  "alley_width" = "",        # Not imputed
-  "id_article" = "",         # Not imputed
-  "id_obs" = "",             # Not imputed
-  "treat_id" = "",           # Not imputed
-  "exp_id" = ""              # Not imputed
-)
+    # Impute missing variance with the upper quartile
+    data <- data %>%
+      mutate(
+        silvo_se = ifelse(is.na(silvo_se), sqrt(upper_quartile_variance$upper_quartile[1]), silvo_se),
+        control_se = ifelse(is.na(control_se), sqrt(upper_quartile_variance$upper_quartile[2]), control_se)
+      )
+    return(data)
+    
+  } else if (method_name == "mean_imputation") {
+    # Example: Mean Imputation
+    data <- data %>%
+      mutate(
+        silvo_se = ifelse(is.na(silvo_se), mean(silvo_se, na.rm = TRUE), silvo_se),
+        control_se = ifelse(is.na(control_se), mean(control_se, na.rm = TRUE), control_se),
+        silvo_n = ifelse(is.na(silvo_n), mean(silvo_n, na.rm = TRUE), silvo_n),
+        control_n = ifelse(is.na(control_n), mean(control_n, na.rm = TRUE), control_n)
+      )
+    return(data)
+  } else {
+    stop("Invalid method name.")
+  }
+}
 
-# Step 4: Perform imputation using mice
-set.seed(1234)
-imputed_data <- mice(
-  col_for_impute,
-  m = 20,
-  maxit = 100,
-  method = method,
-  predictorMatrix = pred_matrix,
-  seed = 1234,
-  printFlag = FALSE
-)
+##########################################################################
+# Step 3: Apply each imputation method
+imputation_methods <- c("pmm", "upper_quartile", "mean_imputation")
+imputed_datasets <- list()
 
-# Step 5: Extract a completed dataset for inspection
-completed_data <- mice::complete(imputed_data, 1)
-print(head(completed_data))
-# Step 5: Extract the completed data
-completed_data <- mice::complete(imputed_data)
+# Separate storage for the raw mids object from PMM
+imputed_mids_pmm <- NULL
 
-##################################################
+for (method_name in imputation_methods) {
+  cat("Applying", method_name, "imputation...\n")
+  if (method_name == "pmm") {
+    # Save the mids object for PMM
+    imputed_mids_pmm <- impute_data(col_for_impute, method_name)
+    # Convert to a completed dataset for combined list
+    imputed_datasets[[method_name]] <- mice::complete(imputed_mids_pmm)
+  } else {
+    # Directly store the completed dataset for other methods
+    imputed_datasets[[method_name]] <- impute_data(col_for_impute, method_name)
+  }
+}
+
+##########################################################################
+# Step 4: Compare results
+for (method_name in imputation_methods) {
+  cat("\nSummary of Imputed Dataset -", method_name, ":\n")
+  print(summary(imputed_datasets[[method_name]]))
+}
+
+##########################################################################
 # End time tracking
 end.time <- Sys.time()
-# Calculate time taken
 time.taken <- end.time - start.time
-time.taken
-##############################################################
-# Last go: (16/11-24)
-# Time difference of 14.25402 secs
+cat("\nTotal time taken:", time.taken, "\n")
+
+##########################################################################
+# imputed_mids_pmm is the raw mids object for PMM
+# imputed_datasets contains completed datasets for all methods
+
+##########################################################################
+# End time tracking
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+cat("\nTotal time taken:", time.taken, "\n")
+##########################################################################
+# Last run (28/11-24)
+# Total time taken: 11.16786 sec
+# Total time taken: 13.66807 
 ```
 
-```{r}
-####################################################################################
 
-# Check the summary of imputed data
-summary(imputed_data)
+```{r}
+# Check the summary of imputed dataset list
+imputed_datasets |> str()
 ```
 ```{r}
 # Evaluate the imputed datasets
 # Check convergence diagnostics
-plot(imputed_data)
+plot(imputed_mids_pmm)
 ```
-```{r}
-# Compare the distribution of the observed and imputed data
-# densityplot(imputed_data |> select(silvo_se, control_se, silvo_n, control_n))
-```
+
 
 ```{r}
 # Use stripplot to compare observed and imputed values
-stripplot(imputed_data, pch = 20, cex = 1.2)
-```
-
-```{r}
-# Step 1: Extract observed values for 'silvo_se'
-# - `col_for_impute` is the data frame containing the columns to be imputed.
-# - We filter out the non-missing values from the original 'silvo_se' column.
-observed_silvo_se <- col_for_impute$silvo_se[!is.na(col_for_impute$silvo_se)]
-
-# Step 2: Extract imputed values for 'silvo_se'
-# - We use `lapply()` to loop over all 20 imputed datasets generated by `mice`.
-# - `mice::complete(imputed_data, i)` extracts the completed dataset for the i-th imputation.
-# - `data$silvo_se[is.na(col_for_impute$silvo_se)]` selects the imputed values where the original data had missing values.
-# - `unlist()` is used to flatten the list of imputed values into a vector.
-imputed_silvo_se <- unlist(lapply(1:20, function(i) {
-  data <- mice::complete(imputed_data, i) # Extract the i-th imputed dataset
-  data$silvo_se[is.na(col_for_impute$silvo_se)] # Select only the imputed values
-}))
-
-# Step 3: Create a combined data frame for plotting
-# - `value`: A combined vector of both observed and imputed values.
-# - `type`: A vector indicating whether the value is "Original" (observed) or "Imputed".
-# - `rep()`: Repeats the labels for the respective lengths of observed and imputed values.
-plot_data <- data.frame(
-  value = c(observed_silvo_se, imputed_silvo_se),
-  type = c(rep("Original", length(observed_silvo_se)),
-           rep("Imputed", length(imputed_silvo_se)))
-)
-
-# Step 4: Plot the density of observed vs. imputed values using ggplot2
-ggplot(plot_data, aes(x = value, fill = type)) +
-  # `geom_density()`: Plots the density curve for each type ("Original" and "Imputed").
-  # `alpha = 0.5`: Sets the transparency of the density curves (0 = fully transparent, 1 = fully opaque).
-  geom_density(alpha = 0.5) +
-  # `labs()`: Adds titles and labels to the plot.
-  labs(
-    title = "Density Plot of Original vs. Imputed Values for silvo_se",
-    x = "silvo_se Values",
-    y = "Density"
-  ) +
-  # `scale_fill_manual()`: Manually sets the colors for the fill based on the "type" variable.
-  # - "blue" for the "Original" values and "red" for the "Imputed" values.
-  scale_fill_manual(values = c("blue", "red")) +
-  # `scale_x_log10()`: Applies a log10 transformation to the x-axis (silvo_se values).
-  # - This transformation helps visualize the data if there is a large range or skewness.
-  scale_x_log10() +
-  # vertical lines indicating the mean or median of each group
-  geom_vline(aes(xintercept = mean(observed_silvo_se)), color = "blue", linetype = "dashed") +
-  geom_vline(aes(xintercept = mean(imputed_silvo_se)), color = "red", linetype = "dashed") +
-  # `theme_minimal()`: Uses a minimal theme for a clean look.
-  theme_minimal() +
-  # `theme()`: Customizes the appearance of the plot.
-  theme(
-    legend.title = element_text(size = 10), # Sets the font size for the legend title
-    legend.position = "top" # Places the legend at the top of the plot
-  )
+stripplot(imputed_mids_pmm, silvo_se + control_se ~ .imp,
+  cex = c(1, 2), pch = c(20, 20), jitter = TRUE, alpha = 0.4, scales = "free")
 ```
 
 
 ```{r}
-# For an evidence-based choice, we may calculate some metrics
-# Calculate the mean and standard deviation of each imputed dataset
+# Step 1: Summarize each imputed dataset
+# Quantitative Assessment:
+# Calculate summary statistics for each imputed dataset, focusing on proximity to medians (mean proximity for silvo_se and control_se).
+# Incorporate additional metrics like variance, range, and RMSE for better decision-making.
 
-# Initialize an empty list to store summaries
 imputed_summaries <- list()
 
-# Loop through the first all 20 imputed datasets
 for (i in 1:20) {
-  data <- mice::complete(imputed_data, i)
+  data <- mice::complete(imputed_mids_pmm, i) # Extract the i-th imputed dataset
 
-  # Check the structure of each completed dataset
-  str(data)
-
-  # Calculate the summary statistics
+  # Calculate summary statistics for each imputation
   summary <- data %>%
     summarise(
       mean_silvo_se = mean(silvo_se, na.rm = TRUE),
       sd_silvo_se = sd(silvo_se, na.rm = TRUE),
       mean_control_se = mean(control_se, na.rm = TRUE),
-      sd_control_se = sd(control_se, na.rm = TRUE)
+      sd_control_se = sd(control_se, na.rm = TRUE),
+      range_silvo_se = max(silvo_se, na.rm = TRUE) - min(silvo_se, na.rm = TRUE),
+      range_control_se = max(control_se, na.rm = TRUE) - min(control_se, na.rm = TRUE)
     )
 
-  # Store the summary with the imputation index
   imputed_summaries[[i]] <- summary
 }
 
-# Combine the summaries into a single data frame
+# Combine all summaries into a single data frame
 imputed_summaries_df <- bind_rows(imputed_summaries, .id = "imputation")
 
-# View the combined summary data frame
-imputed_summaries_df
+# Calculate medians for silvo_se and control_se
+median_silvo_se <- median(imputed_summaries_df$mean_silvo_se)
+median_control_se <- median(imputed_summaries_df$mean_control_se)
 
-
-
-
-
-
-# Choose the imputation based on the diagnostics and summaries
-# For simplicity, let's assume we choose the imputation with the median mean_silvo_se
-# Calculate the median of mean_silvo_se
-median_value <- median(imputed_summaries_df$mean_silvo_se)
-
-# Find the row with the closest value to the median
-chosen_imputation <- imputed_summaries_df %>%
-  slice(which.min(abs(mean_silvo_se - median_value)))
-
-chosen_imputation
+# Add a column calculating Euclidean distance to medians
+imputed_summaries_df <- imputed_summaries_df %>%
+  mutate(
+    distance_from_median = sqrt(
+      (mean_silvo_se - median_silvo_se)^2 + (mean_control_se - median_control_se)^2
+    )
+  )
 ```
 
-
-
 ```{r}
-# Extract the chosen imputation number
-chosen_imputation_number <- chosen_imputation$imputation
+# Step 2: Advanced Quantitative Metrics
+# Root Mean Squared Error (RMSE):
+# Add RMSE comparison between observed and imputed values for silvo_se and control_se.
 
-# Extract the complete dataset for the chosen imputation
-imputed_col_data <- complete(imputed_data, as.integer(chosen_imputation_number))
+# RMSE calculation function
+calculate_rmse <- function(observed, imputed) {
+  sqrt(mean((observed - imputed)^2, na.rm = TRUE))
+}
 
-imputed_col_data |> glimpse()
+# Add RMSE to imputed summaries
+imputed_summaries_df <- imputed_summaries_df %>%
+  rowwise() %>%
+  mutate(
+    rmse_silvo_se = calculate_rmse(
+      col_for_impute$silvo_se[!is.na(col_for_impute$silvo_se)],
+      mice::complete(imputed_mids_pmm, as.numeric(imputation))$silvo_se[is.na(col_for_impute$silvo_se)]
+    ),
+    rmse_control_se = calculate_rmse(
+      col_for_impute$control_se[!is.na(col_for_impute$control_se)],
+      mice::complete(imputed_mids_pmm, as.numeric(imputation))$control_se[is.na(col_for_impute$control_se)]
+    )
+  )
 ```
 ```{r}
-# Update the original data with imputed values
-# Step 1: Join the imputed values back to the original dataset using identifiers
-imp_dataset <- database_clean_sd %>%
-  left_join(
-    completed_data %>%
-      select(id_article, id_obs, silvo_se, control_se),
-    by = c("id_article", "id_obs"),
-    suffix = c("_original", "_imputed")
-  )|> 
+# Step 3: Choose the Best Imputation
+# Select the imputation based on a weighted score that combines distance to medians, RMSE, and possibly variance or range.
+
+# Add weighted score for selection and select the top-ranked imputation
+chosen_imputation <- imputed_summaries_df %>% 
   as.data.frame() |> 
+  # Calculate the total_score (modify weights if necessary)
+  mutate(total_score = distance_from_median + rmse_silvo_se + rmse_control_se) %>%
+  # Arrange by total_score (ascending order)
+  arrange(total_score) %>%
+  # Select the top row with the lowest total_score
+  slice(1)
+
+# Extract the corresponding dataset
+chosen_imputation_number <- as.integer(chosen_imputation$imputation)
+imputed_col_data <- mice::complete(imputed_mids_pmm, chosen_imputation_number)
+imputed_datasets$pmm_best <- imputed_col_data
+
+imputed_datasets$pmm_best
+```
+
+
+##########################################################################################################################################
+Visually examine the imputed values
+##########################################################################################################################################
+
+
+```{r}
+# Step 4: Visual Assessment
+# Density Plots for Each Method and Variable:
+# Compare observed and imputed distributions for silvo_se and control_se across all imputation methods.
+
+# Prepare data for visualization
+observed_values <- list(
+  silvo_se = col_for_impute$silvo_se[!is.na(col_for_impute$silvo_se)],
+  control_se = col_for_impute$control_se[!is.na(col_for_impute$control_se)]
+)
+
+# Combine observed and imputed values for plotting
+combined_plot_data <- list()
+
+for (variable in c("silvo_se", "control_se")) {
+  for (method_name in names(imputed_datasets)) {
+    imputed_values <- imputed_datasets[[method_name]][[variable]][is.na(col_for_impute[[variable]])]
+
+    combined_plot_data[[paste(variable, method_name, sep = "_")]] <- data.frame(
+      value = c(observed_values[[variable]], imputed_values),
+      type = c(rep("Original", length(observed_values[[variable]])),
+               rep("Imputed", length(imputed_values))),
+      method = method_name,
+      variable = variable
+    )
+  }
+}
+
+# Combine all data into one frame
+plot_data <- bind_rows(combined_plot_data)
+
+# Plot densities for all methods and variables
+ggplot(plot_data, aes(x = value, fill = type)) +
+  geom_density(alpha = 0.5) +
+  facet_grid(variable ~ method) +
+  labs(
+    title = "Density Comparison: Original vs. Imputed Values",
+    x = "Value",
+    y = "Density"
+  ) +
+  theme_minimal() +
+  scale_fill_viridis_d(option = "D", begin = 0.2, end = 0.8) +  # Discrete color scale 
+   scale_x_log10() + # Apply log10 scale to x-axis
+  theme(strip.text = element_text(size = 10, face = "bold"))
+```
+
+
+
+
+
+
+
+##########################################################################################################################################
+More quantitative statistical assessment
+##########################################################################################################################################
+
+```{r}
+# a. Descriptive Statistics
+# Calculate and compare mean, standard deviation, and range for key variables (e.g., silvo_se, control_se).
+
+# Calculate descriptive statistics for each imputation method
+compare_stats <- lapply(imputed_datasets, function(data) {
+  data %>%
+    summarise(
+      mean_silvo_se = mean(silvo_se, na.rm = TRUE),
+      sd_silvo_se = sd(silvo_se, na.rm = TRUE),
+      range_silvo_se = diff(range(silvo_se, na.rm = TRUE)),
+      mean_control_se = mean(control_se, na.rm = TRUE),
+      sd_control_se = sd(control_se, na.rm = TRUE),
+      range_control_se = diff(range(control_se, na.rm = TRUE))
+    )
+}) %>%
+  bind_rows(.id = "method")
+
+
+# b. Variance Explained
+# Assess variance consistency across imputations, as it may indicate reliability.
+
+# Calculate variance for silvo_se and control_se
+compare_variance <- lapply(imputed_datasets, function(data) {
+  data %>%
+    summarise(
+      var_silvo_se = var(silvo_se, na.rm = TRUE),
+      var_control_se = var(control_se, na.rm = TRUE)
+    )
+}) %>%
+  bind_rows(.id = "method")
+
+
+
+
+# Calculate Jensen-Shannon divergence for each method - The Jensen-Shannon Divergence (JSD) is a statistical measure of similarity (or dissimilarity) between two 
+# probability distributions. It quantifies how different one probability distribution is from another and is widely used in information theory, machine learning, 
+# and statistics.
+# Adjust the code to calculate JSD using philentropy
+compare_jsd <- lapply(imputed_datasets, function(data) {
+  observed_silvo <- density(col_for_impute$silvo_se[!is.na(col_for_impute$silvo_se)])$y
+  imputed_silvo <- density(data$silvo_se[is.na(col_for_impute$silvo_se)])$y
+  
+  observed_control <- density(col_for_impute$control_se[!is.na(col_for_impute$control_se)])$y
+  imputed_control <- density(data$control_se[is.na(col_for_impute$control_se)])$y
+  
+  # Ensure probabilities sum to 1 before calculating divergence
+  observed_silvo <- observed_silvo / sum(observed_silvo)
+  imputed_silvo <- imputed_silvo / sum(imputed_silvo)
+  
+  observed_control <- observed_control / sum(observed_control)
+  imputed_control <- imputed_control / sum(imputed_control)
+  
+  list(
+    jsd_silvo = JSD(rbind(observed_silvo, imputed_silvo)),
+    jsd_control = JSD(rbind(observed_control, imputed_control))
+  )
+}) %>%
+  bind_rows(.id = "method")
+
+
+# Add an identifier column to each data frame and convert them to long format
+compare_stats_long <- compare_stats %>%
+  pivot_longer(cols = -method, names_to = "metric", values_to = "value") %>%
+  mutate(category = "Descriptive Stats")
+
+compare_variance_long <- compare_variance %>%
+  pivot_longer(cols = -method, names_to = "metric", values_to = "value") %>%
+  mutate(category = "Variance Comparison")
+
+compare_jsd_long <- compare_jsd %>%
+  pivot_longer(cols = -method, names_to = "metric", values_to = "value") %>%
+  mutate(category = "JSD Comparison")
+
+# Combine all data frames into one
+combined_metrics <- bind_rows(compare_stats_long, compare_variance_long, compare_jsd_long)
+
+# View the combined data frame
+combined_metrics
+```
+
+```{r}
+# Ensure `database_clean_sd` is converted to a plain data frame and the `geometry` column is removed
+database_clean_sd <- database_clean_sd %>%
+  as.data.frame() %>%
   select(-geometry)
 
-# Step 2: Replace missing values in the original columns with imputed values
-imp_dataset <- imp_dataset %>%
+# Recalculate the metrics for the original dataset
+original_metrics <- list(
+  # Descriptive statistics
+  descriptive_stats = database_clean_sd %>%
+    summarise(
+      mean_silvo_se = mean(silvo_se, na.rm = TRUE),
+      sd_silvo_se = sd(silvo_se, na.rm = TRUE),
+      range_silvo_se = diff(range(silvo_se, na.rm = TRUE)),
+      mean_control_se = mean(control_se, na.rm = TRUE),
+      sd_control_se = sd(control_se, na.rm = TRUE),
+      range_control_se = diff(range(control_se, na.rm = TRUE))
+    ) %>%
+    mutate(method = "original"),
+  
+  # Variance comparison
+  variance = database_clean_sd %>%
+    summarise(
+      var_silvo_se = var(silvo_se, na.rm = TRUE),
+      var_control_se = var(control_se, na.rm = TRUE)
+    ) %>%
+    mutate(method = "original"),
+  
+  # Jensen-Shannon divergence (JSD)
+  jsd = list(
+    jsd_silvo = 0, # No divergence for original dataset
+    jsd_control = 0
+  ) %>%
+    bind_rows() %>%
+    mutate(method = "original")
+)
+
+# Convert metrics to long format for visualization
+original_descriptive_long <- original_metrics$descriptive_stats %>%
+  pivot_longer(cols = -method, names_to = "metric", values_to = "value") %>%
+  mutate(category = "Descriptive Stats")
+
+original_variance_long <- original_metrics$variance %>%
+  pivot_longer(cols = -method, names_to = "metric", values_to = "value") %>%
+  mutate(category = "Variance Comparison")
+
+original_jsd_long <- original_metrics$jsd %>%
+  pivot_longer(cols = -method, names_to = "metric", values_to = "value") %>%
+  mutate(category = "JSD Comparison")
+
+# Combine original metrics with imputed dataset metrics
+original_combined <- bind_rows(original_descriptive_long, original_variance_long, original_jsd_long)
+combined_metrics_with_original <- bind_rows(combined_metrics, original_combined)
+```
+
+```{r}
+prepared_data_gt <- combined_metrics_with_original %>%
+  # Pivot wider to make methods the columns
+  pivot_wider(names_from = method, values_from = value) %>%
+  # Add absolute relative difference columns
+  mutate(
+    across(
+      -c(metric, original, category), # Exclude non-numeric columns
+      ~ ifelse(
+        grepl("^jsd_", metric) & . == 0, NA,  # Set `NA` where `jsd_` metrics are 0.00
+        ifelse(is.na(original) | original == 0, NA, abs((. - original) / original)) # Otherwise compute relative difference
+      ),
+      .names = "{.col}_relative"
+    )
+  ) %>%
+  # Add a new column to extract the prefix (e.g., mean_, sd_, etc.)
+  mutate(metric_group = sub("_.*", "", metric)) %>%
+  # Sort rows first by the group (e.g., mean, sd) and then by the original metric order
+  arrange(metric_group, metric)
+
+# Display structure for verification
+prepared_data_gt |> glimpse()
+```
+
+
+```{r}
+# Create the updated plot
+ggplot(combined_metrics_with_original, aes(x = method, y = value, fill = method)) +
+  geom_bar(stat = "identity", position = position_dodge(), alpha = 0.8) +
+  facet_wrap(~ category + metric, scales = "free_y", ncol = 3) +
+  labs(
+    title = "Comparison of Imputation Methods Across Metrics (Including Original Dataset)",
+    x = "Method",
+    y = "Value",
+    fill = "Method"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    strip.text = element_text(size = 12, face = "bold"),
+    legend.position = "top"
+  ) +
+  scale_fill_viridis_d(option = "D", begin = 0.2, end = 0.8)  # Discrete color scale
+```
+
+```{r}
+# Create a formatted table using `gt`
+comparison_gt <- prepared_data_gt %>%
+  # Reorder the columns in the data frame before passing to gt
+  select(
+    metric, category, original, upper_quartile, upper_quartile_relative, pmm, pmm_relative,  pmm_best,  pmm_best_relative, mean_imputation, mean_imputation_relative
+         ) |> 
+  # Set `metric` as row names
+  gt(rowname_col = "metric") %>%  
+  tab_header(
+    title = "Comparison of Imputation Methods Across Metrics",
+    subtitle = "Including Original Data and Relative Differences"
+  ) %>%
+  # Rename columns for clarity
+  cols_label(
+    original = "Original",
+    upper_quartile = "Upper Quartile",
+    upper_quartile_relative = "Upper Quartile Relative",
+    mean_imputation = "Mean Imputation",
+    mean_imputation_relative = "Mean Imputation Relative",
+    pmm_best = "PMM Best",
+    pmm_best_relative = "PMM Best Relative",
+    pmm = "PMM",
+    pmm_relative = "PMM Relative"
+  ) %>%
+  # Format numeric columns to two decimal places
+  fmt_number(
+    columns = c(pmm, upper_quartile, mean_imputation, pmm_best, original),
+    decimals = 2
+  ) %>%
+  fmt_number(
+    columns = ends_with("_relative"),  # Format relative difference columns
+    decimals = 3
+  ) %>%
+  # Replace 0 values in the relative columns with "NA"
+  fmt_missing(
+    columns = ends_with("_relative"),
+    missing_text = "NA"
+  ) %>%
+  # Add horizontal and vertical lines for clarity
+  tab_style(
+    style = list(
+      cell_fill(color = "#f9f9f9"),
+      cell_borders(sides = "all", color = "gray", weight = px(1))
+    ),
+    locations = cells_body()
+  ) %>%
+  # Adjust table options
+  tab_options(
+    table.font.size = "small",
+    table.border.top.color = "gray",
+    table.border.bottom.color = "gray",
+    column_labels.font.size = "medium",
+    row_group.font.size = "small"
+  ) %>%
+  # Add footnotes for explanation of relative differences
+  tab_footnote(
+    footnote = "Relative differences are calculated as |(imputed - original) / original|.",
+    locations = cells_column_labels(ends_with("_relative"))
+  )
+
+# Optionally, export the table
+output_folder <- here("DATA", "OUTPUT_FROM_R")
+gtsave(comparison_gt, file.path(output_folder, "comparison_table.html"))
+gtsave(comparison_gt, file.path(output_folder, "comparison_table.pdf"))
+
+# Display the table
+comparison_gt
+
+```
+
+```{r}
+# Apply color shading to all `_relative` columns
+comparison_gt <- prepared_data_gt %>%
+  # Reorder the columns in the data frame before passing to gt
+  select(
+    metric, category, original, upper_quartile, upper_quartile_relative, pmm, pmm_relative,  pmm_best,  pmm_best_relative, mean_imputation, mean_imputation_relative
+         ) |> 
+  # Set `metric` as row names
+  gt() %>%
+  data_color(
+    columns = ends_with("_relative"), # Target all _relative columns
+    method = "numeric", # Use numeric method for gradient mapping
+    palette = c("#00FF00", "#FFFF00", "#FF0000"), # Green to Yellow to Red
+    domain = c(0, 0.3), # Domain for relative differences
+    na_color = "#f0f0f0" # Light gray for missing/NA values
+  ) %>%
+  tab_header(
+    title = "Comparison of Imputation Methods Across Metrics",
+    subtitle = "Including Original Data and Relative Differences"
+  ) %>%
+  cols_label(
+    original = "Original",
+    upper_quartile = "Upper Quartile",
+    upper_quartile_relative = "Upper Quartile Relative",
+    mean_imputation = "Mean Imputation",
+    mean_imputation_relative = "Mean Imputation Relative",
+    pmm_best = "PMM Best",
+    pmm_best_relative = "PMM Best Relative",
+    pmm = "PMM",
+    pmm_relative = "PMM Relative"
+  ) %>%
+  fmt_number(
+    columns = c(original, pmm, upper_quartile, mean_imputation, pmm_best),
+    decimals = 2
+  ) %>%
+  fmt_number(
+    columns = ends_with("_relative"),
+    decimals = 3
+  ) %>%
+  fmt_missing(
+    columns = ends_with("_relative"),
+    missing_text = "NA"
+  ) %>%
+  tab_options(
+    table.font.size = "small",
+    column_labels.font.size = "medium"
+  )
+
+# Display the table
+comparison_gt
+```
+
+
+
+
+**
+
+
+
+#############
+# STEP 4
+##########################################################################################################################################
+MERGING THE IMPUTED DATASET BACK TO THE ORIGINAL DATA AND VISUALISE
+##########################################################################################################################################
+
+```{r}
+merged_data <- database_clean_sd %>%
+  full_join(
+    imputed_datasets$pmm_best %>%
+      select(id_article, id_obs, silvo_se, control_se), # Select relevant imputed columns
+    by = c("id_article", "id_obs"),
+    suffix = c("_original", "_imputed") # Keep original vs. imputed columns distinct
+  )
+
+# View the structure of the merged dataset
+merged_data %>%
+  glimpse()
+```
+```{r}
+merged_data <- merged_data %>%
   mutate(
     silvo_se = ifelse(is.na(silvo_se_original), silvo_se_imputed, silvo_se_original),
     control_se = ifelse(is.na(control_se_original), control_se_imputed, control_se_original)
-  ) %>%
-  select(-silvo_se_original, -silvo_se_imputed, -control_se_original, -control_se_imputed)
+  )
 
-imp_dataset
+# merged_data <- merged_data %>%
+#   select(-silvo_se_original, -silvo_se_imputed, -control_se_original, -control_se_imputed)
 ```
 
-
-Visualising the distribution of imputed values for silvo_se and control_se together with the original data for the chosen imputation
-
 ```{r}
-# Prepare the original data
-original_data_x <- database_clean_sd %>%
-  select(id_article, id_obs, response_variable, silvo_se, control_se) |> 
-  mutate(data_source = "Original") |> 
-  as.data.frame() 
-
-imputed_data_y <- imp_dataset |> 
-  select(id_article, id_obs, response_variable, silvo_se, control_se) |> 
-  mutate(data_source = "Imputed") 
-
-# Combine the original and imputed data
-combined_data <- bind_rows(original_data_x, imputed_data_y)
-
-combined_data
-```
-
-
-```{r}
-# Join the original and imputed data to directly compare
-comparison_data <- original_data_x %>%
-  full_join(imputed_data_y, by = c("id_article", "response_variable"), suffix = c("_original", "_imputed")) %>%
-  distinct()
-# Advarsel: Detected an unexpected many-to-many relationship between `x` and `y`
-
-# Identify rows where imputation occurred by checking if originally missing values are filled
-imputation_evaluation <- comparison_data %>%
+# Identify rows where imputation occurred
+imputation_evaluation <- merged_data %>%
   filter(
     (is.na(silvo_se_original) & !is.na(silvo_se_imputed)) |
     (is.na(control_se_original) & !is.na(control_se_imputed))
   ) %>%
-  select(id_article, response_variable) %>%
+  select(id_article, id_obs, exp_id) %>%
   distinct()
 
 # Count the number of unique articles where imputation occurred
@@ -885,91 +1769,301 @@ n_imputed_studies <- imputation_evaluation %>%
   distinct(id_article) %>%
   nrow()
 
-# Output the results
-imputation_evaluation
-n_imputed_studies
+cat("Number of unique articles with imputed values:", n_imputed_studies, "\n")
 ```
+
+
 ```{r}
-imputation_summary <- comparison_data %>%
+# Calculate missing counts and proportions
+missing_summary <- merged_data %>%
   summarise(
-    total_missing = sum(is.na(silvo_se_original) & !is.na(silvo_se_imputed)),
-    total_imputed = sum(!is.na(silvo_se_imputed)),
-    proportion_imputed = total_missing / total_imputed
+    total_obs = n(),
+
+    # Missing counts for original dataset
+    silvo_se_original_missing = sum(is.na(silvo_se_original)),
+    control_se_original_missing = sum(is.na(control_se_original)),
+
+    # Missing counts for imputed dataset
+    silvo_se_imputed_missing = sum(is.na(silvo_se_imputed)),
+    control_se_imputed_missing = sum(is.na(control_se_imputed))
+  ) %>%
+  mutate(
+    # Proportions for original dataset
+    silvo_se_original_proportion = silvo_se_original_missing / total_obs,
+    control_se_original_proportion = control_se_original_missing / total_obs,
+
+    # Proportions for imputed dataset
+    silvo_se_imputed_proportion = silvo_se_imputed_missing / total_obs,
+    control_se_imputed_proportion = control_se_imputed_missing / total_obs
   )
 
-imputation_summary
+missing_summary
 ```
-```{r}
-# Q-Q plot for silvo_se
-qqplot_silvo_se <- ggplot(combined_data, aes(sample = silvo_se)) +
-  stat_qq(aes(color = data_source)) +
-  stat_qq_line(aes(color = data_source)) +
-  ggtitle("Q-Q Plot of Original vs. Imputed silvo_se") +
-  theme_minimal()
-
-qqplot_silvo_se
-```
-
 
 ```{r}
-# Create density plots for silvo_se with log transformation
-silvo_se_impute_original_plot <- combined_data |> 
-ggplot(aes(x = silvo_se, color = data_source)) +
-  geom_density(alpha = 0.5) +
-  scale_x_log10() +
-  scale_y_log10() +
-  ggtitle("Density Distribution of silvo_se (Log-Transformed)") +
-  theme_minimal()
+original_data <- database_clean_sd %>%
+  select(id_article, id_obs, silvo_se, control_se) %>%
+  mutate(data_source = "Original")
 
-# Create density plots for control_se with log transformation
-control_se_impute_original_plot <- combined_data |> 
-ggplot(aes(x = control_se, color = data_source)) +
-  geom_density(alpha = 0.5) +
-  scale_x_log10() +
-  scale_y_log10() +
-  ggtitle("Density Distribution of control_se (Log-Transformed)") +
-  theme_minimal()
+imputed_data <- merged_data %>%
+  select(id_article, id_obs, silvo_se, control_se) %>%
+  mutate(data_source = "Imputed")
 
-library(patchwork)
+# Combine original and imputed data
+combined_data <- bind_rows(original_data, imputed_data)
+```
 
-silvo_se_impute_original_plot + control_se_impute_original_plot
+```{r}
+# Check for duplicates
+duplicates <- merged_data %>%
+  group_by(id_article, id_obs) %>%
+  filter(n() > 1)
+
+# Check for rows with imputed values
+imputation_check <- merged_data %>%
+  filter(is.na(silvo_se_original) & !is.na(silvo_se_imputed))
+
+# View summaries
+print(duplicates)
+print(imputation_check)
 ```
 
 
+##########################################################################################################################################
+VISUAL DIAGNOSTIGS OF MERGED DATA
+##########################################################################################################################################
+
+```{r}
+# Pivot data to long format for easier plotting
+qq_data <- combined_data %>%
+  pivot_longer(
+    cols = c(silvo_se, control_se),
+    names_to = "variable",
+    values_to = "value"
+  )
 
 
+
+# Compute theoretical quantiles and prepare the data for jitter
+qq_data_jitter <- qq_data %>%
+  group_by(variable, data_source) %>%
+  mutate(
+    theoretical = qnorm((rank(value, na.last = "keep") - 0.5) / sum(!is.na(value))) # Compute theoretical quantiles
+  ) %>%
+  ungroup()
+
+# Create the Q-Q plot with jitter
+qqplot_combined <- qq_data_jitter %>%
+  ggplot(aes(x = theoretical, y = value, color = data_source)) +
+  geom_point(position = position_jitter(width = 0.1, height = 0.1), alpha = 0.5) + # Add jitter to points
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed") + # Add reference line
+  facet_wrap(~variable, scales = "free") + # Separate facets for silvo_se and control_se
+  labs(
+    title = "Q-Q Plots for Original vs. Imputed Data (with Jitter)",
+    x = "Theoretical Quantiles",
+    y = "Sample Quantiles",
+    color = "Data Source"
+  ) +
+  scale_color_viridis_d(
+    option = "D",
+    begin = 0.2,
+    end = 0.8,
+    direction = 1
+  ) +
+  theme_minimal() +
+  theme(
+    strip.text = element_text(size = 12, face = "bold"),
+    plot.title = element_text(size = 16, face = "bold"),
+    legend.position = "bottom"
+  )
+
+print(qqplot_combined)
+```
+
+```{r}
+# Combine the data for silvo_se and control_se into long format
+density_data <- combined_data %>%
+  pivot_longer(
+    cols = c(silvo_se, control_se),
+    names_to = "variable",
+    values_to = "value"
+  )
+
+# Filter out non-positive values for log transformation
+density_data_clean <- density_data %>%
+  filter(value > 0) # Keep only positive values
+
+# Create density plots
+density_plot_clean <- density_data_clean %>%
+  ggplot(aes(x = value, color = data_source, fill = data_source)) +
+  geom_density(alpha = 0.4, na.rm = TRUE) + # Add density plot with transparency
+  scale_x_log10() + # Log-transform the x-axis
+  labs(
+    title = "Density Distribution of silvo_se and control_se (Log-Transformed)",
+    x = "Log-transformed Value",
+    y = "Density",
+    color = "Data Source",
+    fill = "Data Source"
+  ) +
+  facet_wrap(~variable, scales = "free_x", ncol = 2) + # Separate plots for silvo_se and control_se
+  scale_color_viridis_d(option = "D", begin = 0.2, end = 0.8) +
+  scale_fill_viridis_d(option = "D", begin = 0.2, end = 0.8) +
+  theme_minimal() +
+  theme(
+    strip.text = element_text(size = 12, face = "bold"),
+    plot.title = element_text(size = 16, face = "bold"),
+    legend.position = "bottom"
+  )
+
+# Display the plot
+print(density_plot_clean)
+
+```
 
 
 #############
-# STEP 4
+# STEP 5
 ##########################################################################################################################################
 SAVING TWO VERSIONS OF PREPROCESSED DATA FOR FURTHER ANALYSIS AND VISUALIZATION
 ##########################################################################################################################################
 
 
-Saving the dataset that is used as non-imputed
-Saving the dataset that is used as imputed
-
 ```{r}
-# This is the dataset that is used for analysis before imputation
+# Imputed dataset
+imp_pmm_best <- merged_data |> 
+  # Modify the imp_pmm_best dataset before saving
+  # Remove existing columns
+  select(-c(control_se, silvo_se, control_se_original, silvo_se_original)) |>  
+  rename(
+    # Rename control_se_imputed to control_se
+    control_se = control_se_imputed, 
+    # Rename silvo_se_imputed to silvo_se
+    silvo_se = silvo_se_imputed      
+  ) |> 
+  as.data.frame()|> 
+  relocate(
+    # Overall ID info
+    id_article, id_obs, treat_id, exp_id,
+    # Response variable info
+    response_variable, sub_response_variable,
+    # Geographic and temporal info
+    location, final_lat, final_lon, exp_site_loc, experiment_year,
+    # Moderators info
+    tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width,
+    # Quantitative mata-analysis effect size info
+    silvo_mean, silvo_se, silvo_sd, silvo_n, control_mean, control_se, control_sd, control_n
+  )
+
+
+# Non-imputed dataset (remove geometry if necessary)
 non_imp_dataset <- database_clean_sd |> 
   as.data.frame() |> 
-  select(-geometry)
+  relocate(
+    # Overall ID info
+    id_article, id_obs, treat_id, exp_id,
+    # Response variable info
+    response_variable, sub_response_variable,
+    # Geographic and temporal info
+    location, final_lat, final_lon, exp_site_loc, experiment_year,
+    # Moderators info
+    tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width,
+    # Quantitative mata-analysis effect size info
+    silvo_mean, silvo_se, silvo_sd, silvo_n, control_mean, control_se, control_sd, control_n
+  )
 
-# This is the dataset that is used for analysis after imputation
-imp_dataset <- imp_dataset |> 
-  as.data.frame() 
 
-################################################################################
-# NON-IMPUTED
-readr::write_csv(database_clean_sd,
-                 here::here("DATA", "OUTPUT_FROM_R", "non_imp_dataset.csv"))
-# IMPUTED
-readr::write_csv(imp_dataset,
-                 here::here("DATA", "OUTPUT_FROM_R", "imp_dataset.csv"))
+# Dummy non-imputed dataset 
+non_imp_dataset_dummy <- database_clean_sd_dummy |> 
+  as.data.frame() |> 
+  relocate(
+    # Overall ID info
+    id_article, id_obs, treat_id, exp_id,
+    # Response variable info
+    response_variable, sub_response_variable,
+    # Geographic and temporal info
+    #location, final_lat, final_lon, exp_site_loc, experiment_year,
+    # Moderators info
+    tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width,
+    # Quantitative mata-analysis effect size info
+    silvo_mean, silvo_se, silvo_sd, silvo_n, control_mean, control_se, control_sd, control_n
+  )
+
+```
+
+```{r}
+# Visualize differences in categorical distributions
+inspect_cat(imp_pmm_best, non_imp_dataset) %>% show_plot()
+
+# Visualize differences in numerical distributions
+# Select numeric columns
+imp_pmm_best_numeric <- imp_pmm_best %>% select(where(is.numeric))
+non_imp_dataset_numeric <- non_imp_dataset %>% select(where(is.numeric))
+
+# Check column counts
+if (ncol(imp_pmm_best_numeric) == 0 || ncol(non_imp_dataset_numeric) == 0) {
+  stop("One or both datasets have no numeric columns to compare.")
+}
+
+# Custom function to filter columns with valid variance
+filter_valid_columns <- function(df) {
+  df %>% select(where(~ !all(is.na(.)) && var(., na.rm = TRUE) > 0))
+}
+
+# Apply the filter to remove problematic columns
+imp_pmm_best_numeric <- filter_valid_columns(imp_pmm_best_numeric)
+non_imp_dataset_numeric <- filter_valid_columns(non_imp_dataset_numeric)
+
+# Combine datasets for comparison
+imp_pmm_best_numeric$dataset <- "imputed"
+non_imp_dataset_numeric$dataset <- "non-imputed"
+combined_data <- bind_rows(imp_pmm_best_numeric, non_imp_dataset_numeric)
+
+# Melt into long format for ggplot
+combined_long <- combined_data %>%
+  pivot_longer(cols = -dataset, names_to = "variable", values_to = "value")
+
+# Plot distributions for all variables
+ggplot(combined_long, aes(x = value, fill = dataset)) +
+  geom_density(alpha = 0.5) +
+  facet_wrap(~variable, scales = "free") +
+  labs(title = "Density Plots for Numeric Variables", x = "Value", y = "Density") +
+  theme_minimal()
+
+# Check for column-wise similarity
+inspect_cor(imp_pmm_best, non_imp_dataset) %>% show_plot()
+
+# Missingness comparison
+inspect_na(imp_pmm_best, non_imp_dataset) %>% show_plot()
 ```
 
 
+```{r}
+# SAVING TWO VERSIONS OF PREPROCESSED DATA AS RDS
+
+# Define the output directory
+output_dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
+# Ensure the output directory exists
+if (!dir.exists(output_dir)) {
+  dir.create(output_dir, recursive = TRUE)
+}
+
+# Save the non-imputed dataset as RDS
+saveRDS(non_imp_dataset,
+        file = file.path(output_dir, "non_imp_dataset.rds"))
+
+# Save the non-imputed dataset as RDS
+saveRDS(non_imp_dataset_dummy,
+        file = file.path(output_dir, "non_imp_dataset_dummy.rds"))
+
+# Save the best-imputed dataset as RDS
+saveRDS(imp_pmm_best,
+        file = file.path(output_dir, "imp_pmm_best_dataset.rds"))
+
+# Print confirmation messages
+cat("Datasets saved successfully:\n")
+cat("- Non-imputed dataset: non_imp_dataset.rds\n")
+cat("- Best-imputed dataset: imp_pmm_best_dataset.rds\n")
+```
 
 
 
@@ -984,9 +2078,15 @@ CALCULATING EFFECT SIZES FOR IMPUTED AND NON-IMPUTED DATASETS
 
 ```{r}
 non_imp_dataset |> glimpse()
-imp_dataset |> glimpse()
+imp_pmm_best |> glimpse()
 ```
-Performing effect size calculation
+
+
+
+
+##########################################################################################################################################
+EFFECT SIZE CALCULATION
+##########################################################################################################################################
 
 ```{r}
 # Function for data preparation and effect size calculation
@@ -1056,13 +2156,10 @@ prep_dataset_for_rom <- function(data) {
 ```{r}
 # Apply the data preparation function to both non-imputed and imputed datasets
 # - This creates cleaned and prepared datasets for effect size calculation.
-meta_data_non_imp <- prep_dataset_for_rom(non_imp_dataset)
-meta_data_imp <- prep_dataset_for_rom(imp_dataset)
+non_imp_data_prep <- prep_dataset_for_rom(non_imp_dataset)
+imp_data_prep <- prep_dataset_for_rom(imp_pmm_best)
 
-# Check the structure of the prepared datasets
-# - Use `str()` to inspect the data frames and ensure that the columns are as expected.
-# str(meta_data_non_imp)
-# str(meta_data_imp)
+non_imp_data_prep_dummy <- prep_dataset_for_rom(non_imp_dataset_dummy)
 ```
 
 ```{r}
@@ -1109,121 +2206,59 @@ calculate_effect_sizes <- function(data, measure = "ROM") {
 
 ```{r}
 # Apply the function to both non-imputed and imputed datasets
-meta_data_ROM_non_imp <- calculate_effect_sizes(meta_data_non_imp)
-meta_data_ROM_imp <- calculate_effect_sizes(meta_data_imp)
+non_imp_data_rom <- calculate_effect_sizes(non_imp_data_prep)
+imp_data_rom <- calculate_effect_sizes(imp_data_prep)
 
-# Check the structure of the resulting data frames
-# str(meta_data_ROM_non_imp)
-# str(meta_data_ROM_imp)
+non_imp_data_rom_dummy <- calculate_effect_sizes(non_imp_data_prep_dummy)
 ```
 
 
 
-
-
-Comparing and evaluating the two meta-data sets (imputed vs. non-imputed)
-
-```{r}
-# Create a combined dataset for comparison
-comparison_data <- meta_data_ROM_non_imp %>%
-  select(id_article, id_obs, response_variable, yi_non_imp = yi, vi_non_imp = vi) %>%
-  left_join(meta_data_ROM_imp %>%
-              select(id_article, id_obs, yi_imp = yi, vi_imp = vi),
-            by = c("id_article", "id_obs"))
-
-# Scatter plot of effect sizes
-scatter_plot <- ggplot(comparison_data, aes(x = yi_non_imp, y = yi_imp)) +
-  geom_point(alpha = 0.6, color = "#0072B2") +
-  geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") +
-  labs(title = "Comparison of Effect Sizes (ROM): Imputed vs. Non-Imputed",
-       x = "Effect Size (Non-Imputed Data)", y = "Effect Size (Imputed Data)") +
-  theme_minimal() +
-  theme(plot.title = element_text(hjust = 0.5))
-
-scatter_plot
-```
-
-Paired t-test for Effect Sizes (yi)
-A paired t-test can help assess if there is a significant difference between the effect sizes of the imputed and non-imputed datasets.
-
-```{r}
-# Perform a paired t-test for effect sizes (yi)
-# Remove rows with NA or Inf values
-clean_data <- comparison_data %>%
-  filter(!is.na(yi_non_imp), !is.na(yi_imp), 
-         !is.infinite(yi_non_imp), !is.infinite(yi_imp))
-
-# Perform the paired t-test on the cleaned data
-t_test_result <- t.test(clean_data$yi_non_imp, clean_data$yi_imp, paired = TRUE)
-print(t_test_result)
-
-```
-
-Bland-Altman Analysis
-A Bland-Altman plot can provide a graphical method to assess agreement between the two datasets by plotting the differences against the means.
-
-```{r}
-# Calculate the mean and difference of effect sizes
-comparison_data <- comparison_data %>%
-  mutate(
-    mean_yi = (yi_non_imp + yi_imp) / 2,
-    diff_yi = yi_imp - yi_non_imp
-  )
-
-# Create a Bland-Altman plot
-bland_altman_plot <- ggplot(comparison_data, aes(x = mean_yi, y = diff_yi)) +
-  geom_point(alpha = 0.6, color = "#0072B2") +
-  geom_hline(yintercept = 0, color = "red", linetype = "dashed") +
-  labs(title = "Bland-Altman Plot: Imputed vs. Non-Imputed Effect Sizes",
-       x = "Mean Effect Size", y = "Difference in Effect Size (Imputed - Non-Imputed)") +
-  theme_minimal() +
-  theme(plot.title = element_text(hjust = 0.5))
-
-print(bland_altman_plot)
-
-```
-
-Correlation Analysis
-Calculate the correlation between the effect sizes from the imputed and non-imputed datasets.
-```{r}
-# Calculate Pearson and Spearman correlations
-# Calculate Pearson and Spearman correlations
-pearson_corr <- cor(comparison_data$yi_non_imp, comparison_data$yi_imp, method = "pearson")
-spearman_corr <- cor(comparison_data$yi_non_imp, comparison_data$yi_imp, method = "spearman")
-
-# Print the correlation results
-cat("Pearson Correlation:", pearson_corr, "\n")
-cat("Spearman Correlation:", spearman_corr, "\n")
-
-```
-
-Pearson correlation measures the linear relationship between the two sets of effect sizes. A value close to 1 indicates strong linear agreement.
-Spearman correlation measures the rank correlation, providing a non-parametric measure of the relationship. This is useful if the data has outliers or is not normally distributed.
-
-
-Mean Absolute Difference (MAD) and Root Mean Square Error (RMSE)
-These metrics provide an indication of the overall difference between the two sets of effect sizes.
-
-```{r}
-# Calculate Mean Absolute Difference (MAD)
-mad <- mean(abs(comparison_data$yi_imp - comparison_data$yi_non_imp), na.rm = TRUE)
-
-# Calculate Root Mean Square Error (RMSE)
-rmse <- sqrt(mean((comparison_data$yi_imp - comparison_data$yi_non_imp)^2, na.rm = TRUE))
-
-# Print the results
-cat("Mean Absolute Difference (MAD):", mad, "\n")
-cat("Root Mean Square Error (RMSE):", rmse, "\n")
-
-```
 
 Heterogeneity Analysis
 Compare the heterogeneity statistics between the meta-analyses conducted on the imputed and non-imputed datasets. This will help you understand if the imputation has influenced the heterogeneity of the studies.
- 
+
 ```{r}
+# Prepare the original data
+original_data_x <- non_imp_data_rom %>%
+  select(id_article, id_obs, exp_id, id_obs, response_variable, 
+         silvo_se, control_se, yi, vi) |> 
+  mutate(data_source = "Original") |> 
+  as.data.frame() 
+
+imputed_data_y <- imp_data_rom |> 
+  select(id_article, id_obs, exp_id, id_obs, response_variable, 
+         silvo_se, control_se, yi, vi) |> 
+  mutate(data_source = "Imputed") 
+
+# Combine the original and imputed data
+combined_data <- bind_rows(original_data_x, imputed_data_y)
+
+# Join the original and imputed data to directly compare
+comparison_data <- original_data_x %>%
+  full_join(imputed_data_y, by = c("id_article", "exp_id", "id_obs", "response_variable"), 
+            suffix = c("_original", "_imputed")) %>%
+  distinct()
+
+# Advarsel: Detected an unexpected many-to-many relationship between `x` and `y`.
+
+comparison_data |> glimpse()
+```
+
+```{r}
+##########################################################################
+# Set up the parallel processing plan
+plan(multisession, workers = parallel::detectCores() - 1)
+##################################################
+# Start time tracking
+start.time <- Sys.time()
+##################################################
+##################################################
+
+
 # Fit random-effects models on both datasets
-rma_non_imp <- rma(yi = yi_non_imp, vi = vi_non_imp, data = comparison_data)
-rma_imp <- rma(yi = yi_imp, vi = vi_imp, data = comparison_data)
+rma_non_imp <- rma(yi = yi_original, vi = vi_original, data = comparison_data)
+rma_imp <- rma(yi = yi_imputed, vi = vi_imputed, data = comparison_data)
 
 # Print heterogeneity statistics
 cat("Non-Imputed Data - Heterogeneity (I^2):", rma_non_imp$I2, "\n")
@@ -1232,6 +2267,15 @@ cat("Non-Imputed Data - Between-study variance (tau^2):", rma_non_imp$tau2, "\n"
 cat("Imputed Data - Heterogeneity (I^2):", rma_imp$I2, "\n")
 cat("Imputed Data - Between-study variance (tau^2):", rma_imp$tau2, "\n")
 
+##################################################
+# End time tracking
+end.time <- Sys.time()
+# Calculate time taken
+time.taken <- end.time - start.time
+time.taken
+##############################################################
+# Last go (02/12-2024)
+# Time difference of 4.055149 secs
 ```
  
 Kolmogorov-Smirnov Test
@@ -1239,11 +2283,18 @@ The Kolmogorov-Smirnov (KS) test can be used to compare the distributions of eff
 
 ```{r}
 # Kolmogorov-Smirnov test
-ks_test_result <- ks.test(meta_data_ROM_non_imp$yi, meta_data_ROM_imp$yi)
+ks_test_result <- ks.test(non_imp_data_rom$yi, imp_data_rom$yi)
 print(ks_test_result)
+
+# Advarsel: p-value will be approximate in the presence of ties
+# 	Asymptotic two-sample Kolmogorov-Smirnov test
+# 
+# data:  non_imp_data_rom$yi and imp_data_rom$yi
+# D = 0.040734, p-value = 0.4179
+# alternative hypothesis: two-sided
 ```
 
-The Kolmogorov-Smirnov (KS) test was conducted to compare the distributions of effect sizes (ROM) between the imputed and non-imputed datasets. The test statistic D was 0.0389, with a p-value of 0.4772. This high p-value indicates that there is no significant difference between the distributions of the two datasets. Thus, we fail to reject the null hypothesis, suggesting that both datasets share a similar underlying distribution.
+The Kolmogorov-Smirnov (KS) test was conducted to compare the distributions of effect sizes (ROM) between the imputed and non-imputed datasets. The test statistic D was 0.0407, with a p-value of 0.4179. This high p-value indicates that there is no significant difference between the distributions of the two datasets. Thus, we fail to reject the null hypothesis, suggesting that both datasets share a similar underlying distribution.
 
 A warning about approximate p-values due to ties was noted. This occurs when there are identical values within the data, which can slightly affect the accuracy of the p-value calculation. However, given the large sample size, this effect is minimal and does not alter the overall interpretation.
 
@@ -1255,7 +2306,7 @@ Overall, the KS test supports the conclusion that the imputation process was eff
  
 ```{r}
 # Descriptive statistics for non-imputed data
-summary_non_imp <- meta_data_ROM_non_imp %>%
+summary_non_imp <- non_imp_data_rom %>%
   summarise(
     mean_yi = mean(yi, na.rm = TRUE),
     median_yi = median(yi, na.rm = TRUE),
@@ -1263,7 +2314,7 @@ summary_non_imp <- meta_data_ROM_non_imp %>%
   )
 
 # Descriptive statistics for imputed data
-summary_imp <- meta_data_ROM_imp %>%
+summary_imp <- imp_data_rom %>%
   summarise(
     mean_yi = mean(yi, na.rm = TRUE),
     median_yi = median(yi, na.rm = TRUE),
@@ -1277,28 +2328,28 @@ summary_imp
  
 ```{r}
 # Density plot for non-imputed data
-density_plot_non_imp <- ggplot(meta_data_ROM_non_imp, aes(x = yi)) +
+density_plot_non_imp <- ggplot(non_imp_data_rom, aes(x = yi)) +
   geom_density(fill = "#0072B2", alpha = 0.5) +
   labs(title = "Density Plot: Non-Imputed Data",
        x = "Effect Size (yi)", y = "Density") +
   theme_minimal()
 
 # Density plot for imputed data
-density_plot_imp <- ggplot(meta_data_ROM_imp, aes(x = yi)) +
+density_plot_imp <- ggplot(imp_data_rom, aes(x = yi)) +
   geom_density(fill = "#E69F00", alpha = 0.5) +
   labs(title = "Density Plot: Imputed Data",
        x = "Effect Size (yi)", y = "Density") +
   theme_minimal()
 
 # Boxplot for non-imputed data
-boxplot_non_imp <- ggplot(meta_data_ROM_non_imp, aes(y = yi)) +
+boxplot_non_imp <- ggplot(non_imp_data_rom, aes(y = yi)) +
   geom_boxplot(fill = "#0072B2", alpha = 0.5) +
   labs(title = "Boxplot: Non-Imputed Data",
        y = "Effect Size (yi)") +
   theme_minimal()
 
 # Boxplot for imputed data
-boxplot_imp <- ggplot(meta_data_ROM_imp, aes(y = yi)) +
+boxplot_imp <- ggplot(imp_data_rom, aes(y = yi)) +
   geom_boxplot(fill = "#E69F00", alpha = 0.5) +
   labs(title = "Boxplot: Imputed Data",
        y = "Effect Size (yi)") +
@@ -1311,25 +2362,38 @@ boxplot_imp <- ggplot(meta_data_ROM_imp, aes(y = yi)) +
 ```
 
 
+#############
+# STEP 6
+##########################################################################################################################################
+SAVING FINAL PREPROCESSED META-DATASETS (IMPUTED AND NON-IMPUTED) - THESE ARE USED FOR RMA.MV() MODELLING
+##########################################################################################################################################
 
- 
- 
 
-Saving the dataset meta_data_ROM_non_imp
-Saving the dataset that is used as imputed
+Saving the datasets that is used for the rma.mv() modelling
 
 ```{r}
-# This is the dataset that is used for analysis before imputation
-meta_data_ROM_non_imp
+# Define the output directory
+output_dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
 
-# This is the dataset that is used for analysis after imputation
-meta_data_ROM_imp
+# Ensure the output directory exists
+if (!dir.exists(output_dir)) {
+  dir.create(output_dir, recursive = TRUE)
+}
 
-################################################################################
-# NON-IMPUTED
-readr::write_csv(meta_data_ROM_non_imp,
-                 here::here("DATA", "OUTPUT_FROM_R", "meta_data_ROM_non_imp.csv"))
-# IMPUTED
-readr::write_csv(meta_data_ROM_imp,
-                 here::here("DATA", "OUTPUT_FROM_R", "meta_data_ROM_imp.csv"))
+# Save as RDS files
+
+## NON-IMPUTED
+saveRDS(non_imp_data_rom,
+        file = here::here(output_dir, "non_imp_data_rom.rds"))
+
+## IMPUTED
+saveRDS(imp_data_rom,
+        file = here::here(output_dir, "imp_data_rom.rds"))
+
+## DUMMY NON-IMPUTED
+saveRDS(non_imp_data_rom_dummy,
+        file = here::here(output_dir, "non_imp_data_rom_dummy.rds"))
+
+# Confirmation message
+cat("Files saved successfully to:", output_dir, "\n")
 ```

@@ -120,10 +120,87 @@ imp_dataset <- read_csv(imp_file) %>%
 ```
 
 
+##########################################################################################################################################
+ASSESSING IMPUTATION
+##########################################################################################################################################
 
 
+Assessment of Missing Data for Moderators
+Imputation of Missing Values for Moderators Using mice()
+Post-Imputation Assessment of Moderators
+Selection of Moderators for Analysis
+Fitting the Multivariate Random-Effects Model with Selected Moderators
 
+```{r}
+# Define the function for missing data assessment
+assess_missing_data <- function(dataset, moderators, dataset_name = "Dataset") {
+  
+  cat("\nStarting missing data assessment for", dataset_name, "...\n")
+  
+  # Step 1: Count the number of missing values for each moderator
+  missing_summary <- dataset %>%
+    summarise(across(all_of(moderators), ~ sum(is.na(.), na.rm = TRUE))) %>%
+    pivot_longer(cols = everything(), names_to = "variable", values_to = "missing_count")
 
+  # Print the missing summary table
+  cat("\nNumber of Missing Values for Each Moderator:\n")
+  print(missing_summary)
+
+  # Step 2: Create a basic bar chart of missing counts
+  missing_plot <- ggplot(missing_summary, aes(x = reorder(variable, -missing_count), y = missing_count)) +
+    geom_bar(stat = "identity", fill = "#0072B2") +
+    labs(
+      title = paste("Number of Missing Data for Moderator Variables -", dataset_name),
+      x = "Moderator Variable",
+      y = "Number of Missing Values"
+    ) +
+    scale_y_continuous(labels = scales::comma) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+  # Step 3: Count missingness for each moderator by response_variable
+  missing_by_response <- dataset %>%
+    group_by(response_variable) %>%
+    summarise(across(all_of(moderators), ~ sum(is.na(.), na.rm = TRUE))) %>%
+    pivot_longer(cols = -response_variable, names_to = "moderator", values_to = "missing_count")
+
+  # Print the summary table for missingness by response_variable
+  cat("\nNumber of Missing Values by Response Variable for Each Moderator:\n")
+  print(missing_by_response)
+
+  # Step 4: Create a heatmap for missingness by response_variable
+  missing_heatmap <- ggplot(missing_by_response, aes(x = moderator, y = response_variable, fill = missing_count)) +
+    geom_tile(color = "white") +
+    scale_fill_gradient(low = "#56B1F7", high = "#132B43", na.value = "gray90", labels = comma) +
+    labs(
+      title = paste("Heatmap of Missing Data by Moderator and Response Variable -", dataset_name),
+      x = "Moderator Variable",
+      y = "Response Variable",
+      fill = "Number of Missing Values"
+    ) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+  # Display the plots
+  print(missing_plot)
+  print(missing_heatmap)
+  
+  cat("\nMissing data assessment completed for", dataset_name, ".\n")
+}
+```
+
+```{r}
+# Assessing Moderator missingness
+
+moderators <- c("tree_type", "crop_type", "age_system", "season", 
+                "soil_texture", "no_tree_per_m", "tree_height", "alley_width")
+
+# Assess missing data for non-imputed dataset
+assess_missing_data(non_imp_dataset, moderators, "Non-Imputed Dataset")
+
+# Assess missing data for imputed dataset
+assess_missing_data(imp_dataset, moderators, "Imputed Dataset")
+```
 
 
 

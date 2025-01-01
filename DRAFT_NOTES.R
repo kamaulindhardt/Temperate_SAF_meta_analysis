@@ -4494,3 +4494,3916 @@ forest_plot_data |>
   )
 ```
 
+
+
+
+```{r}
+impute_and_merge <- function(dataset, moderators, dataset_name = "Dataset") {
+  
+  cat("Starting imputation for", dataset_name, "...\n")
+  
+  # Step 1: Prepare data for imputation
+  cols_for_impute <- dataset %>%
+    select(
+      yi, vi,
+      id_article, id_obs, exp_id,
+      response_variable, all_of(moderators)
+    )
+  
+  # Step 2: Convert categorical variables to factors
+  cols_for_impute <- cols_for_impute %>%
+    mutate(across(all_of(moderators), as.factor))
+  
+  # Step 3: Perform multiple imputation using mice
+  set.seed(1234)
+  imputed_data <- mice(
+    cols_for_impute,
+    m = 20,         # Number of imputations
+    maxit = 100,    # Maximum iterations
+    method = 'pmm', # Predictive Mean Matching
+    printFlag = FALSE
+  )
+  
+  # Step 4: Extract the first imputed dataset for merging
+  completed_data <- complete(imputed_data, 1)
+  
+  # Step 5: Join the imputed values back to the original dataset
+  merged_dataset <- dataset %>%
+    left_join(
+      completed_data %>%
+        select(id_article, id_obs, exp_id, all_of(moderators)),
+      by = c("id_article", "id_obs", "exp_id"),
+      suffix = c("_original", "_imputed")
+    )
+  
+  # Step 6: Replace missing values in the original columns with imputed values
+  for (mod in moderators) {
+    original_col <- paste0(mod, "_original")
+    imputed_col <- paste0(mod, "_imputed")
+    
+    if (original_col %in% colnames(merged_dataset) && imputed_col %in% colnames(merged_dataset)) {
+      merged_dataset[[mod]] <- ifelse(
+        is.na(merged_dataset[[original_col]]),
+        merged_dataset[[imputed_col]],
+        merged_dataset[[original_col]]
+      )
+    }
+  }
+  
+  # Step 7: Drop the temporary columns
+  merged_dataset <- merged_dataset %>%
+    select(-ends_with("_original"), -ends_with("_imputed"))
+  
+  cat("Imputation completed for", dataset_name, ".\n")
+  
+  return(merged_dataset)
+}
+```
+
+```{r}
+##########################################################################
+# Set up the parallel processing plan
+plan(multisession, workers = parallel::detectCores() - 1)
+##################################################
+# Start time tracking
+start.time <- Sys.time()
+##################################################
+##################################################
+
+
+# Performing moderator imputations
+moderators <- c("tree_type", "crop_type", "age_system", "season", 
+                "soil_texture", "no_tree_per_m", "tree_height", "alley_width")
+
+# Impute and merge for non-imputed dataset
+non_imp_dataset_imputed <- impute_and_merge(non_imp_dataset, moderators, "Non-Imputed Dataset")
+
+# Impute and merge for imputed dataset
+imp_dataset_imputed <- impute_and_merge(imp_dataset, moderators, "Imputed Dataset")
+
+
+############################################################################################################################
+# Helper function to convert numeric imputed values to categorical factors
+convert_to_factors <- function(data) {
+  # Convert 'no_tree_per_m' to character factors (Low, High)
+  data <- data %>%
+    mutate(
+      no_tree_per_m = case_when(
+        no_tree_per_m %in% c(1, "1") ~ "Low",
+        no_tree_per_m %in% c(2, "2") ~ "High",
+        TRUE ~ as.character(no_tree_per_m)
+      ) %>% as.factor()
+    )
+  
+  # Convert 'tree_height' to character factors (Short, Tall)
+  data <- data %>%
+    mutate(
+      tree_height = case_when(
+        tree_height %in% c(1, "1") ~ "Short",
+        tree_height %in% c(2, "2") ~ "Tall",
+        TRUE ~ as.character(tree_height)
+      ) %>% as.factor()
+    )
+  
+  # Convert 'alley_width' to character factors (Narrow, Wide)
+  data <- data %>%
+    mutate(
+      alley_width = case_when(
+        alley_width %in% c(1, "1") ~ "Narrow",
+        alley_width %in% c(2, "2") ~ "Wide",
+        TRUE ~ as.character(alley_width)
+      ) %>% as.factor()
+    )
+  
+  # Convert 'age_system' to character factors (Narrow, Wide)
+  data <- data %>%
+    mutate(
+      age_system = case_when(
+        age_system %in% c(1, "1") ~ "Young",
+        age_system %in% c(2, "2") ~ "Medium",
+        age_system %in% c(3, "3") ~ "Mature",
+        TRUE ~ as.character(age_system)
+      ) %>% as.factor()
+    )
+  
+  # Convert 'season' to character factors (Narrow, Wide)
+  data <- data %>%
+    mutate(
+      season = case_when(
+        season %in% c(1, "1") ~ "Summer",
+        season %in% c(2, "2") ~ "Winter",
+        season %in% c(3, "3") ~ "WinterSummer",
+        TRUE ~ as.character(season)
+      ) %>% as.factor()
+    )
+  
+  return(data)
+}
+
+# Apply the conversion function to both datasets
+non_imp_dataset_imputed <- convert_to_factors(non_imp_dataset_imputed) |> 
+  relocate(
+    # Overall ID info
+    id_article, id_obs, treat_id, exp_id,
+    # Effect size measure
+    yi, vi,
+    # Response variable info
+    response_variable, sub_response_variable,
+    # Geographic and temporal info
+    location, final_lat, final_lon, exp_site_loc, experiment_year,
+    # Moderators info
+    tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width,
+    # Quantitative mata-analysis effect size info
+    silvo_mean, silvo_se, silvo_sd, silvo_n, control_mean, control_se, control_sd, control_n
+  )
+
+
+imp_dataset_imputed <- convert_to_factors(imp_dataset_imputed) |> 
+  relocate(
+    # Overall ID info
+    id_article, id_obs, treat_id, exp_id,
+    # Effect size measure
+    yi, vi,
+    # Response variable info
+    response_variable, sub_response_variable,
+    # Geographic and temporal info
+    location, final_lat, final_lon, exp_site_loc, experiment_year,
+    # Moderators info
+    tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width,
+    # Quantitative mata-analysis effect size info
+    silvo_mean, silvo_se, silvo_sd, silvo_n, control_mean, control_se, control_sd, control_n
+  )
+
+
+
+############################################################################################################################
+
+
+##################################################
+# End time tracking
+end.time <- Sys.time()
+# Calculate time taken
+time.taken <- end.time - start.time
+time.taken
+##############################################################
+# Last go: (16/11-24)
+# Starting imputation for Non-Imputed Dataset ...
+# Advarsel: Number of logged events: 1Imputation completed for Non-Imputed Dataset .
+# Starting imputation for Imputed Dataset ...
+# Advarsel: Number of logged events: 1Imputation completed for Imputed Dataset .
+# Time difference of 1.3963 mins
+
+# Check the structure of the datasets
+# str(non_imp_dataset_imputed)
+# str(imp_dataset_imputed)
+```
+
+Assessing imputation of moderators again
+
+```{r}
+# Assessing Moderator missingness
+
+moderators <- c("tree_type", "crop_type", "age_system", "season", 
+                "soil_texture", "no_tree_per_m", "tree_height", "alley_width")
+
+# Assess missing data for non-imputed dataset
+assess_missing_data(non_imp_dataset_imputed, moderators, "Non-Imputed Dataset")
+
+# Assess missing data for imputed dataset
+assess_missing_data(imp_dataset_imputed, moderators, "Imputed Dataset")
+```
+
+Additional assessment of the moderator imputation
+
+```{r}
+# Function to calculate missing data proportions
+calculate_missing_proportions <- function(data, moderators) {
+  data %>%
+    pivot_longer(cols = all_of(moderators), names_to = "moderator", values_to = "value") %>%
+    group_by(response_variable, moderator) %>%
+    summarise(
+      missing_proportion = mean(is.na(value), na.rm = TRUE)
+    )
+}
+
+# Function to plot missing data proportions per response variable
+plot_missing_proportions <- function(original_data, imputed_data, moderators, dataset_name) {
+  cat("\nStarting plot creation for", dataset_name, "...\n")
+  
+  # Calculate missing proportions for original and imputed datasets
+  missing_original <- calculate_missing_proportions(original_data, moderators) %>%
+    mutate(data_source = "Original")
+  
+  missing_imputed <- calculate_missing_proportions(imputed_data, moderators) %>%
+    mutate(data_source = "Imputed")
+  
+  # Combine the results
+  combined_missing <- bind_rows(missing_original, missing_imputed)
+  
+  # Create the plot
+  plot <- ggplot(combined_missing, aes(x = response_variable, y = missing_proportion, fill = data_source)) +
+    geom_bar(stat = "identity", position = "dodge") +
+    facet_wrap(~ moderator, scales = "free_y") +
+    scale_y_continuous(labels = scales::percent_format()) +
+    labs(
+      title = paste("Proportion of Missing Data per Response Variable -", dataset_name),
+      x = "Response Variable",
+      y = "Missing Proportion"
+    ) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1),
+          legend.position = "top")
+  
+  cat("\nPlot creation completed for", dataset_name, ".\n")
+  
+  return(plot)
+}
+
+# List of moderators
+moderators <- c("tree_type", "crop_type", "age_system", "season", 
+                "soil_texture", "no_tree_per_m", "tree_height", "alley_width")
+
+# Create plots for Non-Imputed and Imputed datasets
+plot_non_imp <- plot_missing_proportions(non_imp_dataset, non_imp_dataset_imputed, moderators, "Non-Imputed Dataset")
+plot_imp <- plot_missing_proportions(imp_dataset, imp_dataset_imputed, moderators, "Imputed Dataset")
+
+# Display the plots side by side
+plot_non_imp + plot_imp
+```
+
+
+Perform imputation using "mice" (Multivariate Imputation by Chained Equations)
+
+```{r, eval = TRUE}
+##########################################################################
+# Set up the parallel processing plan
+plan(multisession, workers = parallel::detectCores() - 1)
+##################################################
+# Start time tracking
+start.time <- Sys.time()
+##################################################
+##################################################
+
+############################################################################################################################
+# Set seed for reproducibility
+set.seed(1234)
+
+# Perform imputation using mice
+# - read about mice() here: https://www.metafor-project.org/doku.php/tips:multiple_imputation_with_mice_and_metafor
+# - col_for_impute: the data frame containing the columns to be imputed
+# - m = 5: number of multiple imputations to perform
+# - maxit = 100: maximum number of iterations to perform for each imputation
+# - method = 'pmm': method to use for imputation, 'pmm' stands for predictive mean matching
+# - seed = 500: random seed for reproducibility of the imputations
+# - printFlag: If TRUE, mice will print history on console. Use print=FALSE for silent computation.
+
+
+
+# Step 1: Check and enforce correct data types
+col_for_impute <- database_clean_sd |> 
+  as.data.frame() |> 
+  select(-geometry) |> 
+  select(
+    # Columns that need to be imputed
+    silvo_se, control_se, silvo_n, control_n,
+    # Columns that are used by mice to impute values
+    tree_age, crop_type, tree_type, sub_region, experiment_year, alley_width,
+    # IDs that are used to back-link imputed values to the dataset
+    id_article, id_obs, treat_id, exp_id
+  ) |> 
+  # Convert relevant columns to the correct data types
+  mutate(
+    silvo_se = as.numeric(silvo_se),
+    control_se = as.numeric(control_se),
+    silvo_n = as.numeric(silvo_n),
+    control_n = as.numeric(control_n),
+    tree_age = as.numeric(tree_age),
+    crop_type = as.factor(crop_type),
+    tree_type = as.factor(tree_type),
+    sub_region = as.factor(sub_region),
+    alley_width = as.factor(alley_width),
+    id_article = as.numeric(id_article),
+    id_obs = as.numeric(id_obs),
+    treat_id = as.numeric(treat_id),
+    exp_id = as.numeric(exp_id)
+  )
+
+# Step 2: Define the predictor matrix
+pred_matrix <- mice::make.predictorMatrix(col_for_impute)
+
+# Allow only specific columns to be imputed
+# Set all columns except 'silvo_se', 'control_se', 'silvo_n', and 'control_n' to be non-imputed
+pred_matrix[, c("tree_age", "crop_type", "tree_type", "sub_region", "experiment_year", "alley_width", "id_article", "id_obs", "treat_id", "exp_id")] <- 0
+
+# Step 3: Update the method vector to specify imputation only for target columns
+# Use 'pmm' (predictive mean matching) for numeric columns to be imputed and "" for others
+method <- c(
+  "silvo_se" = "pmm",
+  "control_se" = "pmm",
+  "silvo_n" = "pmm",
+  "control_n" = "pmm",
+  "tree_age" = "",           # Not imputed
+  "crop_type" = "",          # Not imputed
+  "tree_type" = "",          # Not imputed
+  "sub_region" = "",         # Not imputed
+  "experiment_year" = "",    # Not imputed
+  "alley_width" = "",        # Not imputed
+  "id_article" = "",         # Not imputed
+  "id_obs" = "",             # Not imputed
+  "treat_id" = "",           # Not imputed
+  "exp_id" = ""              # Not imputed
+)
+
+# Step 4: Perform imputation using mice
+set.seed(1234)
+imputed_data <- mice(
+  col_for_impute,
+  m = 20,
+  maxit = 100,
+  method = method,
+  predictorMatrix = pred_matrix,
+  seed = 1234,
+  printFlag = FALSE
+)
+
+# Step 5: Extract a completed dataset for inspection
+completed_data <- mice::complete(imputed_data, 1)
+print(head(completed_data))
+# Step 5: Extract the completed data
+completed_data <- mice::complete(imputed_data)
+
+##################################################
+# End time tracking
+end.time <- Sys.time()
+# Calculate time taken
+time.taken <- end.time - start.time
+time.taken
+##############################################################
+# Last go: (16/11-24)
+# Time difference of 14.25402 secs
+```
+
+```{r}
+##########################################################################
+# Set up the parallel processing plan
+plan(multisession, workers = parallel::detectCores() - 1)
+##########################################################################
+
+# Start time tracking
+start.time <- Sys.time()
+
+##########################################################################
+# Step 1: Check and enforce correct data types
+col_for_impute <- database_clean_sd |> 
+  as.data.frame() |> 
+  select(-geometry) |> 
+  select(
+    # Columns that need to be imputed
+    silvo_se, control_se, silvo_n, control_n,
+    # Columns that are used by mice to impute values
+    tree_age, crop_type, tree_type, sub_region, experiment_year, alley_width,
+    # IDs that are used to back-link imputed values to the dataset
+    id_article, id_obs, treat_id, exp_id
+  ) |> 
+  mutate(
+    silvo_se = as.numeric(silvo_se),
+    control_se = as.numeric(control_se),
+    silvo_n = as.numeric(silvo_n),
+    control_n = as.numeric(control_n),
+    tree_age = as.numeric(tree_age),
+    crop_type = as.factor(crop_type),
+    tree_type = as.factor(tree_type),
+    sub_region = as.factor(sub_region),
+    alley_width = as.factor(alley_width),
+    id_article = as.numeric(id_article),
+    id_obs = as.numeric(id_obs),
+    treat_id = as.numeric(treat_id),
+    exp_id = as.numeric(exp_id)
+  )
+
+##########################################################################
+# Step 2: Define the function for each imputation method
+impute_data <- function(data, method_name) {
+  if (method_name == "pmm") {
+    # Predictive Mean Matching
+    pred_matrix <- mice::make.predictorMatrix(data)
+    pred_matrix[, c("tree_age", "crop_type", "tree_type", "sub_region", "experiment_year", "alley_width", 
+                    "id_article", "id_obs", "treat_id", "exp_id")] <- 0
+    
+    # Define imputation method for PMM
+    method <- c(
+      "silvo_se" = "pmm",
+      "control_se" = "pmm",
+      "silvo_n" = "pmm",
+      "control_n" = "pmm",
+      "tree_age" = "",           # Not imputed
+      "crop_type" = "",          # Not imputed
+      "tree_type" = "",          # Not imputed
+      "sub_region" = "",         # Not imputed
+      "experiment_year" = "",    # Not imputed
+      "alley_width" = "",        # Not imputed
+      "id_article" = "",         # Not imputed
+      "id_obs" = "",             # Not imputed
+      "treat_id" = "",           # Not imputed
+      "exp_id" = ""              # Not imputed
+    )
+    
+    # Perform imputation using mice
+    imputed_data <- mice(
+      data,
+      m = 20,
+      maxit = 100,
+      method = method,
+      predictorMatrix = pred_matrix,
+      seed = 1234,
+      printFlag = FALSE
+    )
+    return(mice::complete(imputed_data))
+    
+  } else if (method_name == "upper_quartile") {
+    # Upper Quartile Imputation for Variance
+    upper_quartile_variance <- data %>%
+      summarise(across(c(silvo_se, control_se), ~ quantile(.^2, 0.75, na.rm = TRUE))) %>%
+      pivot_longer(cols = everything(), names_to = "variable", values_to = "upper_quartile")
+    
+    # Impute missing variance with the upper quartile
+    data <- data %>%
+      mutate(
+        silvo_se = ifelse(is.na(silvo_se), sqrt(upper_quartile_variance$upper_quartile[1]), silvo_se),
+        control_se = ifelse(is.na(control_se), sqrt(upper_quartile_variance$upper_quartile[2]), control_se)
+      )
+    return(data)
+    
+  } else if (method_name == "mean_imputation") {
+    # Example: Mean Imputation
+    data <- data %>%
+      mutate(
+        silvo_se = ifelse(is.na(silvo_se), mean(silvo_se, na.rm = TRUE), silvo_se),
+        control_se = ifelse(is.na(control_se), mean(control_se, na.rm = TRUE), control_se),
+        silvo_n = ifelse(is.na(silvo_n), mean(silvo_n, na.rm = TRUE), silvo_n),
+        control_n = ifelse(is.na(control_n), mean(control_n, na.rm = TRUE), control_n)
+      )
+    return(data)
+  } else {
+    stop("Invalid method name.")
+  }
+}
+
+##########################################################################
+# Step 3: Apply each imputation method
+imputation_methods <- c("pmm", "upper_quartile", "mean_imputation")
+imputed_datasets <- list()
+
+for (method_name in imputation_methods) {
+  cat("Applying", method_name, "imputation...\n")
+  imputed_datasets[[method_name]] <- impute_data(col_for_impute, method_name)
+}
+
+##########################################################################
+# Step 4: Compare results
+for (method_name in imputation_methods) {
+  cat("\nSummary of Imputed Dataset -", method_name, ":\n")
+  print(summary(imputed_datasets[[method_name]]))
+}
+
+##########################################################################
+# End time tracking
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+cat("\nTotal time taken:", time.taken, "\n")
+##########################################################################
+
+```
+
+```{r}
+# Step 1: Extract observed values for 'silvo_se'
+# - `col_for_impute` is the data frame containing the columns to be imputed.
+# - We filter out the non-missing values from the original 'silvo_se' column.
+observed_silvo_se <- col_for_impute$silvo_se[!is.na(col_for_impute$silvo_se)]
+
+# Step 2: Extract imputed values for 'silvo_se'
+# - We use `lapply()` to loop over all 20 imputed datasets generated by `mice`.
+# - `mice::complete(imputed_data, i)` extracts the completed dataset for the i-th imputation.
+# - `data$silvo_se[is.na(col_for_impute$silvo_se)]` selects the imputed values where the original data had missing values.
+# - `unlist()` is used to flatten the list of imputed values into a vector.
+imputed_silvo_se <- unlist(lapply(1:20, function(i) {
+  data <- mice::complete(imputed_data, i) # Extract the i-th imputed dataset
+  data$silvo_se[is.na(col_for_impute$silvo_se)] # Select only the imputed values
+}))
+
+# Step 3: Create a combined data frame for plotting
+# - `value`: A combined vector of both observed and imputed values.
+# - `type`: A vector indicating whether the value is "Original" (observed) or "Imputed".
+# - `rep()`: Repeats the labels for the respective lengths of observed and imputed values.
+plot_data <- data.frame(
+  value = c(observed_silvo_se, imputed_silvo_se),
+  type = c(rep("Original", length(observed_silvo_se)),
+           rep("Imputed", length(imputed_silvo_se)))
+)
+
+# Step 4: Plot the density of observed vs. imputed values using ggplot2
+ggplot(plot_data, aes(x = value, fill = type)) +
+  # `geom_density()`: Plots the density curve for each type ("Original" and "Imputed").
+  # `alpha = 0.5`: Sets the transparency of the density curves (0 = fully transparent, 1 = fully opaque).
+  geom_density(alpha = 0.5) +
+  # `labs()`: Adds titles and labels to the plot.
+  labs(
+    title = "Density Plot of Original vs. Imputed Values for silvo_se",
+    x = "silvo_se Values",
+    y = "Density"
+  ) +
+  # `scale_fill_manual()`: Manually sets the colors for the fill based on the "type" variable.
+  # - "blue" for the "Original" values and "red" for the "Imputed" values.
+  scale_fill_manual(values = c("blue", "red")) +
+  # `scale_x_log10()`: Applies a log10 transformation to the x-axis (silvo_se values).
+  # - This transformation helps visualize the data if there is a large range or skewness.
+  scale_x_log10() +
+  # vertical lines indicating the mean or median of each group
+  geom_vline(aes(xintercept = mean(observed_silvo_se)), color = "blue", linetype = "dashed") +
+  geom_vline(aes(xintercept = mean(imputed_silvo_se)), color = "red", linetype = "dashed") +
+  # `theme_minimal()`: Uses a minimal theme for a clean look.
+  theme_minimal() +
+  # `theme()`: Customizes the appearance of the plot.
+  theme(
+    legend.title = element_text(size = 10), # Sets the font size for the legend title
+    legend.position = "top" # Places the legend at the top of the plot
+  )
+```
+
+```{r}
+# Step 1: Initialize a list to store summaries of all imputations
+imputed_summaries <- list()
+
+# Loop through all 20 imputed datasets in the mids object
+for (i in 1:20) {
+  data <- mice::complete(imputed_mids_pmm, i) # Extract the i-th imputed dataset
+  
+  # Calculate summary statistics for each imputation
+  summary <- data %>%
+    summarise(
+      mean_silvo_se = mean(silvo_se, na.rm = TRUE),
+      sd_silvo_se = sd(silvo_se, na.rm = TRUE),
+      mean_control_se = mean(control_se, na.rm = TRUE),
+      sd_control_se = sd(control_se, na.rm = TRUE)
+    )
+  
+  # Store the summary in the list
+  imputed_summaries[[i]] <- summary
+}
+
+# Step 2: Combine summaries into a single data frame
+imputed_summaries_df <- bind_rows(imputed_summaries, .id = "imputation")
+
+# Step 3: Calculate the median values for both silvo_se and control_se
+median_silvo_se <- median(imputed_summaries_df$mean_silvo_se)
+median_control_se <- median(imputed_summaries_df$mean_control_se)
+
+# Add a column calculating the Euclidean distance from the median for both silvo_se and control_se
+imputed_summaries_df <- imputed_summaries_df %>%
+  mutate(
+    distance_from_median = sqrt(
+      (mean_silvo_se - median_silvo_se)^2 + (mean_control_se - median_control_se)^2
+    )
+  )
+
+# Step 4: Choose the imputation with the smallest distance
+chosen_imputation <- imputed_summaries_df %>%
+  slice(which.min(distance_from_median))
+
+# Print the chosen imputation
+cat("Chosen imputation based on combined proximity to medians of silvo_se and control_se:\n")
+print(chosen_imputation)
+
+# Step 5: Extract the complete dataset corresponding to the chosen imputation
+chosen_imputation_number <- as.integer(chosen_imputation$imputation)
+imputed_col_data <- mice::complete(imputed_mids_pmm, chosen_imputation_number)
+
+# Check the structure of the chosen imputation dataset
+cat("\nStructure of the chosen imputed dataset:\n")
+glimpse(imputed_col_data)
+
+# Step 6: Add the chosen imputation to the imputed_datasets list
+imputed_datasets$pmm_best <- imputed_col_data
+```
+
+
+
+
+```{r}
+# Update the original data with imputed values
+# Step 1: Join the imputed values back to the original dataset using identifiers
+imp_dataset <- database_clean_sd %>%
+  left_join(
+    completed_data %>%
+      select(id_article, id_obs, silvo_se, control_se),
+    by = c("id_article", "id_obs"),
+    suffix = c("_original", "_imputed")
+  )|> 
+  as.data.frame() |> 
+  select(-geometry)
+
+# Step 2: Replace missing values in the original columns with imputed values
+imp_dataset <- imp_dataset %>%
+  mutate(
+    silvo_se = ifelse(is.na(silvo_se_original), silvo_se_imputed, silvo_se_original),
+    control_se = ifelse(is.na(control_se_original), control_se_imputed, control_se_original)
+  ) %>%
+  select(-silvo_se_original, -silvo_se_imputed, -control_se_original, -control_se_imputed)
+
+imp_dataset
+```
+
+
+Visualising the distribution of imputed values for silvo_se and control_se together with the original data for the chosen imputation
+
+```{r}
+# Prepare the original data
+original_data_x <- database_clean_sd %>%
+  select(id_article, id_obs, response_variable, silvo_se, control_se) |> 
+  mutate(data_source = "Original") |> 
+  as.data.frame() 
+
+imputed_data_y <- imp_dataset |> 
+  select(id_article, id_obs, response_variable, silvo_se, control_se) |> 
+  mutate(data_source = "Imputed") 
+
+# Combine the original and imputed data
+combined_data <- bind_rows(original_data_x, imputed_data_y)
+
+combined_data
+```
+
+
+```{r}
+# Join the original and imputed data to directly compare
+comparison_data <- original_data_x %>%
+  full_join(imputed_data_y, by = c("id_article", "response_variable"), suffix = c("_original", "_imputed")) %>%
+  distinct()
+# Advarsel: Detected an unexpected many-to-many relationship between `x` and `y`
+
+# Identify rows where imputation occurred by checking if originally missing values are filled
+imputation_evaluation <- comparison_data %>%
+  filter(
+    (is.na(silvo_se_original) & !is.na(silvo_se_imputed)) |
+      (is.na(control_se_original) & !is.na(control_se_imputed))
+  ) %>%
+  select(id_article, response_variable) %>%
+  distinct()
+
+# Count the number of unique articles where imputation occurred
+n_imputed_studies <- imputation_evaluation %>%
+  distinct(id_article) %>%
+  nrow()
+
+# Output the results
+imputation_evaluation
+n_imputed_studies
+```
+```{r}
+imputation_summary <- comparison_data %>%
+  summarise(
+    total_missing = sum(is.na(silvo_se_original) & !is.na(silvo_se_imputed)),
+    total_imputed = sum(!is.na(silvo_se_imputed)),
+    proportion_imputed = total_missing / total_imputed
+  )
+
+imputation_summary
+```
+```{r}
+# Q-Q plot for silvo_se
+qqplot_silvo_se <- ggplot(combined_data, aes(sample = silvo_se)) +
+  stat_qq(aes(color = data_source)) +
+  stat_qq_line(aes(color = data_source)) +
+  ggtitle("Q-Q Plot of Original vs. Imputed silvo_se") +
+  theme_minimal()
+
+qqplot_silvo_se
+```
+
+
+```{r}
+# Create density plots for silvo_se with log transformation
+silvo_se_impute_original_plot <- combined_data |> 
+  ggplot(aes(x = silvo_se, color = data_source)) +
+  geom_density(alpha = 0.5) +
+  scale_x_log10() +
+  scale_y_log10() +
+  ggtitle("Density Distribution of silvo_se (Log-Transformed)") +
+  theme_minimal()
+
+# Create density plots for control_se with log transformation
+control_se_impute_original_plot <- combined_data |> 
+  ggplot(aes(x = control_se, color = data_source)) +
+  geom_density(alpha = 0.5) +
+  scale_x_log10() +
+  scale_y_log10() +
+  ggtitle("Density Distribution of control_se (Log-Transformed)") +
+  theme_minimal()
+
+library(patchwork)
+
+silvo_se_impute_original_plot + control_se_impute_original_plot
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+# Q-Q plot for silvo_se
+qqplot_silvo_se <- ggplot(combined_data, aes(sample = silvo_se)) +
+  stat_qq(aes(color = data_source)) +
+  stat_qq_line(aes(color = data_source)) +
+  ggtitle("Q-Q Plot of Original vs. Imputed silvo_se") +
+  theme_minimal()
+
+qqplot_silvo_se
+```
+
+
+```{r}
+# Create density plots for silvo_se with log transformation
+silvo_se_impute_original_plot <- combined_data |> 
+  ggplot(aes(x = silvo_se, color = data_source)) +
+  geom_density(alpha = 0.5) +
+  scale_x_log10() +
+  scale_y_log10() +
+  ggtitle("Density Distribution of silvo_se (Log-Transformed)") +
+  theme_minimal()
+
+# Create density plots for control_se with log transformation
+control_se_impute_original_plot <- combined_data |> 
+  ggplot(aes(x = control_se, color = data_source)) +
+  geom_density(alpha = 0.5) +
+  scale_x_log10() +
+  scale_y_log10() +
+  ggtitle("Density Distribution of control_se (Log-Transformed)") +
+  theme_minimal()
+
+library(patchwork)
+
+silvo_se_impute_original_plot + control_se_impute_original_plot
+```
+
+
+
+
+
+
+
+
+
+
+
+Comparing and evaluating the two meta-data sets (imputed vs. non-imputed)
+
+```{r}
+# Create a combined dataset for comparison
+comparison_data <- non_imp_data_rom %>%
+  select(id_article, id_obs, response_variable, yi_non_imp = yi, vi_non_imp = vi) %>%
+  left_join(imp_data_rom %>%
+              select(id_article, id_obs, yi_imp = yi, vi_imp = vi),
+            by = c("id_article", "id_obs"))
+
+# Scatter plot of effect sizes
+scatter_plot <- ggplot(comparison_data, aes(x = yi_non_imp, y = yi_imp)) +
+  geom_point(alpha = 0.6, color = "#0072B2") +
+  geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") +
+  labs(title = "Comparison of Effect Sizes (ROM): Imputed vs. Non-Imputed",
+       x = "Effect Size (Non-Imputed Data)", y = "Effect Size (Imputed Data)") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+
+scatter_plot
+```
+
+Paired t-test for Effect Sizes (yi)
+A paired t-test can help assess if there is a significant difference between the effect sizes of the imputed and non-imputed datasets.
+
+```{r}
+clean_data <- comparison_data %>%
+  filter(!is.na(yi_non_imp), !is.na(yi_imp), 
+         !is.infinite(yi_non_imp), !is.infinite(yi_imp)) %>%
+  mutate(diff = yi_imp - yi_non_imp)
+
+summary(clean_data$diff)
+```
+
+Bland-Altman Analysis
+A Bland-Altman plot can provide a graphical method to assess agreement between the two datasets by plotting the differences against the means.
+
+```{r}
+# Calculate the mean and difference of effect sizes
+comparison_data <- comparison_data %>%
+  mutate(
+    mean_yi = (yi_non_imp + yi_imp) / 2,
+    diff_yi = yi_imp - yi_non_imp
+  )
+
+# Create a Bland-Altman plot
+bland_altman_plot <- ggplot(comparison_data, aes(x = mean_yi, y = diff_yi)) +
+  geom_point(alpha = 0.6, color = "#0072B2") +
+  geom_hline(yintercept = 0, color = "red", linetype = "dashed") +
+  labs(title = "Bland-Altman Plot: Imputed vs. Non-Imputed Effect Sizes",
+       x = "Mean Effect Size", y = "Difference in Effect Size (Imputed - Non-Imputed)") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+
+print(bland_altman_plot)
+
+```
+
+Correlation Analysis
+Calculate the correlation between the effect sizes from the imputed and non-imputed datasets.
+```{r}
+# Calculate Pearson and Spearman correlations
+# Calculate Pearson and Spearman correlations
+pearson_corr <- cor(comparison_data$yi_non_imp, comparison_data$yi_imp, method = "pearson")
+spearman_corr <- cor(comparison_data$yi_non_imp, comparison_data$yi_imp, method = "spearman")
+
+# Print the correlation results
+cat("Pearson Correlation:", pearson_corr, "\n")
+cat("Spearman Correlation:", spearman_corr, "\n")
+
+```
+
+Pearson correlation measures the linear relationship between the two sets of effect sizes. A value close to 1 indicates strong linear agreement.
+Spearman correlation measures the rank correlation, providing a non-parametric measure of the relationship. This is useful if the data has outliers or is not normally distributed.
+
+
+Mean Absolute Difference (MAD) and Root Mean Square Error (RMSE)
+These metrics provide an indication of the overall difference between the two sets of effect sizes.
+
+```{r}
+# Calculate Mean Absolute Difference (MAD)
+mad <- mean(abs(comparison_data$yi_imp - comparison_data$yi_non_imp), na.rm = TRUE)
+
+# Calculate Root Mean Square Error (RMSE)
+rmse <- sqrt(mean((comparison_data$yi_imp - comparison_data$yi_non_imp)^2, na.rm = TRUE))
+
+# Print the results
+cat("Mean Absolute Difference (MAD):", mad, "\n")
+cat("Root Mean Square Error (RMSE):", rmse, "\n")
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+##########################################################################################################################################
+CREATING A VARIANCE-COVARIANCE MATRIX
+##########################################################################################################################################
+
+Creating a variance-covariance matrix is crucial in multivariate meta-analysis because it captures the dependencies among the effect sizes from different outcomes measured within the same study. Without accounting for these dependencies, the analysis could be biased and less efficient.
+
+Why a Variance-Covariance Matrix is Needed
+- Account for Within-Study Correlations: When multiple outcomes are reported within the same study, they are often correlated. Ignoring these correlations can lead to inaccurate estimates of the overall effect size and its variance.
+- Borrowing Strength: The variance-covariance matrix allows the analysis to borrow strength across different outcomes, leading to more precise estimates.
+- Improve Model Accuracy: Including the correct variance-covariance structure improves the accuracy of the random-effects model, leading to better inference.
+
+```{r}
+# Function to calculate the variance-covariance matrix for a given dataset
+calculate_v_matrix <- function(data, correlation = 0.5) {
+  cat("\nCalculating Variance-Covariance Matrix...\n")
+  
+  # Initialize an empty list to store the variance-covariance matrices for each study
+  v_list <- list()
+  
+  # Loop through each unique study ID
+  for (study in unique(data$id_article)) {
+    # Subset the data for the current study
+    study_data <- data[data$id_article == study, ]
+    
+    # Check if the study has more than one outcome
+    if (nrow(study_data) > 1) {
+      # Create a diagonal matrix of variances
+      v <- diag(study_data$vi)
+      
+      # Set the off-diagonal elements assuming a constant correlation
+      for (i in 1:nrow(v)) {
+        for (j in 1:nrow(v)) {
+          if (i != j) {
+            v[i, j] <- correlation * sqrt(v[i, i] * v[j, j])
+          }
+        }
+      }
+      
+      # Store the matrix in the list
+      v_list[[as.character(study)]] <- v
+    } else {
+      # For single outcome studies, use the variance directly
+      v_list[[as.character(study)]] <- matrix(study_data$vi, nrow = 1, ncol = 1)
+    }
+  }
+  
+  # Combine all matrices into a block-diagonal matrix
+  V_matrix <- bldiag(v_list)
+  cat("Variance-Covariance Matrix Calculation Complete.\n")
+  
+  return(V_matrix)
+}
+```
+
+
+
+##########################################################################################################################################
+MODEL FITTING
+##########################################################################################################################################
+
+Fitting the multivariate random-effects model on both moderator-imputed and non-moderator-imputed datasets
+
+Applying model fitting process on both datasets (non_imp_dataset and imp_dataset)
+
+```{r}
+##########################################################################
+# Set up the parallel processing plan
+plan(multisession, workers = parallel::detectCores() - 1)
+##################################################
+# Start time tracking
+start.time <- Sys.time()
+##################################################
+##################################################
+
+
+# Updated function to fit the multivariate random-effects model using V_matrix
+fit_meta_model <- function(data, dataset_name, V_matrix) {
+  cat("\nStarting model fitting for", dataset_name, "...\n")
+  
+  # Define the formula for moderators
+  moderators <- c("tree_type", "crop_type", "age_system", "season", "soil_texture", "no_tree_per_m", "tree_height", "alley_width")
+  moderator_formula <- as.formula(paste("yi ~", paste(moderators, collapse = " + ")))
+  
+  # Prepare the data
+  data <- data %>%
+    mutate(across(all_of(moderators), as.factor)) %>%
+    as.data.frame()
+  
+  # Fit the multivariate random-effects model
+  model <- tryCatch({
+    rma.mv(
+      yi = yi,                             # Fixed effect
+      V = V_matrix,
+      mods = moderator_formula,
+      random = list(                       # Random effects $ ssh -T git@github.com
+        ~ 1 | id_article,
+        ~ 1 | id_article/response_variable,
+        ~ 1 | exp_id
+      ),
+      data = data,
+      method = "ML",
+      control = list(
+        optimizer = "optim",
+        optim.method = "BFGS",
+        iter.max = 1000,
+        rel.tol = 1e-8
+      )
+    )
+  }, error = function(e) {
+    cat("Error in model fitting for", dataset_name, ":", e$message, "\n")
+    return(NULL)
+  })
+  
+  if (!is.null(model)) {
+    cat("Model fitting completed for", dataset_name, ".\n")
+    
+    # Extract model statistics
+    aic <- AIC(model)
+    bic <- BIC(model)
+    logLik_val <- logLik(model)
+    
+    # Calculate I² (heterogeneity)
+    tau2 <- sum(model$sigma2)
+    sigma2 <- mean(data$vi)
+    I2 <- (tau2 / (tau2 + sigma2)) * 100
+    
+    # Create a summary list
+    model_summary <- list(
+      model = model,
+      aic = aic,
+      bic = bic,
+      logLik = logLik_val,
+      I2 = I2
+    )
+    
+    return(model_summary)
+  } else {
+    return(NULL)
+  }
+}
+
+
+# List of datasets and names
+datasets <- list(
+  non_imp_dataset = non_imp_dataset,
+  imp_dataset = imp_dataset
+)
+
+# Calculate the variance-covariance matrix for each dataset
+V_matrices <- lapply(names(datasets), function(dataset_name) {
+  calculate_v_matrix(datasets[[dataset_name]], correlation = 0.5)
+})
+names(V_matrices) <- names(datasets)
+
+# Fit the model on all datasets using the calculated V_matrices
+model_results <- lapply(names(datasets), function(dataset_name) {
+  fit_meta_model(datasets[[dataset_name]], dataset_name, V_matrices[[dataset_name]])
+})
+names(model_results) <- names(datasets)
+
+# Function to extract and compile model statistics
+extract_model_summary <- function(model_summary, dataset_name) {
+  if (is.null(model_summary)) {
+    return(data.frame(
+      Dataset = dataset_name,
+      AIC = NA,
+      BIC = NA,
+      LogLikelihood = NA,
+      I2 = NA
+    ))
+  }
+  
+  data.frame(
+    Dataset = dataset_name,
+    AIC = model_summary$aic,
+    BIC = model_summary$bic,
+    LogLikelihood = model_summary$logLik,
+    I2 = model_summary$I2
+  )
+}
+
+# Compile the model summaries into a single data frame
+model_summaries <- bind_rows(
+  extract_model_summary(model_results$non_imp_dataset, "Non-Imputed Dataset"),
+  extract_model_summary(model_results$imp_dataset, "Imputed Dataset")
+)
+
+# Print the combined summary table
+model_summaries
+
+# Save the summary table
+# write.csv(model_summaries, file = "model_summaries.csv")
+
+
+##################################################
+# End time tracking
+end.time <- Sys.time()
+# Calculate time taken
+time.taken <- end.time - start.time
+time.taken
+##############################################################
+# Last go: (17/11-24)
+# Time difference of 3.211481 mins
+
+# str(model_results)
+```
+
+
+
+
+
+
+
+
+
+
+# Function to fit meta-analytic model for a specific subgroup
+fit_subgroup_model <- function(data, subgroup_name, V_matrix, moderators = NULL) {
+  cat("\nFitting model for subgroup:", subgroup_name, "...\n")
+  
+  # Define the moderator formula
+  moderator_formula <- if (!is.null(moderators)) {
+    as.formula(paste("yi ~", paste(moderators, collapse = " + ")))
+  } else {
+    as.formula("yi ~ 1")  # Intercept-only model if no moderators
+  }
+  
+  # Fit the model
+  model <- tryCatch({
+    rma.mv(
+      yi = yi,
+      V = V_matrix,
+      mods = moderator_formula,
+      random = list(~ 1 | id_article, ~ 1 | id_article/response_variable, ~ 1 | exp_id),
+      data = data,
+      method = "ML",
+      control = list(optimizer = "optim", optim.method = "BFGS", iter.max = 1000, rel.tol = 1e-8)
+    )
+  }, error = function(e) {
+    cat("Error fitting model for subgroup:", subgroup_name, ":", e$message, "\n")
+    return(NULL)
+  })
+  
+  if (!is.null(model)) {
+    cat("Model fitting completed for subgroup:", subgroup_name, ".\n")
+    # Extract statistics
+    return(list(
+      subgroup = subgroup_name,
+      aic = AIC(model),
+      bic = BIC(model),
+      logLik = logLik(model),
+      tau2 = sum(model$sigma2),  # Variance components
+      model = model
+    ))
+  } else {
+    return(NULL)
+  }
+}
+
+# Function to run subgroup analyses
+run_subgroup_analysis <- function(data, V_matrix, split_var, moderators = NULL) {
+  # Split data into subgroups
+  subgroups <- split(data, data[[split_var]])
+  
+  # Fit a model for each subgroup
+  results <- map(names(subgroups), ~ {
+    fit_subgroup_model(subgroups[[.x]], .x, V_matrix, moderators)
+  })
+  
+  # Compile results
+  results <- results[!sapply(results, is.null)]  # Remove failed models
+  summary_df <- bind_rows(lapply(results, function(res) {
+    data.frame(
+      Subgroup = res$subgroup,
+      AIC = res$aic,
+      BIC = res$bic,
+      LogLikelihood = as.numeric(res$logLik),
+      Tau2 = res$tau2
+    )
+  }))
+  
+  list(results = results, summary = summary_df)
+}
+
+# Define dataset and variables
+meta_dataset <- imp_data_rom  # Example dataset
+response_variable <- "response_variable"  # Column to split by
+moderators <- c("tree_type", "crop_type", "age_system", "season", "soil_texture")  # Example moderators
+
+# Generate the variance-covariance matrix (replace with your function)
+V_matrix <- calculate_v_matrix(meta_dataset, correlation = 0.5)
+
+# Run subgroup analysis
+subgroup_analysis_results <- run_subgroup_analysis(meta_dataset, V_matrix, response_variable, moderators)
+
+# Display subgroup summary
+print(subgroup_analysis_results$summary)
+
+# Save results for each subgroup
+output_dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
+if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
+
+lapply(subgroup_analysis_results$results, function(res) {
+  if (!is.null(res)) {
+    saveRDS(res$model, file = file.path(output_dir, paste0("subgroup_", res$subgroup, "_model.rds")))
+  }
+})
+
+
+```{r}
+# Ensure 'yi', 'vi', and 'response_variable' columns exist in your dataset
+data <- imp_data_rom
+
+# Subgroup levels (e.g., unique response variables)
+subgroups <- unique(data$response_variable)
+
+# Fit Overall Random-Effects Model
+overall_model <- rma(yi, vi, data = data)
+
+# Helper function for Q-test, I², and τ² information
+mlabfun <- function(text, x) {
+  list(bquote(paste(
+    .(text), " (Q = ", .(formatC(x$QE, digits = 2, format = "f")),
+    ", df = ", .(x$k - x$p), ", ", .(format.pval(x$QEp, digits = 2)), "; ",
+    I^2, " = ", .(formatC(x$I2, digits = 1, format = "f")), "%, ",
+    tau^2, " = ", .(formatC(x$tau2, digits = 2, format = "f")), ")"
+  )))
+}
+
+# Prepare the supplementary information
+ilab_data <- cbind(
+  "Response Variable" = data$response_variable,
+  "Metric" = data$measured_metrics,
+  "Silvo N" = data$silvo_n,
+  "Control N" = data$control_n
+)
+
+# Forest plot with `ilab`
+forest(
+  overall_model,
+  xlim = c(-4, 2),
+  at = log(c(0.1, 0.5, 1, 2)), 
+  atransf = exp,
+  ilab = ilab_data,  # Add the supplementary data
+  ilab.xpos = c(-6, -4, -2, -1),  # Adjust column positions
+  cex = 0.8,
+  ylim = c(-2, 5 + length(data$yi)), 
+  top = 2,
+  mlab = mlabfun("Random-Effects Model for All Data", overall_model),
+  header = c("Subgroup and Study", "Effect Size [95% CI]")
+)
+
+# Add labels for ilab columns
+text(c(-6, -4, -2, -1), max(data$yi) + 2, 
+     c("Response Variable", "Metric", "Silvo N", "Control N"), pos = 4, font = 2)
+
+
+
+# Subgroup Row Positions
+row_positions <- cumsum(sapply(subgroups, function(sg) sum(data$response_variable == sg)))
+row_positions <- c(1, row_positions + 1)  # Adjust for spacing
+
+# Add Subgroup Models and Summary Polygons
+for (i in seq_along(subgroups)) {
+  subgroup <- subgroups[i]
+  
+  # Fit random-effects model for the subgroup
+  subgroup_model <- rma(
+    yi, vi, data = data, subset = (response_variable == subgroup)
+  )
+  
+  # Add summary polygon for the subgroup
+  addpoly(
+    subgroup_model, row = row_positions[i], 
+    mlab = mlabfun(paste("Random-Effects Model for", subgroup), subgroup_model)
+  )
+  
+  # Add text for subgroup
+  text(-4, row_positions[i] + 1, pos = 4, subgroup, font = 4)
+}
+
+# Test for Subgroup Differences (Meta-Regression Model)
+subgroup_test <- rma(yi, vi, mods = ~ response_variable, data = data)
+
+# Add Test for Subgroup Differences
+text(-4, -1.5, pos = 4, cex = 0.75, bquote(paste(
+  "Test for Subgroup Differences: ",
+  Q[M], " = ", .(formatC(subgroup_test$QM, digits = 2, format = "f")),
+  ", df = ", .(subgroup_test$p - 1), ", ", .(format.pval(subgroup_test$QMp, digits = 2))
+)))
+
+```
+
+```{r}
+# Ensure 'yi', 'vi', and 'response_variable' columns exist in your dataset
+data <- imp_data_rom
+
+# Select only specific subgroups
+selected_subgroups <- c("Biodiversity", "Crop yield", "Soil quality")
+filtered_data <- data %>% filter(response_variable %in% selected_subgroups)
+
+# Subgroup levels (filtered)
+subgroups <- unique(filtered_data$response_variable)
+
+# Fit Overall Random-Effects Model for the filtered dataset
+overall_model <- rma(yi, vi, data = filtered_data)
+
+# Helper function for Q-test, I², and τ² information
+mlabfun <- function(text, x) {
+  list(bquote(paste(
+    .(text), " (Q = ", .(formatC(x$QE, digits = 2, format = "f")),
+    ", df = ", .(x$k - x$p), ", ", .(format.pval(x$QEp, digits = 2)), "; ",
+    I^2, " = ", .(formatC(x$I2, digits = 1, format = "f")), "%, ",
+    tau^2, " = ", .(formatC(x$tau2, digits = 2, format = "f")), ")"
+  )))
+}
+
+# Prepare supplementary data for ilab
+ilab_data <- cbind(
+  "Silvo N" = filtered_data$silvo_n,
+  "Control N" = filtered_data$control_n
+)
+
+# Forest Plot for the Filtered Data
+forest(
+  overall_model,
+  xlim = c(-4, 2),
+  at = log(c(0.1, 0.5, 1, 2)), 
+  atransf = exp,
+  ilab = ilab_data,  # Add the supplementary data
+  ilab.xpos = c(-2, -1),  # Adjust column positions for supplementary info
+  cex = 0.8,
+  ylim = c(-2, 3 + length(subgroups) * 2),  # Adjust ylim for fewer elements
+  top = 2,
+  mlab = mlabfun("Random-Effects Model for Selected Subgroups", overall_model),
+  header = c("Subgroup and Study", "Effect Size [95% CI]")
+)
+
+# Add labels for ilab columns
+text(c(-2, -1), max(filtered_data$yi) + 2, 
+     c("Silvo N", "Control N"), pos = 4, font = 2)
+
+# Row positions for subgroup summary polygons
+row_positions <- seq(1, by = 2, length.out = length(subgroups))
+
+# Add Subgroup Summary Polygons
+for (i in seq_along(subgroups)) {
+  subgroup <- subgroups[i]
+  
+  # Fit random-effects model for each subgroup
+  subgroup_model <- rma(
+    yi, vi, data = filtered_data, subset = (response_variable == subgroup)
+  )
+  
+  # Add summary polygon for the subgroup
+  addpoly(
+    subgroup_model, row = row_positions[i], 
+    mlab = mlabfun(paste("Random-Effects Model for", subgroup), subgroup_model)
+  )
+  
+  # Add subgroup label
+  text(-4, row_positions[i] + 1, pos = 4, subgroup, font = 4)
+}
+
+# Test for Subgroup Differences (Meta-Regression Model)
+subgroup_test <- rma(yi, vi, mods = ~ response_variable, data = filtered_data)
+
+# Add Test for Subgroup Differences
+text(-4, -1.5, pos = 4, cex = 0.75, bquote(paste(
+  "Test for Subgroup Differences: ",
+  Q[M], " = ", .(formatC(subgroup_test$QM, digits = 2, format = "f")),
+  ", df = ", .(subgroup_test$p - 1), ", ", .(format.pval(subgroup_test$QMp, digits = 2))
+)))
+
+```
+```{r}
+# Filter the dataset to include only selected subgroups
+selected_subgroups <- c("Biodiversity", "Crop yield", "Soil quality", "Greenhouse gas emission")
+filtered_data <- imp_data_rom %>% filter(response_variable %in% selected_subgroups)
+
+# Unique subgroup levels
+subgroups <- unique(filtered_data$response_variable)
+
+# Fit the overall random-effects model
+overall_model <- rma(yi, vi, data = filtered_data)
+
+# Helper function for Q-test, I², and τ²
+mlabfun <- function(text, x) {
+  list(bquote(paste(
+    .(text), " (Q = ", .(formatC(x$QE, digits = 2, format = "f")),
+    ", df = ", .(x$k - x$p), ", ", .(format.pval(x$QEp, digits = 2)), "; ",
+    I^2, " = ", .(formatC(x$I2, digits = 1, format = "f")), "%, ",
+    tau^2, " = ", .(formatC(x$tau2, digits = 2, format = "f")), ")"
+  )))
+}
+
+# Prepare supplementary data for the ilab columns
+ilab_data <- cbind(
+  "Silvo N" = filtered_data$silvo_n,
+  "Control N" = filtered_data$control_n
+)
+
+# Set plot limits based on data
+plot_rows <- length(filtered_data$yi) + length(subgroups) * 2  # Add space for subgroups
+
+# Create the forest plot
+forest(
+  overall_model,
+  xlim = c(-4, 2),                           # Horizontal axis limits
+  at = log(c(0.1, 0.5, 1, 2)),               # Tick marks for log scale
+  atransf = exp,                             # Back-transform log values
+  ilab = ilab_data,                          # Add supplementary info
+  ilab.xpos = c(-2, -1),                     # Position of ilab columns
+  ylim = c(-2, plot_rows),                   # Vertical axis limits
+  cex = 0.8,                                 # Font size for main plot
+  top = 2,                                   # Extra space at the top
+  mlab = mlabfun("Random-Effects Model for Selected Subgroups", overall_model),
+  header = c("Subgroup and Study", "Effect Size [95% CI]")
+)
+
+# Add labels for ilab columns
+text(c(-2, -1), plot_rows - 1, c("Silvo N", "Control N"), pos = 4, font = 2)
+
+# Adjust row positions for subgroup summaries
+row_positions <- seq(1, by = 3, length.out = length(subgroups))
+
+# Add subgroup summaries and labels
+for (i in seq_along(subgroups)) {
+  subgroup <- subgroups[i]
+  
+  # Fit random-effects model for the subgroup
+  subgroup_model <- rma(yi, vi, data = filtered_data, subset = (response_variable == subgroup))
+  
+  # Add summary polygon for the subgroup
+  addpoly(
+    subgroup_model,
+    row = row_positions[i], 
+    mlab = mlabfun(paste("Random-Effects Model for", subgroup), subgroup_model),
+    cex = 0.8
+  )
+  
+  # Add subgroup label
+  text(-4, row_positions[i] + 1, pos = 4, subgroup, font = 4, cex = 0.9)
+}
+
+# Add test for subgroup differences
+subgroup_test <- rma(yi, vi, mods = ~ response_variable, data = filtered_data)
+text(-4, -1.5, pos = 4, cex = 0.8, bquote(paste(
+  "Test for Subgroup Differences: ",
+  Q[M], " = ", .(formatC(subgroup_test$QM, digits = 2, format = "f")),
+  ", df = ", .(subgroup_test$p - 1), ", ", .(format.pval(subgroup_test$QMp, digits = 2))
+)))
+
+```
+
+```{r}
+# Filter data to include only subgroups with sufficient studies
+min_studies <- 10
+subgroup_counts <- table(imp_data_rom$response_variable)
+selected_subgroups <- names(subgroup_counts[subgroup_counts >= min_studies])
+filtered_data <- imp_data_rom %>%
+  filter(response_variable %in% selected_subgroups)
+
+# Fit random-effects models for each subgroup and calculate summary statistics
+subgroup_results <- filtered_data %>%
+  group_by(response_variable) %>%
+  summarise(
+    model = list(rma(yi, vi, data = pick(everything()))),  # Use `pick()` instead of `cur_data()`
+    .groups = "drop"
+  ) %>%
+  mutate(
+    estimate = map_dbl(model, ~ coef(.x)["intrcpt"]),
+    lower_ci = map_dbl(model, ~ confint(.x)$random[1, 1]),
+    upper_ci = map_dbl(model, ~ confint(.x)$random[1, 2]),
+    I2 = map_dbl(model, ~ .x$I2)
+  )
+
+# Add summary data back to the main dataset for plotting
+filtered_data <- filtered_data %>%
+  left_join(subgroup_results, by = "response_variable")
+
+# Generate the forest plot using ggplot2
+forest_plot <- ggplot() +
+  # Add forest plot points and confidence intervals
+  geom_pointrange(
+    data = subgroup_results,
+    aes(
+      x = estimate, ymin = lower_ci, ymax = upper_ci,
+      y = response_variable, color = response_variable
+    ),
+    size = 0.8
+  ) +
+  # Add ridge density plot for effect sizes
+  geom_density_ridges(
+    data = filtered_data,
+    aes(x = yi, y = response_variable, fill = response_variable),
+    alpha = 0.5, scale = 1.5, rel_min_height = 0.01
+  ) +
+  # Add vertical reference line at x = 1
+  geom_vline(xintercept = 0, linetype = "dashed", color = "gray50") +
+  # Custom colors for subgroups
+  scale_color_viridis_d(option = "D", name = "Subgroups") +
+  scale_fill_viridis_d(option = "D", guide = "none") +
+  # Customize labels and theme
+  labs(
+    title = "Forest Plot with Subgroups and Ridge Density",
+    x = "Effect Size (Log Scale)", y = "Subgroups",
+    caption = "Random-effects models fitted for each subgroup"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "none",
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.text.y = element_text(size = 10),
+    axis.text.x = element_text(size = 10)
+  )
+
+# Show the Forest Plot
+forest_plot
+
+```
+
+
+```{r}
+# Ensure 'yi', 'vi', and 'response_variable' columns exist in your dataset
+data <- non_imp_data_dummy
+
+# Filter subgroups with sufficient data points (e.g., at least 10 studies)
+min_studies <- 10
+subgroup_counts <- table(data$response_variable)
+selected_subgroups <- names(subgroup_counts[subgroup_counts >= min_studies])
+filtered_data <- data %>% filter(response_variable %in% selected_subgroups)
+
+# Initialize a list to store subgroup summaries
+subgroup_summaries <- list()
+
+# Fit random-effects model for each subgroup
+for (subgroup in selected_subgroups) {
+  model <- tryCatch(
+    rma(yi, vi, data = filtered_data, subset = (response_variable == subgroup)), 
+    error = function(e) NULL
+  )
+  
+  if (!is.null(model)) {
+    summary <- list(
+      response_variable = subgroup,
+      mean_effect = coef(model)["intrcpt"],
+      conf_low = confint(model)$random["ci.lb"],
+      conf_high = confint(model)$random["ci.ub"],
+      I2 = model$I2,
+      tau2 = model$tau2,
+      n_studies = model$k
+    )
+  } else {
+    summary <- list(
+      response_variable = subgroup,
+      mean_effect = NA,
+      conf_low = NA,
+      conf_high = NA,
+      I2 = NA,
+      tau2 = NA,
+      n_studies = NA
+    )
+  }
+  
+  subgroup_summaries[[subgroup]] <- summary
+}
+
+# Combine summaries into a dataframe
+summary_df <- do.call(rbind, lapply(subgroup_summaries, as.data.frame))
+
+# Inspect the summary dataframe
+print(summary_df)
+
+# Plot the overall effect sizes for each subgroup
+forest_plot <- ggplot(summary_df, aes(x = mean_effect, y = response_variable)) +
+  geom_point(size = 4, color = "blue") +
+  geom_errorbarh(aes(xmin = conf_low, xmax = conf_high), height = 0.2, color = "blue") +
+  labs(
+    title = "Subgroup Overall Effects",
+    x = "Mean Effect Size (Log Scale)",
+    y = "Subgroups"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    axis.text.y = element_text(size = 12),
+    axis.text.x = element_text(size = 12)
+  )
+
+# Display the plot
+print(forest_plot)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+########################################################################################################################################################################################################################################################
+########################################################################################################################################################################################################################################################
+####################################################################################################################################################################################################################################################################################################################################################################################
+MODEL FITTING FROM SCRATCH
+
+
+Points to address after the Tshering meeting with her supervisor (26/11-2024)
+
+
+########################################################################################################################################################################################################################################################
+########################################################################################################################################################################################################################################################
+########################################################################################################################################################################################################################################################
+
+
+### Workflow Modifications and Notes Post-Meeting (26/11/2024)
+
+#### Subgroup Analysis vs. Meta-Regression
+**Key Decisions and Rationale:**
+  - **Subgroup Analysis**: 
+  - Keep separate subgroup analyses for each `response_variable` (e.g., biodiversity, crop yield) to respect conceptual differences.
+- Allows us to focus on unique trends and moderators relevant to each outcome.
+- Plan to include subgroup-specific moderators like `tree_type` and `crop_type` to explore targeted relationships.
+- Acknowledge the limitations: potential for reduced power in smaller subgroups and the need to adjust for multiple comparisons (e.g., Bonferroni).
+
+- **Meta-Regression**:
+  - Use meta-regression as a complementary step, not a replacement, to capture cross-cutting trends.
+- Include `response_variable` as a moderator to leverage the entire dataset, preserving power.
+- Test interaction terms (e.g., `tree_type * response_variable`) to detect shared vs. outcome-specific patterns.
+- Be mindful of complexity—flag variables or interactions that might make interpretation unwieldy.
+
+#### Immediate Adjustments:
+1. **Subgroup Models**:
+  - Ensure models are well-documented to highlight their scope (e.g., biodiversity-specific vs. crop-yield-specific).
+- Add notes to ensure consistent handling of moderators within subgroups (e.g., same scaling, inclusion criteria).
+- Compare subgroup heterogeneity indices (`Q`, `I²`, `τ²`) to identify differences in variability across outcomes.
+
+2. **Meta-Regression**:
+  - Begin with a simpler meta-regression using `response_variable` as the sole moderator.
+- Gradually add key moderators (e.g., `tree_type`, `crop_type`) and their interactions with `response_variable`.
+- Consider whether subgroup findings are confirmed or contradicted by meta-regression results.
+- Prepare visualizations that overlay subgroup-specific results with meta-regression trends.
+
+3. **Heterogeneity Focus**:
+  - Compare heterogeneity indices (I², τ²) between original and imputed datasets.
+- Report changes in heterogeneity metrics after imputation to understand its influence on variability.
+
+4. **Visualizations**:
+  - Update forest plots to simplify presentation, particularly for subgroup models (e.g., one plot per response variable).
+- Add funnel plots for individual response variable models and meta-regression.
+- Use ggplot for standardized aesthetics, log scales (if needed), and cleaner annotations.
+
+#### To-Do List for Next Steps:
+- [ ] Refactor subgroup analysis workflow to make models more modular and reusable across response variables.
+- [ ] Draft comparison table of heterogeneity indices across subgroups and the meta-regression.
+- [ ] Pilot a meta-regression with key moderators and test its alignment with subgroup findings.
+- [ ] Investigate trends in imputed vs. original data heterogeneity metrics.
+- [ ] Review final visualizations with the team for clarity and presentation impact.
+
+**Key Takeaway**: This combined workflow maximizes insights by leveraging the strengths of both subgroup analyses and meta-regression while mitigating their respective limitations.
+
+
+
+```{r}
+
+meta_data <- non_imp_dataset
+
+base_model <- rma.mv(
+  yi = yi, V = vi,
+  random = ~ 1 | id_article/response_variable/exp_id, 
+  data = meta_data,
+  method = "REML",
+  tdist = TRUE
+)
+summary(base_model)
+```
+
+```{r}
+subgroups <- split(meta_data, meta_data$response_variable)
+
+
+subgroup_models <- lapply(names(subgroups), function(subgroup) {
+  subgroup_data <- subgroups[[subgroup]]
+  tryCatch(
+    rma.mv(
+      yi = yi, V = vi,
+      random = ~ 1 | id_article/exp_id,
+      data = subgroup_data,
+      method = "REML"
+    ),
+    error = function(e) {
+      cat("Error for subgroup:", subgroup, "\n", e$message, "\n")
+      return(NULL)
+    }
+  )
+})
+
+subgroups
+```
+
+```{r}
+sapply(subgroup_models, function(model) {
+  if (!is.null(model)) {
+    list(
+      Q = model$QE, 
+      I2 = model$I2, 
+      tau2 = model$sigma2
+    )
+  }
+})
+```
+
+```{r}
+lapply(subgroup_models, function(model) {
+  if (!is.null(model)) forest(model, header = TRUE)
+})
+```
+```{r}
+funnel(base_model)
+```
+
+```{r}
+leave_one_out <- function(data, model) {
+  lapply(unique(data$id_article), function(article) {
+    data_subset <- data[data$id_article != article, ]
+    rma.mv(
+      yi = yi, V = V_lnR_imputed,
+      random = ~ 1 | id_article/exp_id,
+      data = data_subset,
+      method = "REML"
+    )
+  })
+}
+sensitivity_results <- leave_one_out(meta_data, base_model)
+
+```
+
+```{r}
+# Summarize the data by response variable
+summary_data <- meta_data %>%
+  group_by(response_variable) %>%
+  summarise(
+    mean_yi = mean(yi, na.rm = TRUE),              # Mean effect size
+    lower_ci = mean_yi - 1.96 * sqrt(mean(vi, na.rm = TRUE)), # Lower CI
+    upper_ci = mean_yi + 1.96 * sqrt(mean(vi, na.rm = TRUE)), # Upper CI
+    n = n()                                        # Number of studies
+  ) %>%
+  ungroup()
+
+
+# Define custom color palette for response variables
+custom_colors <- c(
+  "Biodiversity" = "#FF9999",
+  "Greenhouse gas emission" = "#66C266",
+  "Product quality" = "#FFC000",
+  "Crop yield" = "#FF9933",
+  "Pest and Disease" = "#33CCCC",
+  "Soil quality" = "#9966CC",
+  "Water quality" = "#9999FF"
+)
+
+# Create the forest plot
+# Updated forest plot with log scale and vertical line
+forest_plot <- ggplot(summary_data, aes(x = mean_yi, y = response_variable)) +
+  geom_point(aes(color = response_variable), size = 3) +  # Effect size points
+  geom_errorbarh(aes(xmin = lower_ci, xmax = upper_ci), height = 0.2) +  # Confidence intervals
+  geom_vline(xintercept = 0, linetype = "dotted", color = "red", size = 1) +  # Red dotted vertical line
+  scale_x_continuous(
+    name = "Effect Size (Log Response Ratio ± 95% CI)",
+    breaks = c(-2, -1.5, -1, -0.5, 0, 0.5, 1, 1.5, 2)# Customize x-axis breaks
+  ) +
+  scale_color_manual(values = custom_colors) +  # Use custom color palette
+  theme_minimal(base_size = 14) +
+  theme(
+    legend.position = "none",  # Remove legend
+    axis.text.y = element_text(size = 12, hjust = 1),  # Adjust y-axis text
+    axis.title.x = element_text(size = 14),  # Larger font for x-axis title
+    axis.title.y = element_text(size = 14)   # Larger font for y-axis title
+  ) +
+  labs(
+    y = "Response Variable",
+    title = "Summarized Forest Plot by Response Variable (Log Scale)"
+  )
+
+
+
+# Display the plot
+forest_plot
+```
+
+
+
+
+
+#############
+# STEP 1
+##########################################################################################################################################
+CREATING A VARIANCE-COVARIANCE MATRIX
+##########################################################################################################################################
+
+Creating a variance-covariance matrix is crucial in multivariate meta-analysis because it captures the dependencies among the effect sizes from different outcomes measured within the same study. Without accounting for these dependencies, the analysis could be biased and less efficient.
+
+Why a Variance-Covariance Matrix is Needed
+- Account for Within-Study Correlations: When multiple outcomes are reported within the same study, they are often correlated. Ignoring these correlations can lead to inaccurate estimates of the overall effect size and its variance.
+- Borrowing Strength: The variance-covariance matrix allows the analysis to borrow strength across different outcomes, leading to more precise estimates.
+- Improve Model Accuracy: Including the correct variance-covariance structure improves the accuracy of the random-effects model, leading to better inference.
+
+```{r}
+# Function to calculate the variance-covariance matrix for a given dataset
+calculate_v_matrix <- function(data, correlation = 0.5) {
+  cat("\nCalculating Variance-Covariance Matrix...\n")
+  
+  # Initialize an empty list to store the variance-covariance matrices for each study
+  v_list <- list()
+  
+  # Loop through each unique study ID
+  for (study in unique(data$id_article)) {
+    # Subset the data for the current study
+    study_data <- data[data$id_article == study, ]
+    
+    # Check if the study has more than one outcome
+    if (nrow(study_data) > 1) {
+      # Create a diagonal matrix of variances
+      v <- diag(study_data$vi)
+      
+      # Set the off-diagonal elements assuming a constant correlation
+      for (i in 1:nrow(v)) {
+        for (j in 1:nrow(v)) {
+          if (i != j) {
+            v[i, j] <- correlation * sqrt(v[i, i] * v[j, j])
+          }
+        }
+      }
+      
+      # Store the matrix in the list
+      v_list[[as.character(study)]] <- v
+    } else {
+      # For single outcome studies, use the variance directly
+      v_list[[as.character(study)]] <- matrix(study_data$vi, nrow = 1, ncol = 1)
+    }
+  }
+  
+  # Combine all matrices into a block-diagonal matrix
+  v_matrix <- bldiag(v_list)
+  cat("Variance-Covariance Matrix Calculation Complete.\n")
+  
+  return(v_matrix)
+}
+```
+
+
+
+
+
+
+
+#############
+# STEP 2
+##########################################################################################################################################
+SUBGROUP META-ANALYSIS, MULTIVARIATE/MULTILEVEL LINEAR (MIXED-EFFECTS) MODELLING 
+##########################################################################################################################################
+
+```{r}
+##########################################################################
+# Set up the parallel processing plan
+plan(multisession, workers = parallel::detectCores() - 1)
+##################################################
+# Start time tracking
+start.time <- Sys.time()
+##################################################
+##################################################
+
+# Function to fit a meta-analytic model for a given subgroup
+# This function takes a subset of the data, a subgroup name, the variance-covariance matrix (v_matrix),
+# and optional moderators to fit a random-effects meta-analytic model.
+fit_subgroup_model <- function(data, subgroup_name, v_matrix, moderators = NULL) {
+  cat("\nFitting model for subgroup:", subgroup_name, "...\n")
+  
+  # Create a formula for the model. If moderators are provided, they are included in the model.
+  # Otherwise, it defaults to an intercept-only model.
+  moderator_formula <- if (!is.null(moderators)) {
+    as.formula(paste("yi ~", paste(moderators, collapse = " + ")))
+  } else {
+    as.formula("yi ~ 1")  # Intercept-only model
+  }
+  
+  # Try fitting the meta-analytic model, handling errors gracefully.
+  model <- tryCatch({
+    rma.mv(
+      yi = yi,                               # Dependent variable (effect sizes)
+      V = v_matrix,                          # Variance-covariance matrix
+      mods = moderator_formula,              # Moderators (if any)
+      random = list(                         # Random effects structure
+        ~ 1 | id_article,                    # Random intercept for articles
+        ~ 1 | id_article/response_variable,  # Nested random effect for response variables
+        ~ 1 | exp_id                         # Random intercept for experiments
+      ),
+      data = data,                           # Data subset for this subgroup
+      method = "ML",                         # Maximum Likelihood estimation
+      control = list(                        # Optimization settings
+        optimizer = "optim",
+        optim.method = "BFGS",               # Optimization algorithm
+        iter.max = 1000,                     # Maximum number of iterations
+        rel.tol = 1e-8                       # Convergence tolerance
+      )
+    )
+  }, error = function(e) {              # Error handling
+    cat("Error fitting model for subgroup:", subgroup_name, ":", e$message, "\n")
+    return(NULL)                        # Return NULL if the model fitting fails
+  })
+  
+  # If the model is successfully fitted, extract key statistics and return them.
+  if (!is.null(model)) {
+    cat("Model fitting completed for subgroup:", subgroup_name, ".\n")
+    return(list(
+      subgroup = subgroup_name,         # Name of the subgroup
+      aic = AIC(model),                 # Akaike Information Criterion (model fit)
+      bic = BIC(model),                 # Bayesian Information Criterion (model fit)
+      logLik = logLik(model),           # Log-likelihood value
+      tau2 = sum(model$sigma2),         # Total variance components
+      model = model                     # The fitted model object
+    ))
+  } else {
+    return(NULL)                        # Return NULL if model fitting fails
+  }
+}
+
+# Function to perform subgroup analysis across different levels of a specified variable
+# This function splits the data into subgroups, fits meta-analytic models for each subgroup,
+# and compiles the results into a summary table.
+run_subgroup_analysis <- function(data, v_matrix, split_var, moderators = NULL) {
+  # Split the data into subsets based on the levels of the specified variable (split_var).
+  subgroups <- split(data, data[[split_var]])
+  
+  # Fit a meta-analytic model for each subgroup using map.
+  results <- map(names(subgroups), ~ {
+    # Extract the data for the current subgroup
+    subgroup_data <- subgroups[[.x]]
+    
+    # Subset the variance-covariance matrix to match the rows of the current subgroup
+    subgroup_indices <- which(data[[split_var]] == .x)
+    v_matrix_subgroup <- v_matrix[subgroup_indices, subgroup_indices, drop = FALSE]
+    
+    # Fit the model for the current subgroup
+    fit_subgroup_model(subgroup_data, .x, v_matrix_subgroup, moderators)
+  })
+  
+  # Remove any NULL results (models that failed to fit).
+  results <- results[!sapply(results, is.null)]
+  
+  # Compile the results into a summary data frame with key statistics for each subgroup.
+  summary_df <- bind_rows(lapply(results, function(res) {
+    data.frame(
+      Subgroup = res$subgroup,          # Subgroup name
+      AIC = res$aic,                    # Akaike Information Criterion
+      BIC = res$bic,                    # Bayesian Information Criterion
+      LogLikelihood = as.numeric(res$logLik),  # Log-likelihood
+      Tau2 = res$tau2                   # Total variance components
+    )
+  }))
+  
+  # Return both the detailed results and the summary table.
+  list(results = results, summary = summary_df)
+}
+
+
+# Define the dataset to use for meta-analysis
+meta_dataset <- imp_data_rom  # Imputed dataset (replace with your actual dataset)
+
+# Variable to split the data into subgroups
+response_variable <- "response_variable"  # Column to split the data on (e.g., response type)
+
+# Moderators to include in the model (optional)
+moderators <- c("tree_type", "crop_type", "age_system", "season", "soil_texture")
+
+# Calculate the variance-covariance matrix (replace with your actual function)
+v_matrix <- calculate_v_matrix(meta_dataset, correlation = 0.5)
+
+# Run the subgroup analysis
+subgroup_analysis_results <- run_subgroup_analysis(meta_dataset, v_matrix, response_variable, moderators)
+
+# Print the summary of subgroup results
+print(subgroup_analysis_results$summary)
+
+# Define output directory for saving results
+output_dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
+if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
+
+# Save fitted models for each subgroup
+lapply(subgroup_analysis_results$results, function(res) {
+  if (!is.null(res)) {
+    saveRDS(res$model, file = file.path(output_dir, paste0("subgroup_", res$subgroup, "_model.rds")))
+  }
+})
+
+# Save the summary table
+write.csv(subgroup_analysis_results$summary, file = file.path(output_dir, "subgroup_analysis_summary.csv"))
+
+
+##################################################
+# End time tracking
+end.time <- Sys.time()
+# Calculate time taken
+time.taken <- end.time - start.time
+time.taken
+##############################################################
+# Last go: (17/11-24)
+# Time difference of 3.211481 mins
+
+# str(model_results)
+```
+
+```{r}
+# Run the subgroup analysis with the corrected V_matrix handling
+subgroup_analysis_results <- run_subgroup_analysis(meta_dataset, v_matrix, response_variable, moderators)
+
+# Print the summary of subgroup results
+print(subgroup_analysis_results$summary)
+
+# Save the summary table
+write.csv(subgroup_analysis_results$summary, file = file.path(output_dir, "subgroup_analysis_summary.csv"))
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+# Ensure 'yi', 'vi', and 'response_variable' columns exist in your dataset
+data <- non_imp_data_dummy
+
+# Filter subgroups with sufficient data points (e.g., at least 10 studies)
+min_studies <- 10
+subgroup_counts <- table(data$response_variable)
+selected_subgroups <- names(subgroup_counts[subgroup_counts >= min_studies])
+filtered_data <- data %>% filter(response_variable %in% selected_subgroups)
+
+# Subgroup levels (filtered)
+subgroups <- unique(filtered_data$response_variable)
+
+# Fit Overall Random-Effects Model
+overall_model <- rma(yi, vi, data = filtered_data)
+
+# Helper function for Q-test, I², and τ² information
+mlabfun <- function(text, x) {
+  list(bquote(paste(
+    .(text), " (Q = ", .(formatC(x$QE, digits = 2, format = "f")),
+    ", df = ", .(x$k - x$p), ", ", .(format.pval(x$QEp, digits = 2)), "; ",
+    I^2, " = ", .(formatC(x$I2, digits = 1, format = "f")), "%, ",
+    tau^2, " = ", .(formatC(x$tau2, digits = 2, format = "f")), ")"
+  )))
+}
+
+# Prepare supplementary data for ilab
+ilab_data <- cbind(
+  "Silvo N" = filtered_data$silvo_n,
+  "Control N" = filtered_data$control_n
+)
+
+# Forest Plot for the Overall Model
+forest(
+  overall_model,
+  xlim = c(-4, 2),
+  at = log(c(0.1, 0.5, 1, 2)), 
+  atransf = exp,
+  ilab = ilab_data,  # Add the supplementary data
+  ilab.xpos = c(-2, -1),  # Adjust column positions for supplementary info
+  cex = 0.8,
+  ylim = c(-2, 3 + length(subgroups) * 2),  # Adjust ylim for fewer elements
+  top = 2,
+  mlab = mlabfun("Random-Effects Model for All Data", overall_model),
+  header = c("Subgroup and Study", "Effect Size [95% CI]")
+)
+
+# Add labels for ilab columns
+text(c(-2, -1), max(filtered_data$yi) + 2, 
+     c("Silvo N", "Control N"), pos = 4, font = 2)
+
+# Row positions for subgroup summary polygons
+row_positions <- seq(1, by = 2, length.out = length(subgroups))
+
+# Add Subgroup Summary Polygons
+for (i in seq_along(subgroups)) {
+  subgroup <- subgroups[i]
+  
+  # Fit random-effects model for each subgroup
+  subgroup_model <- rma(
+    yi, vi, data = filtered_data, subset = (response_variable == subgroup)
+  )
+  
+  # Add summary polygon for the subgroup
+  addpoly(
+    subgroup_model, row = row_positions[i], 
+    mlab = mlabfun(paste("Random-Effects Model for", subgroup), subgroup_model)
+  )
+  
+  # Add subgroup label
+  text(-4, row_positions[i] + 1, pos = 4, subgroup, font = 4)
+}
+
+# Test for Subgroup Differences (Meta-Regression Model)
+subgroup_test <- rma(yi, vi, mods = ~ response_variable, data = filtered_data)
+
+# Add Test for Subgroup Differences
+text(-4, -1.5, pos = 4, cex = 0.75, bquote(paste(
+  "Test for Subgroup Differences: ",
+  Q[M], " = ", .(formatC(subgroup_test$QM, digits = 2, format = "f")),
+  ", df = ", .(subgroup_test$p - 1), ", ", .(format.pval(subgroup_test$QMp, digits = 2))
+)))
+
+```
+
+```{r}
+# Ensure 'yi', 'vi', and 'response_variable' columns exist in your dataset
+data <- non_imp_data_dummy
+
+# Filter subgroups with sufficient data points (e.g., at least 10 studies)
+min_studies <- 10
+subgroup_counts <- table(data$response_variable)
+selected_subgroups <- names(subgroup_counts[subgroup_counts >= min_studies])
+filtered_data <- data %>% filter(response_variable %in% selected_subgroups)
+
+
+# Fit random-effects models for each subgroup and extract correct metrics
+subgroup_results <- filtered_data %>%
+  group_by(response_variable) %>%
+  summarise(
+    model = list(rma(yi, vi, data = cur_data())),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    conf_low = map_dbl(model, ~ exp(confint(.x)$random[1, 1])),
+    conf_high = map_dbl(model, ~ exp(confint(.x)$random[1, 2])),
+    mean_effect = map_dbl(model, ~ exp(coef(.x)["intrcpt"]))
+  )
+
+# Add subgroup diagnostics to the dataset
+filtered_data <- filtered_data %>%
+  left_join(
+    subgroup_results %>% select(response_variable, conf_low, conf_high, mean_effect),
+    by = "response_variable"
+  )
+
+# Create ridge density plot with subgroup diagnostics
+ridge_plot_with_metrics <- ggplot(filtered_data, aes(x = yi, y = response_variable, fill = response_variable)) +
+  ggridges::geom_density_ridges(alpha = 0.8, scale = 1.2, rel_min_height = 0.01) +
+  scale_fill_manual(values = c(
+    "Biodiversity" = "#7B3294", "Crop yield" = "#C2A5CF",
+    "Greenhouse gas emission" = "#008837", "Soil quality" = "#A6D96A",
+    "Pest and Disease" = "#1B7837", "Product quality" = "#E6F5D0",
+    "Water quality" = "#FFD700"
+  )) +
+  labs(
+    title = "Forest Plot with Subgroups and Diagnostics",
+    subtitle = "Random-effects models fitted for each subgroup",
+    x = "Effect Size (Log Scale)", y = "Subgroups",
+    fill = "Subgroups"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    legend.position = "bottom",
+    axis.title.y = element_text(angle = 90, vjust = 0.5)
+  ) +
+  geom_text(
+    data = subgroup_results,
+    aes(
+      x = 3.2, y = response_variable,
+      label = paste0(
+        "n = ", map_int(model, ~ .x$k), "\n",
+        "Mean: ", round(mean_effect, 2), "\n",
+        "CI: [", round(conf_low, 2), ", ", round(conf_high, 2), "]"
+      )
+    ),
+    hjust = 0, vjust = 0, size = 4, color = "black"
+  ) +
+  scale_x_continuous(limits = c(-2, 3.5))  # Adjust x-axis range for annotations
+
+ridge_plot_with_metrics
+
+```
+
+
+```{r}
+# Ensure 'yi', 'vi', and 'response_variable' columns exist in your dataset
+data <- non_imp_dataset
+
+# Filter subgroups with sufficient data points (e.g., at least 10 studies)
+min_studies <- 10
+subgroup_counts <- table(data$response_variable)
+selected_subgroups <- names(subgroup_counts[subgroup_counts >= min_studies])
+filtered_data <- data %>% filter(response_variable %in% selected_subgroups)
+
+
+# Fit random-effects models for each subgroup and extract correct metrics
+subgroup_results <- filtered_data %>%
+  group_by(response_variable) %>%
+  summarise(
+    model = list(rma(yi, vi, data = cur_data())),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    conf_low = map_dbl(model, ~ exp(confint(.x)$random[1, 1])),
+    conf_high = map_dbl(model, ~ exp(confint(.x)$random[1, 2])),
+    mean_effect = map_dbl(model, ~ exp(coef(.x)["intrcpt"]))
+  )
+
+# Add subgroup diagnostics to the dataset
+filtered_data <- filtered_data %>%
+  left_join(
+    subgroup_results %>% select(response_variable, conf_low, conf_high, mean_effect),
+    by = "response_variable"
+  )
+
+# Create ridge density plot with subgroup diagnostics
+ridge_plot_with_metrics <- ggplot(filtered_data, aes(x = yi, y = response_variable, fill = response_variable)) +
+  ggridges::geom_density_ridges(alpha = 0.8, scale = 1.2, rel_min_height = 0.01) +
+  scale_fill_manual(values = c(
+    "Biodiversity" = "#7B3294", "Crop yield" = "#C2A5CF",
+    "Greenhouse gas emission" = "#008837", "Soil quality" = "#A6D96A",
+    "Pest and Disease" = "#1B7837", "Product quality" = "#E6F5D0",
+    "Water quality" = "#FFD700"
+  )) +
+  labs(
+    title = "Forest Plot with Subgroups and Diagnostics",
+    subtitle = "Random-effects models fitted for each subgroup",
+    x = "Effect Size (Log Scale)", y = "Subgroups",
+    fill = "Subgroups"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    legend.position = "bottom",
+    axis.title.y = element_text(angle = 90, vjust = 0.5)
+  ) +
+  geom_text(
+    data = subgroup_results,
+    aes(
+      x = 3.2, y = response_variable,
+      label = paste0(
+        "n = ", map_int(model, ~ .x$k), "\n",
+        "Mean: ", round(mean_effect, 2), "\n",
+        "CI: [", round(conf_low, 2), ", ", round(conf_high, 2), "]"
+      )
+    ),
+    hjust = 0, vjust = 0, size = 4, color = "black"
+  ) +
+  scale_x_continuous(limits = c(-2, 3.5))  # Adjust x-axis range for annotations
+
+ridge_plot_with_metrics
+
+```
+
+```{r}
+# Ensure 'yi', 'vi', and 'response_variable' columns exist in your dataset
+data <- non_imp_data_dummy
+
+# Filter subgroups with sufficient data points (e.g., at least 10 studies)
+min_studies <- 10
+subgroup_counts <- table(data$response_variable)
+selected_subgroups <- names(subgroup_counts[subgroup_counts >= min_studies])
+filtered_data <- data %>% filter(response_variable %in% selected_subgroups)
+
+# Subgroup levels (filtered)
+subgroups <- unique(filtered_data$response_variable)
+
+# Initialize empty list to store subgroup metrics
+subgroup_metrics <- list()
+
+# Iterate over subgroups and extract metrics
+for (subgroup in subgroups) {
+  # Fit random-effects model for each subgroup
+  subgroup_model <- tryCatch(
+    rma(yi, vi, data = filtered_data, subset = (response_variable == subgroup)), 
+    error = function(e) NULL
+  )
+  
+  if (!is.null(subgroup_model)) {
+    # Extract metrics
+    metrics <- list(
+      response_variable = subgroup,
+      mean_effect = coef(subgroup_model)["intrcpt"], # Mean effect size
+      conf_low = confint(subgroup_model)$random["ci.lb"], # CI lower bound
+      conf_high = confint(subgroup_model)$random["ci.ub"], # CI upper bound
+      I2 = subgroup_model$I2,  # Heterogeneity (I^2)
+      tau2 = subgroup_model$tau2,  # Between-study variance (τ²)
+      n_studies = subgroup_model$k  # Number of studies
+    )
+  } else {
+    # If model fitting fails, populate NA values
+    metrics <- list(
+      response_variable = subgroup,
+      mean_effect = NA,
+      conf_low = NA,
+      conf_high = NA,
+      I2 = NA,
+      tau2 = NA,
+      n_studies = NA
+    )
+  }
+  
+  # Append metrics to the list
+  subgroup_metrics[[subgroup]] <- metrics
+}
+
+# Convert metrics list to dataframe
+subgroup_metrics_df <- do.call(rbind, lapply(subgroup_metrics, as.data.frame))
+
+# Inspect the resulting dataframe
+print(subgroup_metrics_df)
+
+```
+
+```{r}
+
+# Ensure 'yi', 'vi', and 'response_variable' columns exist in your dataset
+data <- non_imp_data_dummy
+
+# Filter subgroups with sufficient data points and valid variances
+filtered_data <- data %>%
+  filter(response_variable %in% selected_subgroups & !is.na(yi) & !is.na(vi) & vi > 0)
+
+# Fit random-effects models for each subgroup and safely extract metrics
+# Fit random-effects models for each subgroup and calculate CI
+subgroup_results <- filtered_data %>%
+  group_by(response_variable) %>%
+  summarise(
+    # Fit model with tryCatch to handle potential errors
+    model = list(
+      tryCatch(
+        rma(yi, vi, data = cur_data()), 
+        error = function(e) NULL
+      )
+    ),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    # Extract confidence intervals and metrics safely
+    conf_low = map_dbl(model, ~ if (!is.null(.x)) {
+      tryCatch(confint(.x)$random["ci.lb"], error = function(e) NA_real_)
+    } else NA_real_),
+    conf_high = map_dbl(model, ~ if (!is.null(.x)) {
+      tryCatch(confint(.x)$random["ci.ub"], error = function(e) NA_real_)
+    } else NA_real_),
+    mean_effect = map_dbl(model, ~ if (!is.null(.x)) {
+      tryCatch(coef(.x)["intrcpt"], error = function(e) NA_real_)
+    } else NA_real_),
+    n_studies = map_int(model, ~ if (!is.null(.x)) .x$k else NA_integer_),
+    I2 = map_dbl(model, ~ if (!is.null(.x)) .x$I2 else NA_real_)
+  )
+
+# Add subgroup results to the dataset
+filtered_data <- filtered_data %>%
+  left_join(
+    subgroup_results %>% select(response_variable, conf_low, conf_high, mean_effect, n_studies, I2),
+    by = "response_variable"
+  )
+
+# Ridge density plot with subgroup diagnostics
+ridge_plot_with_metrics <- ggplot(filtered_data, aes(x = yi, y = response_variable, fill = response_variable)) +
+  ggridges::geom_density_ridges(alpha = 0.8, scale = 1.2, rel_min_height = 0.01) +
+  scale_fill_manual(values = c(
+    "Biodiversity" = "#7B3294", "Crop yield" = "#C2A5CF",
+    "Greenhouse gas emission" = "#008837", "Soil quality" = "#A6D96A",
+    "Pest and Disease" = "#1B7837", "Product quality" = "#E6F5D0",
+    "Water quality" = "#FFD700"
+  )) +
+  labs(
+    title = "Forest Plot with Subgroups and Diagnostics",
+    subtitle = "Random-effects models fitted for each subgroup",
+    x = "Effect Size (Log Scale)", y = "Subgroups",
+    fill = "Subgroups"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    legend.position = "bottom",
+    axis.title.y = element_text(angle = 90, vjust = 0.5)
+  ) +
+  geom_text(
+    data = subgroup_results,
+    aes(
+      x = 3.2, y = response_variable,
+      label = paste0(
+        "n = ", ifelse(is.na(n_studies), "NA", n_studies), "\n",
+        "Mean: ", ifelse(is.na(mean_effect), "NA", round(mean_effect, 2)), "\n",
+        "CI: [", ifelse(is.na(conf_low), "NA", round(conf_low, 2)), ", ",
+        ifelse(is.na(conf_high), "NA", round(conf_high, 2)), "]\n",
+        "I² = ", ifelse(is.na(I2), "NA", round(I2, 1)), "%"
+      )
+    ),
+    hjust = 0, vjust = 0, size = 4, color = "black"
+  ) +
+  scale_x_continuous(limits = c(-2, 3.5))  # Adjust x-axis range for annotations
+
+filtered_data |> glimpse()
+ridge_plot_with_metrics
+```
+
+```{r}
+# Ensure 'yi', 'vi', and 'response_variable' columns exist in your dataset
+data <- non_imp_data_dummy
+
+# Filter subgroups with sufficient data points (e.g., at least 10 studies)
+min_studies <- 10
+subgroup_counts <- table(data$response_variable)
+selected_subgroups <- names(subgroup_counts[subgroup_counts >= min_studies])
+filtered_data <- data %>% filter(response_variable %in% selected_subgroups)
+
+
+
+# Fit random-effects models for each subgroup and handle potential errors
+subgroup_results <- filtered_data %>%
+  group_by(response_variable) %>%
+  summarise(
+    model = list(
+      tryCatch(
+        rma(yi, vi, data = cur_data()), # Fit random-effects model
+        error = function(e) NULL        # Return NULL if model fails
+      )
+    ),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    # Safely extract confidence intervals
+    conf_low = map_dbl(model, ~ if (!is.null(.x) && !is.null(confint(.x)$fixed)) {
+      tryCatch(
+        exp(confint(.x)$fixed["intrcpt", "ci.lb"]), # Exponentiate lower bound
+        error = function(e) NA_real_
+      )
+    } else if (!is.null(.x) && !is.null(confint(.x)$random)) { # Fall back to random effects
+      tryCatch(
+        exp(confint(.x)$random["tau2", "ci.lb"]), # Example for random-effects CI
+        error = function(e) NA_real_
+      )
+    } else {
+      NA_real_
+    }),
+    conf_high = map_dbl(model, ~ if (!is.null(.x) && !is.null(confint(.x)$fixed)) {
+      tryCatch(
+        exp(confint(.x)$fixed["intrcpt", "ci.ub"]), # Exponentiate upper bound
+        error = function(e) NA_real_
+      )
+    } else if (!is.null(.x) && !is.null(confint(.x)$random)) { # Fall back to random effects
+      tryCatch(
+        exp(confint(.x)$random["tau2", "ci.ub"]), # Example for random-effects CI
+        error = function(e) NA_real_
+      )
+    } else {
+      NA_real_
+    }),
+    mean_effect = map_dbl(model, ~ if (!is.null(.x)) {
+      tryCatch(exp(coef(.x)["intrcpt"]), error = function(e) NA_real_)
+    } else {
+      NA_real_
+    }),
+    n_studies = map_int(model, ~ if (!is.null(.x)) .x$k else NA_integer_),
+    I2 = map_dbl(model, ~ if (!is.null(.x)) .x$I2 else NA_real_)
+  )
+
+
+# Log problematic subgroups for debugging
+problematic <- subgroup_results %>% filter(is.na(conf_low) | is.na(conf_high))
+if (nrow(problematic) > 0) {
+  cat("Warning: Issues with the following subgroups:\n")
+  print(problematic$response_variable)
+}
+
+
+# Add subgroup diagnostics to the dataset for plotting
+filtered_data <- filtered_data %>%
+  left_join(
+    subgroup_results %>% select(response_variable, conf_low, conf_high, mean_effect, n_studies, I2),
+    by = "response_variable"
+  )
+
+# Ridge density plot with subgroup diagnostics
+ridge_plot_with_metrics <- ggplot(filtered_data, aes(x = yi, y = response_variable, fill = response_variable)) +
+  ggridges::geom_density_ridges(alpha = 0.8, scale = 1.2, rel_min_height = 0.01) +
+  scale_fill_manual(values = c(
+    "Biodiversity" = "#7B3294", "Crop yield" = "#C2A5CF",
+    "Greenhouse gas emission" = "#008837", "Soil quality" = "#A6D96A",
+    "Pest and Disease" = "#1B7837", "Product quality" = "#E6F5D0",
+    "Water quality" = "#FFD700"
+  )) +
+  labs(
+    title = "Forest Plot with Subgroups and Diagnostics",
+    subtitle = "Random-effects models fitted for each subgroup",
+    x = "Effect Size (Log Scale)", y = "Subgroups",
+    fill = "Subgroups"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    legend.position = "bottom",
+    axis.title.y = element_text(angle = 90, vjust = 0.5)
+  ) +
+  geom_text(
+    data = subgroup_results,
+    aes(
+      x = 3.2, y = response_variable,
+      label = paste0(
+        "n = ", ifelse(is.na(n_studies), "NA", n_studies), "\n",
+        "Mean: ", ifelse(is.na(mean_effect), "NA", round(mean_effect, 2)), "\n",
+        "CI: [", ifelse(is.na(conf_low), "NA", round(conf_low, 2)), ", ",
+        ifelse(is.na(conf_high), "NA", round(conf_high, 2)), "]\n",
+        "I² = ", ifelse(is.na(I2), "NA", round(I2, 1)), "%"
+      )
+    ),
+    hjust = 0, vjust = 0, size = 4, color = "black"
+  ) +
+  scale_x_continuous(limits = c(-2, 3.5))  # Adjust x-axis range for annotations
+
+ridge_plot_with_metrics
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+INTERPRETATION
+
+
+
+
+```{r}
+# Define the output directory
+output_dir <- here::here("DATA", "OUTPUT_FROM_R")
+
+# Save the V_matrix for each dataset
+saveRDS(V_matrices$non_imp_dataset, file = file.path(output_dir, "v_matrix_non_imp_dataset.rds"))
+saveRDS(V_matrices$imp_dataset, file = file.path(output_dir, "v_matrix_imp_dataset.rds"))
+
+cat("Variance-covariance matrices have been saved to:", output_dir, "\n")
+```
+
+#############
+# STEP 2
+##########################################################################################################################################
+EVALUATION OF MODEL FITTING 
+##########################################################################################################################################
+
+
+##########################################################################################################################################
+Evaluation of model fitting - comparing the two models
+##########################################################################################################################################
+
+```{r}
+# Extract AIC, BIC, Log-Likelihood, and I²
+model_stats <- model_summaries %>%
+  pivot_longer(cols = c(AIC, BIC, LogLikelihood, I2),
+               names_to = "Statistic",
+               values_to = "Value")
+
+# Extract fixed effects estimates for each model
+extract_fixed_effects <- function(model_summary, dataset_name) {
+  if (is.null(model_summary)) {
+    return(data.frame(
+      Dataset = dataset_name,
+      Term = NA,
+      Estimate = NA,
+      CI_Lower = NA,
+      CI_Upper = NA
+    ))
+  }
+  
+  coef_df <- data.frame(
+    Term = rownames(model_summary$model$b),
+    Estimate = model_summary$model$b[, 1],
+    CI_Lower = model_summary$model$ci.lb,
+    CI_Upper = model_summary$model$ci.ub
+  )
+  
+  coef_df$Dataset <- dataset_name
+  return(coef_df)
+}
+
+# Combine fixed effects data across all models
+fixed_effects_data <- bind_rows(
+  extract_fixed_effects(model_results$non_imp_dataset, "Non-Imputed Dataset"),
+  extract_fixed_effects(model_results$imp_dataset, "Imputed Dataset")
+)
+
+# Filter out rows with NA values
+fixed_effects_data <- fixed_effects_data %>% drop_na()
+fixed_effects_data
+```
+
+##########################################################################################################################################
+Visualization 1: Model Fit Comparison (AIC, BIC, Log-Likelihood, and I²)
+##########################################################################################################################################
+
+```{r}
+# Plot Model Fit Statistics
+fit_plot <- ggplot(model_stats, aes(x = fct_reorder(Dataset, Value), y = Value, fill = Statistic)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_wrap(~ Statistic, scales = "free") +
+  labs(title = "Comparison of Model Fit Statistics",
+       x = "Dataset",
+       y = "Value",
+       fill = "Statistic") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+print(fit_plot)
+
+```
+
+
+
+Visualization 2: Fixed Effects Estimates Comparison
+
+```{r}
+# Plot Fixed Effects Estimates with Confidence Intervals
+coef_plot <- ggplot(fixed_effects_data, aes(x = Term, y = Estimate, color = Dataset)) +
+  geom_point(position = position_dodge(width = 0.5), size = 3) +
+  geom_errorbar(aes(ymin = CI_Lower, ymax = CI_Upper),
+                width = 0.2, position = position_dodge(width = 0.5)) +
+  coord_flip() +
+  labs(title = "Comparison of Fixed Effects Estimates Across Models",
+       x = "Fixed Effect Term",
+       y = "Estimate",
+       color = "Dataset") +
+  theme_minimal()
+
+print(coef_plot)
+
+```
+
+
+Visualization 3: Heterogeneity (I²) Comparison
+
+```{r}
+# Heterogeneity Comparison Plot
+I2_plot <- ggplot(model_summaries, aes(x = Dataset, y = I2, fill = Dataset)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = round(I2, 2)), vjust = -0.5) +
+  labs(title = "Comparison of I² (Heterogeneity) Across Models",
+       x = "Dataset",
+       y = "I² (%)") +
+  theme_minimal() +
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 45, hjust = 1))
+
+print(I2_plot)
+
+```
+
+Comparison table of key model statistics
+
+```{r}
+colnames(model_summaries)
+
+```
+
+```{r}
+# Define the updated function to extract key statistics
+extract_model_summary <- function(model_list, dataset_name) {
+  # Check if the model list is not NULL and contains a model object
+  if (is.null(model_list) || !inherits(model_list, "list")) {
+    return(data.frame(
+      Dataset = dataset_name,
+      k.all = NA,
+      LogLikelihood = NA,
+      AIC = NA,
+      BIC = NA,
+      I2 = NA,
+      QM = NA,
+      QMp = NA
+    ))
+  }
+  
+  # Extract the actual model object from the list
+  model <- model_list$model
+  
+  # If the model object is NULL or does not have class "rma.mv", return NA
+  if (is.null(model) || !inherits(model, "rma.mv")) {
+    return(data.frame(
+      Dataset = dataset_name,
+      k.all = NA,
+      LogLikelihood = NA,
+      AIC = NA,
+      BIC = NA,
+      I2 = NA,
+      QM = NA,
+      QMp = NA
+    ))
+  }
+  
+  # Extract key statistics
+  k.all <- model$k.all
+  logLik <- as.numeric(logLik(model))
+  AIC <- AIC(model)
+  BIC <- BIC(model)
+  I2 <- round((sum(model$sigma2) / (sum(model$sigma2) + mean(model$vi))) * 100, 1)
+  QM <- model$QM
+  QMp <- model$QMp
+  
+  # Create a summary data frame
+  data.frame(
+    Dataset = dataset_name,
+    k.all = k.all,
+    LogLikelihood = logLik,
+    AIC = AIC,
+    BIC = BIC,
+    I2 = I2,
+    QM = QM,
+    QMp = QMp
+  )
+}
+
+# Apply the updated function to all models in `model_results`
+model_summaries <- bind_rows(
+  extract_model_summary(model_results$non_imp_dataset, "Non-Imputed Dataset"),
+  extract_model_summary(model_results$imp_dataset, "Imputed Dataset"),
+  extract_model_summary(model_results$non_imp_dataset_imputed, "Non-Imputed Imputed Dataset"),
+  extract_model_summary(model_results$imp_dataset_imputed, "Imputed Imputed Dataset")
+)
+
+# View the combined summary table
+print(model_summaries)
+
+```
+
+
+```{r}
+# Create a summary table with existing columns
+comparison_table <- model_summaries %>%
+  mutate(
+    LogLikelihood = round(LogLikelihood, 2),
+    AIC = round(AIC, 2),
+    BIC = round(BIC, 2),
+    I2 = paste0(round(I2, 1), "%")
+  )
+
+# Create a formatted table using `gt`
+comparison_gt <- comparison_table %>%
+  gt() %>%
+  tab_header(
+    title = "Model Comparison Summary",
+    subtitle = "Key Statistics for Evaluating Model Fit"
+  ) %>%
+  cols_label(
+    Dataset = "Dataset",
+    LogLikelihood = "Log-Likelihood",
+    AIC = "AIC",
+    BIC = "BIC",
+    I2 = "I² (%)"
+  ) %>%
+  fmt_number(
+    columns = c(LogLikelihood, AIC, BIC),
+    decimals = 2
+  ) %>%
+  fmt_missing(
+    columns = everything(),
+    missing_text = "-"
+  ) %>%
+  tab_style(
+    style = list(
+      cell_fill(color = "#f5f5f5"),
+      cell_borders(sides = "all", color = "gray", weight = px(1))
+    ),
+    locations = cells_body()
+  ) %>%
+  tab_options(
+    table.font.size = "small",
+    table.border.top.color = "gray",
+    table.border.bottom.color = "gray"
+  )
+
+# Optionally export the table
+# Define the output folder path
+output_folder <- here("DATA", "OUTPUT_FROM_R")
+
+# Export the table to HTML and PDF in the specified folder
+gtsave(comparison_gt, file.path(output_folder, "model_comparison_summary.html"))
+gtsave(comparison_gt, file.path(output_folder, "model_comparison_summary.pdf"))
+
+# Display the table
+comparison_gt
+```
+
+
+
+
+
+
+INTERPRETATION OF MODEL 
+
+
+
+Evaluation plots
+
+```{r}
+##########################################################################
+# Set up the parallel processing plan
+plan(multisession, workers = parallel::detectCores() - 1)
+##################################################
+# Start time tracking
+start.time <- Sys.time()
+##################################################
+##################################################
+
+# Define the model names and colors
+model_names <- c("Non-Imputed Dataset", "Imputed Dataset", "Non-Imputed Imputed Dataset", "Imputed Imputed Dataset")
+colors <- c("#0072B2", "#E69F00", "#009E73", "#D55E00")
+
+# Initialize lists to store the plots
+residuals_plots <- list()
+conf_intervals_plots <- list()
+std_residuals_plots <- list()
+
+# Define the output directory
+output_dir <- here::here("DATA", "OUTPUT_FROM_R", "FIGURES")
+
+# Loop through each model and generate the plots
+for (i in seq_along(model_results)) {
+  model <- model_results[[i]]$model
+  model_name <- model_names[i]
+  color <- colors[i]
+  V_matrix <- V_matrices[[i]]
+  
+  # Generate Residuals vs. Fitted Values Plot
+  residuals_plot <- tryCatch({
+    plot_residuals_vs_fitted(model, model_name, color)
+  }, error = function(e) {
+    cat("Error generating Residuals vs. Fitted plot for", model_name, ":", e$message, "\n")
+    NULL
+  })
+  residuals_plots[[i]] <- residuals_plot
+  
+  # Updated function to calculate bootstrap confidence intervals and return a ggplot
+  bootstrap_conf_intervals <- function(model, model_name, V_matrix, n_boot = 1000, alpha = 0.05) {
+    cat("\nCalculating Bootstrap Confidence Intervals for", model_name, "...\n")
+    
+    # Initialize a matrix to store the bootstrap estimates
+    boot_estimates <- matrix(NA, nrow = n_boot, ncol = length(coef(model)))
+    colnames(boot_estimates) <- names(coef(model))
+    
+    # Bootstrap loop
+    for (b in 1:n_boot) {
+      resample_indices <- sample(nrow(model$data), replace = TRUE)
+      resampled_data <- model$data[resample_indices, ]
+      
+      boot_model <- tryCatch({
+        rma.mv(
+          yi = resampled_data$yi,
+          V = V_matrix[resample_indices, resample_indices],
+          mods = model$mods,
+          random = model$random,
+          data = resampled_data,
+          method = "ML"
+        )
+      }, error = function(e) NULL)
+      
+      if (!is.null(boot_model)) {
+        boot_estimates[b, ] <- coef(boot_model)
+      }
+    }
+    
+    boot_estimates <- boot_estimates[complete.cases(boot_estimates), ]
+    lower_bound <- apply(boot_estimates, 2, quantile, probs = alpha / 2)
+    upper_bound <- apply(boot_estimates, 2, quantile, probs = 1 - alpha / 2)
+    
+    conf_int_df <- data.frame(
+      Term = names(coef(model)),
+      Estimate = coef(model),
+      CI.Lower = lower_bound,
+      CI.Upper = upper_bound
+    )
+    
+    cat("Bootstrap Confidence Intervals Calculation Complete for", model_name, ".\n")
+    
+    # Create a ggplot object
+    ggplot(conf_int_df, aes(x = Term, y = Estimate)) +
+      geom_point(color = "#0072B2") +
+      geom_errorbar(aes(ymin = CI.Lower, ymax = CI.Upper), width = 0.2) +
+      geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+      labs(
+        title = paste("Bootstrap Confidence Intervals -", model_name),
+        x = "Terms",
+        y = "Estimates"
+      ) +
+      theme_minimal() +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  }
+  
+  
+  # Generate Standardized Residuals Plot
+  std_residuals_plot <- tryCatch({
+    plot_standardized_residuals(model, model_name, color)
+  }, error = function(e) {
+    cat("Error generating Standardized Residuals plot for", model_name, ":", e$message, "\n")
+    NULL
+  })
+  std_residuals_plots[[i]] <- std_residuals_plot
+  
+  # Generate and Save Forest Plot Individually
+  tryCatch({
+    create_forest_plot(model, model_name, V_matrix)
+    ggsave(
+      filename = file.path(output_dir, paste0("forest_plot_", model_name, ".jpg")),
+      width = 10, height = 8, dpi = 300
+    )
+    cat("Forest plot saved for", model_name, ".\n")
+  }, error = function(e) {
+    cat("Error generating or saving Forest plot for", model_name, ":", e$message, "\n")
+  })
+}
+
+
+##################################################
+# End time tracking
+end.time <- Sys.time()
+# Calculate time taken
+time.taken <- end.time - start.time
+time.taken
+##############################################################
+# Last go: (17/11-24)
+# Time difference of 25.3915 secs
+# 
+# Calculating Bootstrap Confidence Intervals for Non-Imputed Dataset ...
+# Bootstrap Confidence Intervals Calculation Complete for Non-Imputed Dataset .
+# 
+# Forest Plot for Non-Imputed Dataset :
+# 
+# Calculating Bootstrap Confidence Intervals for Imputed Dataset ...
+# Bootstrap Confidence Intervals Calculation Complete for Imputed Dataset .
+# 
+# Forest Plot for Imputed Dataset :
+# Advarsel: longer object length is not a multiple of shorter object length
+# Calculating Bootstrap Confidence Intervals for Non-Imputed Imputed Dataset ...
+# Bootstrap Confidence Intervals Calculation Complete for Non-Imputed Imputed Dataset .
+# 
+# Forest Plot for Non-Imputed Imputed Dataset :
+# 
+# Calculating Bootstrap Confidence Intervals for Imputed Imputed Dataset ...
+# Bootstrap Confidence Intervals Calculation Complete for Imputed Imputed Dataset .
+# 
+# Forest Plot for Imputed Imputed Dataset :
+```
+
+Saving plots
+
+```{r}
+
+```
+
+
+
+##########################################################################################################################################
+SAVING DATASETS AND MODEL OBJECTS
+##########################################################################################################################################
+
+```{r}
+# Define the output directory
+output_dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
+if (!dir.exists(output_dir)) {
+  dir.create(output_dir, recursive = TRUE)
+}
+
+# List of datasets and their names
+datasets <- list(
+  non_imp_dataset = non_imp_dataset,
+  imp_dataset = imp_dataset,
+  non_imp_dataset_imputed = non_imp_dataset_imputed,
+  imp_dataset_imputed = imp_dataset_imputed
+)
+
+# Save each dataset
+for (dataset_name in names(datasets)) {
+  dataset <- datasets[[dataset_name]]
+  saveRDS(dataset, file = file.path(output_dir, paste0(dataset_name, ".rds")))
+  cat("Dataset saved:", dataset_name, "\n")
+}
+
+
+# Save each variance-covariance matrix
+for (matrix_name in names(V_matrices)) {
+  V_matrix <- V_matrices[[matrix_name]]
+  saveRDS(V_matrix, file = file.path(output_dir, paste0("V_matrix_", matrix_name, ".rds")))
+  cat("Variance-Covariance Matrix saved:", matrix_name, "\n")
+}
+
+
+# Save each model object
+for (model_name in names(model_results)) {
+  model <- model_results[[model_name]]$model
+  if (!is.null(model)) {
+    saveRDS(model, file = file.path(output_dir, paste0("model_", model_name, ".rds")))
+    cat("Model object saved:", model_name, "\n")
+  } else {
+    cat("Model object for", model_name, "is NULL. Skipping save.\n")
+  }
+}
+
+
+# Save the model summary table
+saveRDS(model_summaries, file = file.path(output_dir, "model_summaries.rds"))
+cat("Model summary table saved.\n")
+
+
+# List all saved files
+saved_files <- list.files(output_dir, full.names = TRUE)
+cat("All saved files:\n")
+print(saved_files)
+
+```
+
+
+```{r}
+# Define a threshold for Cook's distance
+cook_threshold <- 4 / nrow(meta_data) # Adjust as needed
+
+# Initialize a data frame to store results
+influential_studies <- data.frame()
+
+# Loop through each diagnostics entry
+for (i in seq_along(diagnostics_list)) {
+  diagnostics <- diagnostics_list[[i]]
+  
+  if (is.null(diagnostics)) {
+    cat("\nDiagnostics for index", i, "is NULL. Skipping...\n")
+    next
+  }
+  
+  # Get the response variable name from the data
+  response_variable <- unique(diagnostics$ResponseVariable)[1]
+  cat("\nProcessing diagnostics for response variable:", response_variable, "\n")
+  
+  # Identify highly influential observations
+  influential_obs <- diagnostics %>%
+    filter(cook.d > cook_threshold) %>%
+    select(Study, cook.d) # Keep Study ID and Cook's distance
+  
+  # Skip if no influential observations are found
+  if (nrow(influential_obs) == 0) {
+    cat("No influential observations for:", response_variable, "\n")
+    next
+  }
+  
+  # Map to `id_article` using `meta_data`
+  influential_obs <- influential_obs %>%
+    left_join(meta_data, by = c("Study" = "id_obs")) %>%
+    select(id_article, cook.d, response_variable) %>%
+    rename(StudyID = id_article, CookDistance = cook.d, ResponseVariable = response_variable)
+  
+  # Append to results
+  influential_studies <- bind_rows(influential_studies, influential_obs)
+}
+
+# Check the results
+influential_studies
+
+# Save as RDS and CSV
+output_dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
+saveRDS(influential_studies, file.path(output_dir, "influential_studies.rds"))
+write.csv(influential_studies, file.path(output_dir, "influential_studies.csv"), row.names = FALSE)
+
+cat("Influential studies saved to:", output_dir, "\n")
+```
+
+
+
+# Fit the model with random effects for id_article
+res <- tryCatch({
+  rma(
+    yi = yi,
+    vi = vi,
+    # Random-effects structure: defines how the random effects are modeled hierarchically
+    random = list(
+      ~ 1 | id_article,                           # Random intercept for each article/study
+      ~ 1 | id_article/response_variable,         # Nested random intercept for each response variable within articles
+      ~ 1 | exp_id                                # Random intercept for individual experiments
+    ),
+    data = data_subset,
+    method = "REML"
+  )
+}, error = function(e) {
+  cat("Model fitting failed for", response, ":", e$message, "\n")
+  return(NULL)
+})
+
+# Save the fitted model
+model_results[[response]] <- res
+
+
+
+# Initialize leave-one-out results
+leave1out_results <- list()
+
+for (response in names(model_results)) {
+  cat("\nRunning Leave-One-Out for:", response, "...\n")
+  
+  # Retrieve the fitted model for the current response variable
+  model <- model_results[[response]]
+  
+  if (!is.null(model)) {
+    loo <- leave1out(model)  # Perform LOO at observation level
+    
+    # Map LOO results to `id_article`
+    loo_data <- meta_data[meta_data$response_variable == response, ]
+    study_level_results <- loo_data %>%
+      group_by(id_article) %>%
+      summarise(
+        Estimate = mean(loo$estimate[match(id_obs, rownames(loo$estimate))], na.rm = TRUE),
+        SE = mean(loo$se[match(id_obs, rownames(loo$estimate))], na.rm = TRUE),
+        CI_Lower = mean(loo$estimate[match(id_obs, rownames(loo$estimate))] - 
+                          1.96 * loo$se[match(id_obs, rownames(loo$estimate))], na.rm = TRUE),
+        CI_Upper = mean(loo$estimate[match(id_obs, rownames(loo$estimate))] + 
+                          1.96 * loo$se[match(id_obs, rownames(loo$estimate))], na.rm = TRUE)
+      )
+    
+    study_level_results$ResponseVariable <- response
+    leave1out_results[[response]] <- study_level_results
+  } else {
+    cat("Skipping Leave-One-Out for:", response, "due to missing model.\n")
+  }
+}
+
+# Combine results into a single data frame
+loo_combined <- bind_rows(leave1out_results)
+
+
+```{r}
+# Initialize list for study-level results
+study_level_loo_results <- list()
+
+for (response in names(model_results)) {
+  cat("\nProcessing Response Variable:", response, "...\n")
+  
+  # Retrieve the model
+  model <- model_results[[response]]
+  
+  if (!is.null(model)) {
+    # Perform Leave-One-Out Diagnostics
+    loo <- leave1out(model)
+    
+    # Map results back to meta_data
+    loo_data <- meta_data[meta_data$response_variable == response, ] %>%
+      mutate(
+        Estimate = loo$estimate[match(id_obs, rownames(loo$estimate))],
+        SE = loo$se[match(id_obs, rownames(loo$estimate))],
+        CI_Lower = Estimate - 1.96 * SE,
+        CI_Upper = Estimate + 1.96 * SE
+      )
+    
+    # Aggregate results by id_article
+    aggregated_results <- loo_data %>%
+      group_by(id_article) %>%
+      summarise(
+        Estimate = mean(Estimate, na.rm = TRUE),
+        SE = mean(SE, na.rm = TRUE),
+        CI_Lower = mean(CI_Lower, na.rm = TRUE),
+        CI_Upper = mean(CI_Upper, na.rm = TRUE),
+        ResponseVariable = first(response)
+      )
+    
+    study_level_loo_results[[response]] <- aggregated_results
+  }
+}
+```
+```{r}
+loo_data |> glimpse()
+```
+
+```{r}
+# Combine all study-level results into a single data frame
+study_level_loo_combined <- bind_rows(study_level_loo_results)
+
+# Visualize the Study-Level Leave-One-Out Results
+loo_plot_corrected <- study_level_loo_combined %>%
+  ggplot(aes(x = factor(id_article), y = Estimate, color = ResponseVariable)) +
+  geom_point(size = 2) +
+  geom_errorbar(aes(ymin = CI_Lower, ymax = CI_Upper), width = 0.2) +
+  facet_wrap(~ ResponseVariable, scales = "free", ncol = 2) +
+  theme_minimal(base_size = 14) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 8),
+    legend.position = "right"
+  ) +
+  labs(
+    title = "Leave-One-Out Effect Sizes by Study",
+    x = "Study (id_article)",
+    y = "Effect Size (Estimate ± 95% CI)",
+    color = "Response Variable"
+  )
+
+# Save the plot
+ggsave(
+  filename = file.path(output_dir, "LOO_Study_Level_Effect_Sizes_Corrected.png"),
+  plot = loo_plot_corrected,
+  width = 12,
+  height = 8,
+  dpi = 300
+)
+
+# Print the plot
+loo_plot_corrected
+```
+
+```{r}
+loo_data |> glimpse()
+```
+
+
+```{r}
+# Inspect the structure of leave1out_results
+str(leave1out_results)
+
+# Check the structure
+str(loo_combined)
+```
+
+# Extract Leave-One-Out diagnostics into a data frame
+loo_data <- bind_rows(
+  lapply(names(leave1out_results), function(response) {
+    loo <- leave1out_results[[response]]
+    if (!is.null(loo)) {
+      data.frame(
+        StudyRemoved = if (!is.null(names(loo$estimate))) names(loo$estimate) else seq_along(loo$estimate),
+        Estimate = loo$estimate,
+        SE = loo$se,
+        CI_Lower = loo$ci.lb,
+        CI_Upper = loo$ci.ub,
+        ResponseVariable = response,
+        stringsAsFactors = FALSE
+      )
+    } else {
+      NULL
+    }
+  })
+)
+
+# Inspect the resulting data frame
+str(loo_data)
+
+```{r}
+# Visualize Leave-One-Out Results at Study Level
+loo_plot_corrected <- loo_combined %>%
+  ggplot(aes(x = factor(id_article), y = Estimate, color = ResponseVariable)) +
+  geom_point(size = 2) +
+  geom_errorbar(aes(ymin = CI_Lower, ymax = CI_Upper), width = 0.2) +
+  facet_wrap(~ ResponseVariable, scales = "free", ncol = 2) +
+  theme_minimal(base_size = 14) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 8),
+    legend.position = "right"
+  ) +
+  labs(
+    title = "Leave-One-Out Effect Sizes by Study",
+    x = "Study (id_article)",
+    y = "Effect Size (Estimate ± 95% CI)",
+    color = "Response Variable"
+  )
+
+```
+
+
+leave1out_results <- list()
+
+for (response in unique(diagnostics_data$ResponseVariable)) {
+  cat("\nRunning Leave-One-Out for:", response, "...\n")
+  
+  # Retrieve the fitted model for the current response variable
+  model <- model_results[[response]]
+  
+  # Perform Leave-One-Out analysis if the model is valid
+  if (!is.null(model)) {
+    leave1out_results[[response]] <- leave1out(model)
+  } else {
+    cat("Skipping Leave-One-Out for:", response, "due to missing model.\n")
+  }
+}
+
+# Save Leave-One-Out results
+saveRDS(leave1out_results, file.path(output_dir, "leave1out_results.rds"))
+cat("\nLeave-One-Out results saved to:", file.path(output_dir, "leave1out_results.rds"), "\n")
+
+
+
+```{r}
+# Visualize Leave-One-Out Effect Sizes with Confidence Intervals
+loo_plot <-
+  loo_data |> 
+  ggplot(aes(x = factor(StudyRemoved), y = Estimate, color = ResponseVariable)) +
+  geom_point(size = 2) +  # Plot points for effect sizes
+  geom_errorbar(aes(ymin = CI_Lower, ymax = CI_Upper), width = 0.2) +  # Add confidence intervals
+  facet_wrap(~ ResponseVariable, scales = "free", ncol = 2) +  # Create panels for each response variable
+  theme_minimal(base_size = 14) +  # Use a minimal theme
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 8),  # Rotate x-axis text for readability
+    legend.position = "right"  # Place the legend at the bottom
+  ) +
+  labs(
+    title = "Leave-One-Out Effect Sizes by Response Variable",
+    x = "Study Removed",
+    y = "Effect Size (Estimate ± 95% CI)",
+    color = "Response Variable"
+  )
+
+
+loo_plot
+```
+
+
+# Initialize leave-one-out results
+# Initialize leave-one-out results
+leave1out_results <- list()
+
+for (response in names(model_results)) {
+  cat("\nRunning Leave-One-Out for:", response, "...\n")
+  
+  # Retrieve the fitted model for the current response variable
+  model <- model_results[[response]]
+  
+  if (!is.null(model)) {
+    # Perform Leave-One-Out diagnostics
+    loo <- leave1out(model)
+    
+    # Map LOO results to meta_data
+    loo_data <- meta_data %>%
+      filter(response_variable == response) %>%
+      mutate(
+        Estimate = loo$estimate[match(as.character(id_article), rownames(loo$estimate))],
+        SE = loo$se[match(as.character(id_article), rownames(loo$estimate))],
+        CI_Lower = Estimate - 1.96 * SE,
+        CI_Upper = Estimate + 1.96 * SE
+      )
+    
+    # Check if mapping worked
+    if (all(is.na(loo_data$Estimate))) {
+      stop("Matching id_obs to leave-one-out results failed!")
+    }
+    
+    # Aggregate results by id_article
+    study_level_results <- loo_data %>%
+      group_by(id_article) %>%
+      summarise(
+        Estimate = mean(Estimate, na.rm = TRUE),
+        SE = mean(SE, na.rm = TRUE),
+        CI_Lower = mean(CI_Lower, na.rm = TRUE),
+        CI_Upper = mean(CI_Upper, na.rm = TRUE),
+        ResponseVariable = first(response)
+      )
+    
+    leave1out_results[[response]] <- study_level_results
+  } else {
+    cat("Skipping Leave-One-Out for:", response, "due to missing model.\n")
+  }
+}
+
+# Combine all results into a single data frame
+loo_combined <- bind_rows(leave1out_results)
+
+# Glimpse the results
+glimpse(loo_combined)
+
+
+
+
+# Initialize leave-one-out results
+# Initialize leave-one-out results
+leave1out_results <- list()
+
+for (response in names(model_results)) {
+  cat("\nRunning Leave-One-Out for:", response, "...\n")
+  
+  # Retrieve the fitted model for the current response variable
+  model <- model_results[[response]]
+  
+  if (!is.null(model)) {
+    # Perform Leave-One-Out diagnostics
+    loo <- leave1out(model)
+    
+    # Map LOO results to meta_data
+    loo_data <- meta_data %>%
+      filter(response_variable == response) %>%
+      mutate(
+        Estimate = loo$estimate[match(as.character(id_article), rownames(loo$estimate))],
+        SE = loo$se[match(as.character(id_article), rownames(loo$estimate))],
+        CI_Lower = Estimate - 1.96 * SE,
+        CI_Upper = Estimate + 1.96 * SE
+      )
+    
+    # Check if mapping worked
+    if (all(is.na(loo_data$Estimate))) {
+      stop("Matching id_obs to leave-one-out results failed!")
+    }
+    
+    # Aggregate results by id_article
+    study_level_results <- loo_data %>%
+      group_by(id_article) %>%
+      summarise(
+        Estimate = mean(Estimate, na.rm = TRUE),
+        SE = mean(SE, na.rm = TRUE),
+        CI_Lower = mean(CI_Lower, na.rm = TRUE),
+        CI_Upper = mean(CI_Upper, na.rm = TRUE),
+        ResponseVariable = first(response)
+      )
+    
+    leave1out_results[[response]] <- study_level_results
+  } else {
+    cat("Skipping Leave-One-Out for:", response, "due to missing model.\n")
+  }
+}
+
+# Combine all results into a single data frame
+loo_combined <- bind_rows(leave1out_results)
+
+# Glimpse the results
+glimpse(loo_combined)
+
+
+
+
+
+
+
+
+```{r}
+# Function to fit an rma model for a given subset
+fit_response_variable_rma <- function(data, response_variable, moderators = NULL) {
+  cat("\nFitting rma model for response variable:", response_variable, "...\n")
+  
+  # Define moderator formula
+  moderator_formula <- if (!is.null(moderators)) {
+    as.formula(paste("yi ~", paste(moderators, collapse = " + ")))
+  } else {
+    as.formula("yi ~ 1")  # Intercept-only model
+  }
+  
+  # Fit the model
+  model <- tryCatch({
+    rma(
+      yi = yi,
+      vi = vi,
+      mods = moderator_formula,
+      random = ~ 1 | id_article,
+      data = data,
+      method = "REML"
+    )
+  }, error = function(e) {
+    cat("Error for response variable:", response_variable, ":", e$message, "\n")
+    return(NULL)
+  })
+  
+  if (!is.null(model)) {
+    cat("Model fitting completed for response variable:", response_variable, ".\n")
+    return(model)
+  } else {
+    return(NULL)
+  }
+}
+```
+
+
+```{r}
+# Fit models for each response variable
+model_results <- list()
+
+for (response in response_variables) {
+  cat("\nProcessing response variable:", response, "\n")
+  
+  # Subset the data
+  data_subset <- meta_data[meta_data$response_variable == response, ]
+  
+  # Fit the model
+  model <- fit_response_variable_rma(data_subset, response, moderators = c("tree_type", "crop_type", "age_system", "season", "soil_texture"))
+  
+  # Save the model
+  model_results[[response]] <- model
+}
+
+# Save fitted models
+saveRDS(model_results, file = file.path(output_dir, "fitted_rma_models_by_response_variable.rds"))
+cat("\nAll models fitted and saved to:", output_dir, "\n")
+```
+```{r}
+# Define response variable
+response_var <- "Biodiversity"
+
+# Subset data
+data <- meta_data[meta_data$response_variable == response_var, ]
+
+# Define moderator formula (customize as needed)
+moderator_formula <- as.formula("yi ~ tree_type + crop_type + age_system + season + soil_texture")
+
+# Fit the model
+cat("Fitting model for response variable:", response_var, "...\n")
+model_res <- tryCatch({
+  rma.mv(
+    yi = yi,
+    vi = vi,
+    mods = moderator_formula,
+    random = ~ 1 | exp_id,  # Simplified random-effects structure
+    data = data,
+    method = "ML",
+    control = list(
+      optimizer = "optim",
+      optim.method = "BFGS",
+      iter.max = 1000,
+      rel.tol = 1e-8
+    )
+  )
+}, error = function(e) {
+  cat("Error fitting model for", response_var, ":", e$message, "\n")
+  return(NULL)
+})
+
+if (!is.null(model_res)) {
+  cat("Model fitting completed for response variable:", response_var, ".\n")
+} else {
+  stop("Model fitting failed for response variable:", response_var)
+}
+
+```
+
+```{r}
+##########################################################################
+# Set up the parallel processing plan
+plan(multisession, workers = parallel::detectCores() - 1)
+##################################################
+# Start time tracking
+start.time <- Sys.time()
+##################################################
+##################################################
+
+
+# Compute diagnostics for all models
+influence_diagnostics <- bind_rows(
+  lapply(names(model_results), function(response) {
+    compute_influence_diagnostics_rma(model_results[[response]], response)
+  })
+)
+
+# Filter out rows with NA studies if needed
+influence_diagnostics <- influence_diagnostics %>% filter(!is.na(Study))
+
+# Save influence diagnostics
+write.csv(influence_diagnostics, file.path(output_dir, "influence_diagnostics_rma_summary.csv"), row.names = FALSE)
+cat("\nInfluence diagnostics saved to:", output_dir, "\n")
+
+
+
+##################################################
+# End time tracking
+end.time <- Sys.time()
+# Calculate time taken
+time.taken <- end.time - start.time
+time.taken
+##############################################################
+```
+
+```{r}
+# Function to create and save influence diagnostic plots
+plot_influence_diagnostics_rma <- function(diagnostics, response_variable) {
+  if (is.null(diagnostics)) {
+    cat("No diagnostics available for response variable:", response_variable, "\n")
+    return(NULL)
+  }
+  
+  # Filter diagnostics for the response variable
+  data <- diagnostics %>% filter(ResponseVariable == response_variable)
+  
+  # Create plots for residuals and Cook's Distance
+  plot <- ggplot(data, aes(x = Study)) +
+    geom_point(aes(y = StandardizedResiduals, color = "Standardized Residuals")) +
+    geom_point(aes(y = CookDistance, color = "Cook's Distance")) +
+    geom_point(aes(y = HatValues, color = "Hat Values")) +
+    labs(
+      title = paste("Influence Diagnostics -", response_variable),
+      x = "Study",
+      y = "Value",
+      color = "Diagnostics"
+    ) +
+    theme_minimal(base_size = 14) +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  
+  # Save the plot
+  plot_file <- file.path(influence_dir, paste0("influence_plot_", tolower(gsub(" ", "_", response_variable)), ".png"))
+  ggsave(plot_file, plot, width = 10, height = 6, dpi = 300)
+  cat("Influence plot saved for response variable:", response_variable, "at", plot_file, "\n")
+  
+  return(plot)
+}
+
+# Generate influence plots for each response variable
+plots <- lapply(unique(influence_diagnostics$ResponseVariable), function(response) {
+  plot_influence_diagnostics_rma(influence_diagnostics, response)
+})
+
+```
+
+```{r}
+# Example dataset for visualizing results
+forest_data <- model_diagnostics %>% 
+  mutate(
+    ci.lb = LogLikelihood - 1.96 * sqrt(Tau2),
+    ci.ub = LogLikelihood + 1.96 * sqrt(Tau2)
+  )
+
+# Create the forest plot
+forest_plot <- ggplot(forest_data, aes(x = LogLikelihood, y = ResponseVariable, color = ResponseVariable)) +
+  geom_point(size = 3) +  # Effect size points
+  geom_errorbarh(aes(xmin = ci.lb, xmax = ci.ub), height = 0.2) +  # Confidence intervals
+  geom_vline(xintercept = 0, linetype = "dotted", color = "red") +  # Null line
+  scale_color_manual(values = custom_colors) +  # Custom colors
+  labs(
+    title = "Forest Plot: Effects of Silvoarable Agroforestry on Ecosystem Services",
+    x = "Effect Size (Log Scale ± 95% CI)",
+    y = "Response Variables"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    legend.position = "none",
+    axis.text.y = element_text(size = 12, hjust = 1),
+    axis.title.x = element_text(size = 14),
+    axis.title.y = element_text(size = 14),
+    plot.title = element_text(face = "bold", size = 16, hjust = 0.5)
+  )
+
+# Display the forest plot
+print(forest_plot)
+
+```
+
+
+Correcting unclassified in sub_region
+
+```{r}
+# Manually update the sub-region for the specific locations
+database_clean_sf <- database_clean_sf %>%
+  mutate(
+    # Update both sub_region and climate_zone based on location and site
+    sub_region = case_when(
+      location == "Vézénobres" ~ "Mediterranean Europe",
+      location == "Restinclières" ~ "Mediterranean Europe",
+      location == "Xinjiang" ~ "Continental Asia",
+      site == "Vézénobres" ~ "Mediterranean Europe",
+      site == "Restinclières" ~ "Mediterranean Europe",
+      site == "Leeds" ~ "Continental Europe",
+      site == "Nothern England" ~ "Continental Europe",
+      TRUE ~ sub_region
+    ))
+
+,
+climate_zone = case_when(
+  sub_region == "England" ~ 3,  # Example climate zone codes
+  sub_region == "China" ~ 7,
+  sub_region == "Continental Europe" ~ 5,
+  TRUE ~ climate_zone
+)
+)
+
+# Verify if all missing values for climate_zone are handled
+database_clean_sf %>%
+  filter(is.na(climate_zone))
+```
+
+```{r}
+database_clean |> glimpse() 
+
+# database_clean %>%
+#   mutate(
+#     running_year = as.numeric(experiment_year - min(experiment_year, na.rm = TRUE))
+#   ) |> 
+#   relocate(running_year, experiment_year)
+# 
+
+database_clean %>%
+  as.data.frame() |> 
+  select(-geometry) |> 
+  mutate(
+    # Extract numeric years from Date columns
+    study_year_start_numeric = as.numeric(format(study_year_start, "%Y")),
+    study_year_end_numeric = as.numeric(format(study_year_end, "%Y")),
+    
+    # Handle cases where study_year_end is NA
+    study_year_end_numeric = ifelse(is.na(study_year_end_numeric), 
+                                    study_year_start_numeric, 
+                                    study_year_end_numeric),
+    
+    # Calculate the midpoint year as the average of start and end years
+    midpoint_year = (study_year_start_numeric + study_year_end_numeric) / 2,
+    
+    # Running year based on the earliest midpoint year
+    running_year_midpoint = midpoint_year - min(midpoint_year, na.rm = TRUE),
+    
+    # Z-score normalization for running year
+    running_year_normalized = scale(running_year_midpoint)
+  ) %>%
+  select(exp_id, id_article,
+         running_year_normalized, midpoint_year, running_year_midpoint, study_year_start_numeric, study_year_end_numeric,
+         study_year_start, study_year_end, experiment_year) |> 
+  relocate(running_year_normalized, midpoint_year, running_year_midpoint, study_year_start_numeric, study_year_end_numeric,
+           study_year_start, study_year_end, experiment_year) |> 
+  arrange(study_year_start_numeric) |> 
+  glimpse()
+
+```
+
+```{r}
+# Fix invalid year data
+d <- database_clean %>%
+  mutate(
+    study_year_start = if_else(study_year_start < as.Date("1900-01-01"), NA, study_year_start),
+    study_year_end = if_else(study_year_end < as.Date("1900-01-01"), NA, study_year_end),
+    study_year_end = if_else(is.na(study_year_end), study_year_start, study_year_end)
+  ) %>%
+  
+  # Recalculate temporal variables
+  mutate(
+    study_year_start_numeric = as.numeric(format(study_year_start, "%Y")),
+    study_year_end_numeric = as.numeric(format(study_year_end, "%Y")),
+    midpoint_year = (study_year_start_numeric + study_year_end_numeric) / 2,
+    running_year_midpoint = midpoint_year - min(midpoint_year, na.rm = TRUE),
+    running_year_normalized = scale(running_year_midpoint)
+  )
+
+# Visualization: Distribution of Midpoint Years
+ggplot(d, aes(x = midpoint_year)) +
+  geom_histogram(binwidth = 5, fill = "blue", alpha = 0.7) +
+  labs(
+    title = "Distribution of Experiment Midpoint Years",
+    x = "Midpoint Year",
+    y = "Count"
+  ) +
+  theme_minimal()
+
+# Visualization: Running Year vs Response Variables
+ggplot(d, aes(x = running_year_normalized, y = silvo_mean)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", color = "red") +
+  labs(
+    title = "Normalized Running Year vs. Silvo Mean",
+    x = "Normalized Running Year",
+    y = "Silvo Mean"
+  ) +
+  theme_minimal()
+```
+
+
+database_clean %>%
+  as.data.frame() |> 
+  select(-geometry) |>
+  group_by(id_article, location, experiment_year) %>%
+  summarise(exp_id_count = n_distinct(exp_id), .groups = "drop") %>%
+  pivot_longer(
+    cols = c(id_article, location, experiment_year),
+    names_to = "component",
+    values_to = "count"
+  ) %>%
+  ggplot(aes(x = component, y = count, fill = component)) +
+  geom_bar(stat = "identity", show.legend = FALSE) +
+  labs(
+    title = "Distribution of exp_id Across Components",
+    x = "Component",
+    y = "Count of exp_id"
+  ) +
+  scale_fill_brewer(palette = "Set3") +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+
+```{r}
+# Check the names of moderator-related columns
+moderator_columns <- c("tree_type", "crop_type", "age_system", "soil_texture", "alley_width")  # Replace with actual moderator names
+
+# Prepare data for visualization
+moderators_data <- database_clean %>%
+  select(exp_id, all_of(moderator_columns)) %>%
+  pivot_longer(
+    cols = all_of(moderator_columns),
+    names_to = "moderator",
+    values_to = "value"
+  ) %>%
+  mutate(missing_count = is.na(value)) %>%
+  group_by(exp_id, moderator) %>%
+  summarise(missing_count = sum(missing_count), .groups = "drop")
+
+# Visualize missingness for individual moderators
+ggplot(moderators_data, aes(x = exp_id, y = missing_count, fill = moderator)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(
+    title = "Missingness Overview for Individual Moderators",
+    x = "Experiment ID (exp_id)",
+    y = "Missing Values Count",
+    fill = "Moderator"
+  ) +
+  scale_fill_brewer(palette = "Set3") +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "top"
+  )
+```
