@@ -8407,3 +8407,20 @@ ggplot(moderators_data, aes(x = exp_id, y = missing_count, fill = moderator)) +
     legend.position = "top"
   )
 ```
+
+
+# Dummy non-imputed dataset 
+non_imp_dataset_dummy <- database_clean_sd_dummy |> 
+  as.data.frame() |> 
+  relocate(
+    # Overall ID info
+    id_article, id_obs, treat_id, exp_id,
+    # Response variable info
+    response_variable, sub_response_variable,
+    # Geographic and temporal info
+    #location, final_lat, final_lon, exp_site_loc, experiment_year,
+    # Moderators info
+    tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width,
+    # Quantitative mata-analysis effect size info
+    silvo_mean, silvo_se, silvo_sd, silvo_n, control_mean, control_se, control_sd, control_n
+  )

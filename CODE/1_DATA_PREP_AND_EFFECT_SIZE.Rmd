@@ -104,6 +104,7 @@ suppressWarnings({
     ggplot2,          # Data visualization package (part of tidyverse)
     patchwork,        # ggplot2 API for sequentially building up a plot
     RColorBrewer,
+    gt,               # gt Tables
     ###################################################################################################################
     # Spatial Data
     tidygeocoder,     # Unified interface for performing both forward and reverse geocoding queries
@@ -116,6 +117,7 @@ suppressWarnings({
     # Meta-Analysis
     metafor,          # For conducting meta-analysis, effect sizes, and response ratios
     clubSandwich,     # Cluster-robust variance estimators for ordinary and weighted least squares linear regression models
+    philentropy,      # Computing divergence matrix or divergence value based on the Jensen-Shannon Divergence
     ###################################################################################################################
     # Exploratory Data Analysis (EDA)
     DataExplorer,     # For exploratory data analysis
@@ -194,6 +196,11 @@ suppressWarnings({
 **Glimpse (taking a look at the data)**
 ```{r Glimpse the dataset, eval=FALSE}
 database %>% dplyr::glimpse() 
+
+# Rows: 1,075
+# Columns: 35
+# Rows: 1,126
+# Columns: 35
 ```
 
 ```{r}
@@ -399,7 +406,8 @@ database_clean_dummy <- database_dummy |>
 GEOSPATIAL PREPROCESSING
 ####################################
 
-Manually changing 'South East England(Cambridgeshire)' to 'Cambridgeshire, England' and 'Bramham in northern England' to 'Bramham, England'
+Manually changing 'France (south west)' to 'France' and 'South East England(Cambridgeshire)' to 'Cambridgeshire, England' and 
+'Bramham in northern England' to 'Bramham, England'
 ```{r}
 # Step 1: Extract Coordinates from `site_x` if available
 database_clean <- database_clean |>
@@ -455,6 +463,10 @@ database_clean <- database_clean |>
 # Last run (03/12-2024)
 # Passing 4 addresses to the Nominatim single address geocoder
 # Query completed in: 4.3 seconds
+
+# Last run (01/01-2025)
+# Passing 3 addresses to the Nominatim single address geocoder
+# Query completed in: 3 seconds
 ```
 
 Checking if any missing values in coordinates
@@ -640,7 +652,7 @@ Checking for unclassified in climate_zone and bioclim_sub_regions
 # Check classification coverage
 database_clean_sf %>%
   filter(climate_zone == "Unclassified" | bioclim_sub_regions == "Unclassified") %>%
-  glimpse()
+  head()
 ```
 
 
@@ -667,6 +679,9 @@ database_clean <- database_clean_sf |>
 # Preview the resulting data
 database_clean |> 
   glimpse()
+
+# Rows: 1,126
+# Columns: 44
 ```
 
 
@@ -1104,7 +1119,7 @@ col_for_impute <- database_clean_sd |>
     # Columns that need to be imputed
     silvo_se, control_se, 
     # Columns that are used by mice to impute values
-    tree_age, crop_type, tree_type, sub_region, experiment_year, alley_width, silvo_n, control_n,
+    tree_age, crop_type, tree_type, bioclim_sub_regions, experiment_year, alley_width, silvo_n, control_n,
     # IDs that are used to back-link imputed values to the dataset
     id_article, id_obs, treat_id, exp_id
   ) |> 
@@ -1116,7 +1131,7 @@ col_for_impute <- database_clean_sd |>
     tree_age = as.numeric(tree_age),
     crop_type = as.factor(crop_type),
     tree_type = as.factor(tree_type),
-    sub_region = as.factor(sub_region),
+    bioclim_sub_regions = as.factor(bioclim_sub_regions),
     alley_width = as.factor(alley_width),
     id_article = as.numeric(id_article),
     id_obs = as.numeric(id_obs),
@@ -1130,7 +1145,7 @@ impute_data <- function(data, method_name) {
   if (method_name == "pmm") {
     # Predictive Mean Matching
     pred_matrix <- mice::make.predictorMatrix(data)
-    pred_matrix[, c("tree_age", "crop_type", "tree_type", "sub_region", "experiment_year", "alley_width", 
+    pred_matrix[, c("tree_age", "crop_type", "tree_type", "bioclim_sub_regions", "experiment_year", "alley_width", 
                     "id_article", "id_obs", "treat_id", "exp_id")] <- 0
 
     # Define imputation method for PMM
@@ -1142,7 +1157,7 @@ impute_data <- function(data, method_name) {
       "tree_age" = "",           # Not imputed
       "crop_type" = "",          # Not imputed
       "tree_type" = "",          # Not imputed
-      "sub_region" = "",         # Not imputed
+      "bioclim_sub_regions" = "",# Not imputed
       "experiment_year" = "",    # Not imputed
       "alley_width" = "",        # Not imputed
       "id_article" = "",         # Not imputed
@@ -1242,6 +1257,9 @@ cat("\nTotal time taken:", time.taken, "\n")
 # Last run (28/11-24)
 # Total time taken: 11.16786 sec
 # Total time taken: 13.66807 
+
+# Last run (01/01-25)
+# Total time taken: 10.50317 
 ```
 
 
@@ -1742,6 +1760,9 @@ merged_data <- database_clean_sd %>%
 # View the structure of the merged dataset
 merged_data %>%
   glimpse()
+
+# Rows: 1,126
+# Columns: 47
 ```
 ```{r}
 merged_data <- merged_data %>%
@@ -1770,6 +1791,7 @@ n_imputed_studies <- imputation_evaluation %>%
   nrow()
 
 cat("Number of unique articles with imputed values:", n_imputed_studies, "\n")
+# Number of unique articles with imputed values: 11 
 ```
 
 
@@ -1970,24 +1992,6 @@ non_imp_dataset <- database_clean_sd |>
     # Quantitative mata-analysis effect size info
     silvo_mean, silvo_se, silvo_sd, silvo_n, control_mean, control_se, control_sd, control_n
   )
-
-
-# Dummy non-imputed dataset 
-non_imp_dataset_dummy <- database_clean_sd_dummy |> 
-  as.data.frame() |> 
-  relocate(
-    # Overall ID info
-    id_article, id_obs, treat_id, exp_id,
-    # Response variable info
-    response_variable, sub_response_variable,
-    # Geographic and temporal info
-    #location, final_lat, final_lon, exp_site_loc, experiment_year,
-    # Moderators info
-    tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width,
-    # Quantitative mata-analysis effect size info
-    silvo_mean, silvo_se, silvo_sd, silvo_n, control_mean, control_se, control_sd, control_n
-  )
-
 ```
 
 ```{r}
@@ -2051,9 +2055,6 @@ if (!dir.exists(output_dir)) {
 saveRDS(non_imp_dataset,
         file = file.path(output_dir, "non_imp_dataset.rds"))
 
-# Save the non-imputed dataset as RDS
-saveRDS(non_imp_dataset_dummy,
-        file = file.path(output_dir, "non_imp_dataset_dummy.rds"))
 
 # Save the best-imputed dataset as RDS
 saveRDS(imp_pmm_best,
@@ -2070,7 +2071,7 @@ cat("- Best-imputed dataset: imp_pmm_best_dataset.rds\n")
 
 
 #############
-# STEP 5
+# STEP 6
 ##########################################################################################################################################
 CALCULATING EFFECT SIZES FOR IMPUTED AND NON-IMPUTED DATASETS
 ##########################################################################################################################################
@@ -2158,8 +2159,6 @@ prep_dataset_for_rom <- function(data) {
 # - This creates cleaned and prepared datasets for effect size calculation.
 non_imp_data_prep <- prep_dataset_for_rom(non_imp_dataset)
 imp_data_prep <- prep_dataset_for_rom(imp_pmm_best)
-
-non_imp_data_prep_dummy <- prep_dataset_for_rom(non_imp_dataset_dummy)
 ```
 
 ```{r}
@@ -2171,7 +2170,7 @@ calculate_effect_sizes <- function(data, measure = "ROM") {
   # Check if the required columns are present in the dataset
   required_columns <- c("silvo_mean", "silvo_sd", "silvo_n",
                         "control_mean", "control_sd", "control_n",
-                        "id_article", "study_year_start")
+                        "id_article", "experiment_year")
   
   if (!all(required_columns %in% names(data))) {
     stop("The dataset is missing one or more required columns.")
@@ -2192,7 +2191,7 @@ calculate_effect_sizes <- function(data, measure = "ROM") {
     n2i = control_n,             # Sample size of the control group.
     
     # Study labels for identification:
-    slab = paste(id_article, ", ", study_year_start, sep = ""),
+    slab = paste(id_article, ", ", experiment_year, sep = ""),
     
     # The input dataset:
     data = data
@@ -2208,8 +2207,6 @@ calculate_effect_sizes <- function(data, measure = "ROM") {
 # Apply the function to both non-imputed and imputed datasets
 non_imp_data_rom <- calculate_effect_sizes(non_imp_data_prep)
 imp_data_rom <- calculate_effect_sizes(imp_data_prep)
-
-non_imp_data_rom_dummy <- calculate_effect_sizes(non_imp_data_prep_dummy)
 ```
 
 
@@ -2276,7 +2273,22 @@ time.taken
 ##############################################################
 # Last go (02/12-2024)
 # Time difference of 4.055149 secs
+# Advarsel: 186 studies with NAs omitted from model fitting.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Non-Imputed Data - Heterogeneity (I^2): 10.13463 
+# Non-Imputed Data - Between-study variance (tau^2): 1.468685e-06 
+# Imputed Data - Heterogeneity (I^2): 99.93572 
+# Imputed Data - Between-study variance (tau^2): 0.009922055 
+# Time difference of 4.055149 secs
+
+# Last go (01/01-2025)
+# Time difference of 5.424392 secs
+# Advarsel: 176 studies with NAs omitted from model fitting.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Non-Imputed Data - Heterogeneity (I^2): 9.354748 
+# Non-Imputed Data - Between-study variance (tau^2): 1.438406e-06 
+# Imputed Data - Heterogeneity (I^2): 99.93018 
+# Imputed Data - Between-study variance (tau^2): 0.01053153 
+# Time difference of 5.424392 secs
 ```
+ 
+ 
  
 Kolmogorov-Smirnov Test
 The Kolmogorov-Smirnov (KS) test can be used to compare the distributions of effect sizes.
@@ -2291,6 +2303,14 @@ print(ks_test_result)
 # 
 # data:  non_imp_data_rom$yi and imp_data_rom$yi
 # D = 0.040734, p-value = 0.4179
+# alternative hypothesis: two-sided
+
+# Last go (01/01-2025)
+# Advarsel: p-value will be approximate in the presence of ties
+# 	Asymptotic two-sample Kolmogorov-Smirnov test
+# 
+# data:  non_imp_data_rom$yi and imp_data_rom$yi
+# D = 0.030426, p-value = 0.7468
 # alternative hypothesis: two-sided
 ```
 
@@ -2324,6 +2344,24 @@ summary_imp <- imp_data_rom %>%
 # Print summaries
 summary_non_imp
 summary_imp
+
+# Description:df [1 × 3]
+# mean_yi
+# <dbl>
+# median_yi
+# <dbl>
+# sd_yi
+# <dbl>
+# 0.02660392	0.002633719	0.2446765	
+# 
+# Description:df [1 × 3]
+# mean_yi
+# <dbl>
+# median_yi
+# <dbl>
+# sd_yi
+# <dbl>
+# 0.02660392	0.002633719	0.2446765
 ```
  
 ```{r}
@@ -2363,7 +2401,7 @@ boxplot_imp <- ggplot(imp_data_rom, aes(y = yi)) +
 
 
 #############
-# STEP 6
+# STEP 7
 ##########################################################################################################################################
 SAVING FINAL PREPROCESSED META-DATASETS (IMPUTED AND NON-IMPUTED) - THESE ARE USED FOR RMA.MV() MODELLING
 ##########################################################################################################################################
@@ -2390,9 +2428,7 @@ saveRDS(non_imp_data_rom,
 saveRDS(imp_data_rom,
         file = here::here(output_dir, "imp_data_rom.rds"))
 
-## DUMMY NON-IMPUTED
-saveRDS(non_imp_data_rom_dummy,
-        file = here::here(output_dir, "non_imp_data_rom_dummy.rds"))
+
 
 # Confirmation message
 cat("Files saved successfully to:", output_dir, "\n")
