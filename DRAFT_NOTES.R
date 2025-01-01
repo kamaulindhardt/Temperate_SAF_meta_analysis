@@ -8409,6 +8409,12 @@ ggplot(moderators_data, aes(x = exp_id, y = missing_count, fill = moderator)) +
 ```
 
 
+
+
+AFTER MEETING WITH MAARIT
+
+
+
 # Dummy non-imputed dataset 
 non_imp_dataset_dummy <- database_clean_sd_dummy |> 
   as.data.frame() |> 
@@ -8424,3 +8430,277 @@ non_imp_dataset_dummy <- database_clean_sd_dummy |>
     # Quantitative mata-analysis effect size info
     silvo_mean, silvo_se, silvo_sd, silvo_n, control_mean, control_se, control_sd, control_n
   )
+
+```{r}
+impute_and_merge <- function(dataset, moderators, dataset_name = "Dataset") {
+  
+  cat("Starting imputation for", dataset_name, "...\n")
+  
+  # Step 1: Prepare data for imputation
+  cols_for_impute <- dataset %>%
+    select(
+      yi, vi,
+      id_article, id_obs, exp_id,
+      response_variable, all_of(moderators)
+    )
+  
+  # Step 2: Convert categorical variables to factors
+  cols_for_impute <- cols_for_impute %>%
+    mutate(across(all_of(moderators), as.factor))
+  
+  # Step 3: Perform multiple imputation using mice
+  set.seed(1234)
+  imputed_data <- mice(
+    cols_for_impute,
+    m = 20,         # Number of imputations
+    maxit = 100,    # Maximum iterations
+    method = 'pmm', # Predictive Mean Matching
+    printFlag = FALSE
+  )
+  
+  # Step 4: Extract the first imputed dataset for merging
+  completed_data <- complete(imputed_data, 1)
+  
+  # Step 5: Join the imputed values back to the original dataset
+  merged_dataset <- dataset %>%
+    left_join(
+      completed_data %>%
+        select(id_article, id_obs, exp_id, all_of(moderators)),
+      by = c("id_article", "id_obs", "exp_id"),
+      suffix = c("_original", "_imputed")
+    )
+  
+  # Step 6: Replace missing values in the original columns with imputed values
+  for (mod in moderators) {
+    original_col <- paste0(mod, "_original")
+    imputed_col <- paste0(mod, "_imputed")
+    
+    if (original_col %in% colnames(merged_dataset) && imputed_col %in% colnames(merged_dataset)) {
+      merged_dataset[[mod]] <- ifelse(
+        is.na(merged_dataset[[original_col]]),
+        merged_dataset[[imputed_col]],
+        merged_dataset[[original_col]]
+      )
+    }
+  }
+  
+  # Step 7: Drop the temporary columns
+  merged_dataset <- merged_dataset %>%
+    select(-ends_with("_original"), -ends_with("_imputed"))
+  
+  cat("Imputation completed for", dataset_name, ".\n")
+  
+  return(merged_dataset)
+}
+```
+
+```{r}
+##########################################################################
+# Set up the parallel processing plan
+plan(multisession, workers = parallel::detectCores() - 1)
+##################################################
+# Start time tracking
+start.time <- Sys.time()
+##################################################
+##################################################
+
+
+# Performing moderator imputations
+moderators <- c("tree_type", "crop_type", "age_system", "season", 
+                "soil_texture", "no_tree_per_m", "tree_height", "alley_width")
+
+# Impute and merge for non-imputed dataset
+non_imp_dataset_imputed <- impute_and_merge(non_imp_dataset, moderators, "Non-Imputed Dataset")
+
+# Impute and merge for imputed dataset
+imp_dataset_imputed <- impute_and_merge(imp_dataset, moderators, "Imputed Dataset")
+
+
+############################################################################################################################
+# Helper function to convert numeric imputed values to categorical factors
+convert_to_factors <- function(data) {
+  # Convert 'no_tree_per_m' to character factors (Low, High)
+  data <- data %>%
+    mutate(
+      no_tree_per_m = case_when(
+        no_tree_per_m %in% c(1, "1") ~ "Low",
+        no_tree_per_m %in% c(2, "2") ~ "High",
+        TRUE ~ as.character(no_tree_per_m)
+      ) %>% as.factor()
+    )
+  
+  # Convert 'tree_height' to character factors (Short, Tall)
+  data <- data %>%
+    mutate(
+      tree_height = case_when(
+        tree_height %in% c(1, "1") ~ "Short",
+        tree_height %in% c(2, "2") ~ "Tall",
+        TRUE ~ as.character(tree_height)
+      ) %>% as.factor()
+    )
+  
+  # Convert 'alley_width' to character factors (Narrow, Wide)
+  data <- data %>%
+    mutate(
+      alley_width = case_when(
+        alley_width %in% c(1, "1") ~ "Narrow",
+        alley_width %in% c(2, "2") ~ "Wide",
+        TRUE ~ as.character(alley_width)
+      ) %>% as.factor()
+    )
+  
+  # Convert 'age_system' to character factors (Narrow, Wide)
+  data <- data %>%
+    mutate(
+      age_system = case_when(
+        age_system %in% c(1, "1") ~ "Young",
+        age_system %in% c(2, "2") ~ "Medium",
+        age_system %in% c(3, "3") ~ "Mature",
+        TRUE ~ as.character(age_system)
+      ) %>% as.factor()
+    )
+  
+  # Convert 'season' to character factors (Narrow, Wide)
+  data <- data %>%
+    mutate(
+      season = case_when(
+        season %in% c(1, "1") ~ "Summer",
+        season %in% c(2, "2") ~ "Winter",
+        season %in% c(3, "3") ~ "WinterSummer",
+        TRUE ~ as.character(season)
+      ) %>% as.factor()
+    )
+  
+  return(data)
+}
+
+# Apply the conversion function to both datasets
+non_imp_dataset_imputed <- convert_to_factors(non_imp_dataset_imputed) |> 
+  relocate(
+    # Overall ID info
+    id_article, id_obs, treat_id, exp_id,
+    # Effect size measure
+    yi, vi,
+    # Response variable info
+    response_variable, sub_response_variable,
+    # Geographic and temporal info
+    location, final_lat, final_lon, exp_site_loc, experiment_year,
+    # Moderators info
+    tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width,
+    # Quantitative mata-analysis effect size info
+    silvo_mean, silvo_se, silvo_sd, silvo_n, control_mean, control_se, control_sd, control_n
+  )
+
+
+imp_dataset_imputed <- convert_to_factors(imp_dataset_imputed) |> 
+  relocate(
+    # Overall ID info
+    id_article, id_obs, treat_id, exp_id,
+    # Effect size measure
+    yi, vi,
+    # Response variable info
+    response_variable, sub_response_variable,
+    # Geographic and temporal info
+    location, final_lat, final_lon, exp_site_loc, experiment_year,
+    # Moderators info
+    tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width,
+    # Quantitative mata-analysis effect size info
+    silvo_mean, silvo_se, silvo_sd, silvo_n, control_mean, control_se, control_sd, control_n
+  )
+
+
+
+############################################################################################################################
+
+
+##################################################
+# End time tracking
+end.time <- Sys.time()
+# Calculate time taken
+time.taken <- end.time - start.time
+time.taken
+##############################################################
+# Last go: (16/11-24)
+# Starting imputation for Non-Imputed Dataset ...
+# Advarsel: Number of logged events: 1Imputation completed for Non-Imputed Dataset .
+# Starting imputation for Imputed Dataset ...
+# Advarsel: Number of logged events: 1Imputation completed for Imputed Dataset .
+# Time difference of 1.3963 mins
+
+# Check the structure of the datasets
+# str(non_imp_dataset_imputed)
+# str(imp_dataset_imputed)
+```
+
+Assessing imputation of moderators again
+
+```{r}
+# Assessing Moderator missingness
+
+moderators <- c("tree_type", "crop_type", "age_system", "season", 
+                "soil_texture", "no_tree_per_m", "tree_height", "alley_width")
+
+# Assess missing data for non-imputed dataset
+assess_missing_data(non_imp_dataset_imputed, moderators, "Non-Imputed Dataset")
+
+# Assess missing data for imputed dataset
+assess_missing_data(imp_dataset_imputed, moderators, "Imputed Dataset")
+```
+
+Additional assessment of the moderator imputation
+
+```{r}
+# Function to calculate missing data proportions
+calculate_missing_proportions <- function(data, moderators) {
+  data %>%
+    pivot_longer(cols = all_of(moderators), names_to = "moderator", values_to = "value") %>%
+    group_by(response_variable, moderator) %>%
+    summarise(
+      missing_proportion = mean(is.na(value), na.rm = TRUE)
+    )
+}
+
+# Function to plot missing data proportions per response variable
+plot_missing_proportions <- function(original_data, imputed_data, moderators, dataset_name) {
+  cat("\nStarting plot creation for", dataset_name, "...\n")
+  
+  # Calculate missing proportions for original and imputed datasets
+  missing_original <- calculate_missing_proportions(original_data, moderators) %>%
+    mutate(data_source = "Original")
+  
+  missing_imputed <- calculate_missing_proportions(imputed_data, moderators) %>%
+    mutate(data_source = "Imputed")
+  
+  # Combine the results
+  combined_missing <- bind_rows(missing_original, missing_imputed)
+  
+  # Create the plot
+  plot <- ggplot(combined_missing, aes(x = response_variable, y = missing_proportion, fill = data_source)) +
+    geom_bar(stat = "identity", position = "dodge") +
+    facet_wrap(~ moderator, scales = "free_y") +
+    scale_y_continuous(labels = scales::percent_format()) +
+    labs(
+      title = paste("Proportion of Missing Data per Response Variable -", dataset_name),
+      x = "Response Variable",
+      y = "Missing Proportion"
+    ) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1),
+          legend.position = "top")
+  
+  cat("\nPlot creation completed for", dataset_name, ".\n")
+  
+  return(plot)
+}
+
+# List of moderators
+moderators <- c("tree_type", "crop_type", "age_system", "season", 
+                "soil_texture", "no_tree_per_m", "tree_height", "alley_width")
+
+# Create plots for Non-Imputed and Imputed datasets
+plot_non_imp <- plot_missing_proportions(non_imp_dataset, non_imp_dataset_imputed, moderators, "Non-Imputed Dataset")
+plot_imp <- plot_missing_proportions(imp_dataset, imp_dataset_imputed, moderators, "Imputed Dataset")
+
+# Display the plots side by side
+plot_non_imp + plot_imp
+```

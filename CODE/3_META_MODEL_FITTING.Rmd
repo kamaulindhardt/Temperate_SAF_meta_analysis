@@ -81,42 +81,48 @@ rm(list = ls())
 # Suppress warnings to avoid clutter in the console output
 suppressWarnings({
 
-  # Load multiple add-on packages using pacman::p_load for efficiency
-  pacman::p_load(
-    conflicted,
-    # Data Manipulation / Transformation
-    conflicted,
-    tidyverse,        # Comprehensive collection of R packages for data science
-    readr,            # Read and write csv 
-    dplyr,
-    skimr,
-    future,           # Parallel processing
-    future.apply,     # Parallel processing
-    ###################################################################################################################
-    # Data Visualization
-    ggplot2,          # Data visualization package (part of tidyverse)
-    patchwork,        # ggplot2 API for sequentially building up a plot
-    gridExtra,
-    scales,
-    ###################################################################################################################
-    # Meta-Analysis
-    metafor,          # For conducting meta-analysis, effect sizes, and response ratios
-    clubSandwich,     # Cluster-robust variance estimators for ordinary and weighted least squares linear regression models
-    mice,
-    ###################################################################################################################
-    # Exploratory Data Analysis (EDA)
-    DataExplorer,     # For exploratory data analysis
-    SmartEDA,         # For smart exploratory data analysis
-    skimr,
-    naniar,
-    VIM,
-    Hmisc,
-    BaylorEdPsych,
-    ###################################################################################################################
-    # Project Management and Code Styling
-    here,             # Easy file referencing using the top-level directory of a file project
-    styler            # For code formatting and styling
-  )
+# Load multiple add-on packages using pacman::p_load for efficiency
+# pacman::p_load automatically installs missing packages and loads them
+pacman::p_load(
+  
+  # Conflict Resolution
+  conflicted,        # Resolves conflicts when functions with the same name exist in multiple packages
+  
+  # Data Manipulation / Transformation
+  tidyverse,         # Comprehensive collection of R packages for data science (e.g., ggplot2, dplyr, readr)
+  readr,             # Simplifies reading and writing of delimited text files (e.g., CSV)
+  dplyr,             # A grammar of data manipulation (e.g., filter, mutate, summarise, etc.)
+  skimr,             # Provides summary statistics with a more user-friendly output
+  future,            # Supports parallel processing for speeding up computations
+  future.apply,      # Extends the future package for parallelized versions of base R apply functions
+  
+  ###################################################################################################################
+  # Data Visualization
+  ggplot2,           # A data visualization package for creating static and interactive graphics (part of tidyverse)
+  patchwork,         # Extends ggplot2 by providing tools to combine multiple plots into one
+  gridExtra,         # Arranges multiple grid-based plots (e.g., from ggplot2) into a single display
+  scales,            # Adds tools for handling scale transformations and labels in visualizations
+  
+  ###################################################################################################################
+  # Meta-Analysis
+  metafor,           # For conducting meta-analyses, including calculating effect sizes and response ratios
+  clubSandwich,      # Provides cluster-robust variance estimators for meta-analysis models
+  mice,              # Multivariate Imputation by Chained Equations for handling missing data
+  
+  ###################################################################################################################
+  # Exploratory Data Analysis (EDA)
+  DataExplorer,      # Automates exploratory data analysis with summary statistics and visualizations
+  SmartEDA,          # Automates exploratory data analysis with summary reports and visualizations
+  naniar,            # Provides tools for handling and visualizing missing data
+  VIM,               # Visualization and Imputation of Missing Data
+  Hmisc,             # Miscellaneous functions including data summary, analysis, and visualization
+  BaylorEdPsych,     # Provides tools for reliability analysis and missing data imputation
+  
+  ###################################################################################################################
+  # Project Management and Code Styling
+  here,              # Simplifies file referencing by locating the root of a project directory
+  styler             # Formats and styles R code to improve readability and consistency
+)
   
   # If encountering issues with raster::getData(), consider using geodata::worldclim_global() from the geodata package
 })
@@ -154,7 +160,7 @@ suppressWarnings({
 non_imp_data_rom <- readRDS(here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R", "non_imp_data_rom.rds"))
 imp_data_rom <- readRDS(here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R", "imp_data_rom.rds"))
 
-non_imp_data_rom_dummy <- readRDS(here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R", "non_imp_data_rom_dummy.rds"))
+# non_imp_data_rom_dummy <- readRDS(here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R", "non_imp_data_rom_dummy.rds"))
 
 # Read in the non-imputed dataset
 non_imp_dataset <- non_imp_data_rom %>%
@@ -186,25 +192,6 @@ imp_dataset <- imp_data_rom %>%
     response_variable, sub_response_variable,
     # Geographic and temporal info
     location, final_lat, final_lon, exp_site_loc, experiment_year,
-    # Moderators info
-    tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width,
-    # Quantitative mata-analysis effect size info
-    silvo_mean, silvo_se, silvo_sd, silvo_n, control_mean, control_se, control_sd, control_n
-  )
-
-
-# Read in the dummy version of non-imputed dataset
-non_imp_data_dummy <- non_imp_data_rom_dummy %>%
-  as.data.frame()|> 
-  relocate(
-    # Overall ID info
-    id_article, id_obs, treat_id, exp_id,
-    # Effect size measure
-    yi, vi,
-    # Response variable info
-    response_variable, sub_response_variable,
-    # Geographic and temporal info
-    #location, final_lat, final_lon, exp_site_loc, experiment_year,
     # Moderators info
     tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width,
     # Quantitative mata-analysis effect size info
@@ -244,6 +231,7 @@ num_distinct_articles <- nrow(distinct_articles)
 
 # Print the result
 cat("Number of distinct id_article entries:", num_distinct_articles, "\n")
+# Number of distinct id_article entries: 37 
 ```
 
 
@@ -364,10 +352,7 @@ response_variables <- names(custom_colors)
 
 
 #############
-<<<<<<< HEAD
 # STEP 2
-=======
-# STEP 1
 ##########################################################################################################################################
 PERFORMING MULTIVARIATE/MULTILEVEL LINEAR (MIXED-EFFECTS) MODELLING 
 ##########################################################################################################################################
@@ -379,8 +364,6 @@ Selection of Moderators for Analysis
 Fitting the Multivariate Random-Effects Model with Selected Moderators
 
 ```{r}
-library(scales)
-
 # Define the function for missing data assessment
 assess_missing_data <- function(dataset, moderators, dataset_name = "Dataset") {
   
@@ -452,292 +435,16 @@ assess_missing_data(imp_dataset, moderators, "Imputed Dataset")
 ```
 
 
-```{r}
-impute_and_merge <- function(dataset, moderators, dataset_name = "Dataset") {
-  
-  cat("Starting imputation for", dataset_name, "...\n")
-
-  # Step 1: Prepare data for imputation
-  cols_for_impute <- dataset %>%
-    select(
-      yi, vi,
-      id_article, id_obs, exp_id,
-      response_variable, all_of(moderators)
-    )
-
-  # Step 2: Convert categorical variables to factors
-  cols_for_impute <- cols_for_impute %>%
-    mutate(across(all_of(moderators), as.factor))
-
-  # Step 3: Perform multiple imputation using mice
-  set.seed(1234)
-  imputed_data <- mice(
-    cols_for_impute,
-    m = 20,         # Number of imputations
-    maxit = 100,    # Maximum iterations
-    method = 'pmm', # Predictive Mean Matching
-    printFlag = FALSE
-  )
-
-  # Step 4: Extract the first imputed dataset for merging
-  completed_data <- complete(imputed_data, 1)
-
-  # Step 5: Join the imputed values back to the original dataset
-  merged_dataset <- dataset %>%
-    left_join(
-      completed_data %>%
-        select(id_article, id_obs, exp_id, all_of(moderators)),
-      by = c("id_article", "id_obs", "exp_id"),
-      suffix = c("_original", "_imputed")
-    )
-
-  # Step 6: Replace missing values in the original columns with imputed values
-  for (mod in moderators) {
-    original_col <- paste0(mod, "_original")
-    imputed_col <- paste0(mod, "_imputed")
-
-    if (original_col %in% colnames(merged_dataset) && imputed_col %in% colnames(merged_dataset)) {
-      merged_dataset[[mod]] <- ifelse(
-        is.na(merged_dataset[[original_col]]),
-        merged_dataset[[imputed_col]],
-        merged_dataset[[original_col]]
-      )
-    }
-  }
-
-  # Step 7: Drop the temporary columns
-  merged_dataset <- merged_dataset %>%
-    select(-ends_with("_original"), -ends_with("_imputed"))
-
-  cat("Imputation completed for", dataset_name, ".\n")
-  
-  return(merged_dataset)
-}
-```
-
-```{r}
-##########################################################################
-# Set up the parallel processing plan
-plan(multisession, workers = parallel::detectCores() - 1)
-##################################################
-# Start time tracking
-start.time <- Sys.time()
-##################################################
-##################################################
-
-
-# Performing moderator imputations
-moderators <- c("tree_type", "crop_type", "age_system", "season", 
-                "soil_texture", "no_tree_per_m", "tree_height", "alley_width")
-
-# Impute and merge for non-imputed dataset
-non_imp_dataset_imputed <- impute_and_merge(non_imp_dataset, moderators, "Non-Imputed Dataset")
-
-# Impute and merge for imputed dataset
-imp_dataset_imputed <- impute_and_merge(imp_dataset, moderators, "Imputed Dataset")
-
-
-############################################################################################################################
-# Helper function to convert numeric imputed values to categorical factors
-convert_to_factors <- function(data) {
-  # Convert 'no_tree_per_m' to character factors (Low, High)
-  data <- data %>%
-    mutate(
-      no_tree_per_m = case_when(
-        no_tree_per_m %in% c(1, "1") ~ "Low",
-        no_tree_per_m %in% c(2, "2") ~ "High",
-        TRUE ~ as.character(no_tree_per_m)
-      ) %>% as.factor()
-    )
-  
-  # Convert 'tree_height' to character factors (Short, Tall)
-  data <- data %>%
-    mutate(
-      tree_height = case_when(
-        tree_height %in% c(1, "1") ~ "Short",
-        tree_height %in% c(2, "2") ~ "Tall",
-        TRUE ~ as.character(tree_height)
-      ) %>% as.factor()
-    )
-  
-  # Convert 'alley_width' to character factors (Narrow, Wide)
-  data <- data %>%
-    mutate(
-      alley_width = case_when(
-        alley_width %in% c(1, "1") ~ "Narrow",
-        alley_width %in% c(2, "2") ~ "Wide",
-        TRUE ~ as.character(alley_width)
-      ) %>% as.factor()
-    )
-  
-  # Convert 'age_system' to character factors (Narrow, Wide)
-  data <- data %>%
-    mutate(
-      age_system = case_when(
-        age_system %in% c(1, "1") ~ "Young",
-        age_system %in% c(2, "2") ~ "Medium",
-        age_system %in% c(3, "3") ~ "Mature",
-        TRUE ~ as.character(age_system)
-      ) %>% as.factor()
-    )
-  
-   # Convert 'season' to character factors (Narrow, Wide)
-  data <- data %>%
-    mutate(
-      season = case_when(
-        season %in% c(1, "1") ~ "Summer",
-        season %in% c(2, "2") ~ "Winter",
-        season %in% c(3, "3") ~ "WinterSummer",
-        TRUE ~ as.character(season)
-      ) %>% as.factor()
-    )
-  
-  return(data)
-}
-
-# Apply the conversion function to both datasets
-non_imp_dataset_imputed <- convert_to_factors(non_imp_dataset_imputed) |> 
-  relocate(
-    # Overall ID info
-    id_article, id_obs, treat_id, exp_id,
-    # Effect size measure
-    yi, vi,
-    # Response variable info
-    response_variable, sub_response_variable,
-    # Geographic and temporal info
-    location, final_lat, final_lon, exp_site_loc, experiment_year,
-    # Moderators info
-    tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width,
-    # Quantitative mata-analysis effect size info
-    silvo_mean, silvo_se, silvo_sd, silvo_n, control_mean, control_se, control_sd, control_n
-  )
-
-
-imp_dataset_imputed <- convert_to_factors(imp_dataset_imputed) |> 
-  relocate(
-    # Overall ID info
-    id_article, id_obs, treat_id, exp_id,
-    # Effect size measure
-    yi, vi,
-    # Response variable info
-    response_variable, sub_response_variable,
-    # Geographic and temporal info
-    location, final_lat, final_lon, exp_site_loc, experiment_year,
-    # Moderators info
-    tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width,
-    # Quantitative mata-analysis effect size info
-    silvo_mean, silvo_se, silvo_sd, silvo_n, control_mean, control_se, control_sd, control_n
-  )
-
- 
-
-############################################################################################################################
-
-
-##################################################
-# End time tracking
-end.time <- Sys.time()
-# Calculate time taken
-time.taken <- end.time - start.time
-time.taken
-##############################################################
-# Last go: (16/11-24)
-# Starting imputation for Non-Imputed Dataset ...
-# Advarsel: Number of logged events: 1Imputation completed for Non-Imputed Dataset .
-# Starting imputation for Imputed Dataset ...
-# Advarsel: Number of logged events: 1Imputation completed for Imputed Dataset .
-# Time difference of 1.3963 mins
-
-# Check the structure of the datasets
-# str(non_imp_dataset_imputed)
-# str(imp_dataset_imputed)
-```
-
-Assessing imputation of moderators again
-
-```{r}
-# Assessing Moderator missingness
-
-moderators <- c("tree_type", "crop_type", "age_system", "season", 
-                "soil_texture", "no_tree_per_m", "tree_height", "alley_width")
-
-# Assess missing data for non-imputed dataset
-assess_missing_data(non_imp_dataset_imputed, moderators, "Non-Imputed Dataset")
-
-# Assess missing data for imputed dataset
-assess_missing_data(imp_dataset_imputed, moderators, "Imputed Dataset")
-```
-
-Additional assessment of the moderator imputation
-
-```{r}
-# Function to calculate missing data proportions
-calculate_missing_proportions <- function(data, moderators) {
-  data %>%
-    pivot_longer(cols = all_of(moderators), names_to = "moderator", values_to = "value") %>%
-    group_by(response_variable, moderator) %>%
-    summarise(
-      missing_proportion = mean(is.na(value), na.rm = TRUE)
-    )
-}
-
-# Function to plot missing data proportions per response variable
-plot_missing_proportions <- function(original_data, imputed_data, moderators, dataset_name) {
-  cat("\nStarting plot creation for", dataset_name, "...\n")
-
-  # Calculate missing proportions for original and imputed datasets
-  missing_original <- calculate_missing_proportions(original_data, moderators) %>%
-    mutate(data_source = "Original")
-  
-  missing_imputed <- calculate_missing_proportions(imputed_data, moderators) %>%
-    mutate(data_source = "Imputed")
-
-  # Combine the results
-  combined_missing <- bind_rows(missing_original, missing_imputed)
-
-  # Create the plot
-  plot <- ggplot(combined_missing, aes(x = response_variable, y = missing_proportion, fill = data_source)) +
-    geom_bar(stat = "identity", position = "dodge") +
-    facet_wrap(~ moderator, scales = "free_y") +
-    scale_y_continuous(labels = scales::percent_format()) +
-    labs(
-      title = paste("Proportion of Missing Data per Response Variable -", dataset_name),
-      x = "Response Variable",
-      y = "Missing Proportion"
-    ) +
-    theme_minimal() +
-    theme(axis.text.x = element_text(angle = 45, hjust = 1),
-          legend.position = "top")
-
-  cat("\nPlot creation completed for", dataset_name, ".\n")
-
-  return(plot)
-}
-
-# List of moderators
-moderators <- c("tree_type", "crop_type", "age_system", "season", 
-                "soil_texture", "no_tree_per_m", "tree_height", "alley_width")
-
-# Create plots for Non-Imputed and Imputed datasets
-plot_non_imp <- plot_missing_proportions(non_imp_dataset, non_imp_dataset_imputed, moderators, "Non-Imputed Dataset")
-plot_imp <- plot_missing_proportions(imp_dataset, imp_dataset_imputed, moderators, "Imputed Dataset")
-
-# Display the plots side by side
-plot_non_imp + plot_imp
-```
 
 
 
->>>>>>> 0c8c8c4261ab99a2d836b1091c6bde53b50196ea
+
 ##########################################################################################################################################
 CREATING A VARIANCE-COVARIANCE MATRIX
 ##########################################################################################################################################
 
 
 ```{r}
-# Load required package
-library(here)
-
 # Variance-Covariance Matrix Calculation Function
 calculate_v_matrix <- function(data, correlation = 0.5) {
   cat("\nCalculating Variance-Covariance Matrix...\n")
@@ -770,7 +477,11 @@ calculate_v_matrix <- function(data, correlation = 0.5) {
 ```
 
 ```{r}
+# WORING ON THE IMPUTED DATASET
 meta_data <- imp_dataset
+
+
+
 
 # Directory for saving results
 output_dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
@@ -802,6 +513,9 @@ for (response in response_variables) {
 saveRDS(v_matrices, file = file.path(output_dir, "v_matrices_by_response_variable.rds"))
 cat("\nAll v_matrices saved to:", output_dir, "\n")
 ```
+
+
+
 
 #############
 # STEP 3
@@ -887,10 +601,27 @@ model <- tryCatch({
         ~ 1 | exp_id                                # Random intercept for individual experiments
       ),
 
-
+D)
+# Fit a multivariate meta-analytic model using `rma.mv` within a try-catch block
+model <- tryCatch({
+    # Fit a random-effects multivariate meta-analysis model
+    rma.mv(
+      # Dependent variable: effect size (yi)
+      yi = yi,
+      # Variance-covariance matrix (V): accounts for within-study sampling variance and potential correlations
+      V = v_matrix,
+      # Moderators: a formula specifying the covariates to include in the model
+      mods = moderator_formula,
+      # Random-effects structure: defines how the random effects are modeled hierarchically
+      random = list(
+        ~ 1 + Year | id_article,                    # Random intercept for each year and article/study
+        ~ 1 | id_article/response_variable,         # Nested random intercept for each response variable within articles
+        ~ 1 | exp_id                                # Random intercept for individual experiments
+      ),
+      
 ```{r}
 # Function to fit models for each response variable using precomputed v_matrices
-fit_response_variable_model <- function(data, response_variable, v_matrix, moderators = NULL) {
+fit_response_variable_model <- function(data_subset, response_variable, v_matrix, moderators = NULL) {
   cat("\nFitting model for response variable:", response_variable, "...\n")
   
   # Define the moderator formula
@@ -912,12 +643,11 @@ model <- tryCatch({
       mods = moderator_formula,
       # Random-effects structure: defines how the random effects are modeled hierarchically
       random = list(
-        ~ 1 + Year | id_article,                           # Random intercept for each article/study
         ~ 1 | id_article/response_variable,         # Nested random intercept for each response variable within articles
         ~ 1 | exp_id                                # Random intercept for individual experiments
       ),
       # Data: the dataset used for the analysis
-      data = data,
+      data = data_subset,
       # Method: optimization method for model fitting
       method = "ML",                                # Maximum likelihood estimation
       # Control settings: additional options for the optimization algorithm
@@ -954,46 +684,33 @@ start.time <- Sys.time()
 ##################################################
 
 
-# Fit models for each response variable using the precomputed v_matrices
-model_results <- list()
+# Function to fit models for each response variable using precomputed v_matrices
+fit_response_variable_model <- function(data_subset, response_variable, v_matrix, moderators = NULL) {
+  cat("\nFitting model for response variable:", response_variable, "...\n")
+  
+  # Define the moderator formula
+  moderator_formula <- if (!is.null(moderators)) {
+    as.formula(paste("yi ~", paste(moderators, collapse = " + ")))
+  } else {
+    as.formula("yi ~ 1")  # Intercept-only model
+  }
 
-<<<<<<< HEAD
-for (response in names(v_matrices)) {
-  cat("\nProcessing response variable:", response, "\n")
-  
-  # Subset the data for the current response variable
-  data_subset <- meta_data[meta_data$response_variable == response, ]
-  
-  # Retrieve the precomputed v_matrix
-  v_matrix <- v_matrices[[response]]
-  
-  # Fit the model for the current response variable
-  model <- fit_response_variable_model(data_subset, response, v_matrix, moderators = c("tree_type", "crop_type", "age_system", "season", "soil_texture"))
-  
-  # Save the model result
-  model_results[[response]] <- model
-=======
-  # Define the formula for moderators
-  moderators <- c("tree_type", "crop_type", "age_system", "season", "soil_texture", "no_tree_per_m", "tree_height", "alley_width")
-  moderator_formula <- as.formula(paste("yi ~", paste(moderators, collapse = " + ")))
-
-  # Prepare the data
-  data <- data %>%
+  # Ensure all moderators are treated as factors
+  data_subset <- data_subset %>%
     mutate(across(all_of(moderators), as.factor)) %>%
     as.data.frame()
 
-  # Fit the multivariate random-effects model
+  # Fit the model
   model <- tryCatch({
     rma.mv(
-      yi = yi,                      # fixed effects
-      V = V_matrix,
+      yi = yi,
+      V = v_matrix,
       mods = moderator_formula,
-      random = list(                # random effects
-        ~ 1 | id_article,
+      random = list(
         ~ 1 | id_article/response_variable,
         ~ 1 | exp_id
       ),
-      data = data,
+      data = data_subset,
       method = "ML",
       control = list(
         optimizer = "optim",
@@ -1003,42 +720,45 @@ for (response in names(v_matrices)) {
       )
     )
   }, error = function(e) {
-    cat("Error in model fitting for", dataset_name, ":", e$message, "\n")
+    cat("Error in model fitting for", response_variable, ":", e$message, "\n")
     return(NULL)
   })
-
+  
+  # Return the model or NULL if fitting failed
   if (!is.null(model)) {
-    cat("Model fitting completed for", dataset_name, ".\n")
-    
-    # Extract model statistics
-    aic <- AIC(model)
-    bic <- BIC(model)
-    logLik_val <- logLik(model)
-
-    # Calculate I² (heterogeneity)
-    tau2 <- sum(model$sigma2)
-    sigma2 <- mean(data$vi)
-    I2 <- (tau2 / (tau2 + sigma2)) * 100
-
-    # Create a summary list
-    model_summary <- list(
-      model = model,
-      aic = aic,
-      bic = bic,
-      logLik = logLik_val,
-      I2 = I2
-    )
-    
-    return(model_summary)
+    cat("Model fitting completed for response variable:", response_variable, ".\n")
+    return(model)
   } else {
     return(NULL)
   }
->>>>>>> 0c8c8c4261ab99a2d836b1091c6bde53b50196ea
+}
+
+# Fit models for each response variable using the precomputed v_matrices
+model_results <- list()
+
+for (response in names(v_matrices)) {
+  cat("\nProcessing response variable:", response, "\n")
+  
+  # Subset the data for the current response variable
+  data_subset <- meta_data[meta_data$response_variable == response, ]
+  
+  # Retrieve the precomputed v_matrix
+  v_matrix <- v_matrices[[response]]
+  
+  # Define moderators
+  moderators <- c("tree_type", "crop_type", "age_system", "season", "soil_texture")
+
+  # Fit the model for the current response variable
+  model <- fit_response_variable_model(data_subset, response, v_matrix, moderators)
+  
+  # Save the model result
+  model_results[[response]] <- model
 }
 
 # Save the fitted models to a file
 saveRDS(model_results, file = file.path(output_dir, "fitted_models_by_response_variable.rds"))
 cat("\nAll models fitted and saved to:", output_dir, "\n")
+
 
 ##################################################
 # End time tracking
@@ -1049,6 +769,32 @@ time.taken
 ##############################################################
 # Last go (02/12-2024)
 # Time difference of 11.96204 secs
+
+# Last go (01/01-2025)
+# Time difference of 8.034523 secs
+# Processing response variable: Biodiversity 
+# Fitting model for response variable: Biodiversity ...
+# Advarsel: 14 rows with NAs omitted from model fitting.Model fitting completed for response variable: Biodiversity .
+# Processing response variable: Greenhouse gas emission 
+# Fitting model for response variable: Greenhouse gas emission ...
+# Error in model fitting for Greenhouse gas emission : contrasts can be applied only to factors with 2 or more levels 
+# Processing response variable: Product quality 
+# Fitting model for response variable: Product quality ...
+# Model fitting completed for response variable: Product quality .
+# Processing response variable: Crop yield 
+# Fitting model for response variable: Crop yield ...
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Model fitting completed for response variable: Crop yield .
+# Processing response variable: Pest and Disease 
+# Fitting model for response variable: Pest and Disease ...
+# Advarsel: Redundant predictors dropped from the model.Model fitting completed for response variable: Pest and Disease .
+# Processing response variable: Soil quality 
+# Fitting model for response variable: Soil quality ...
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Redundant predictors dropped from the model.Model fitting completed for response variable: Soil quality .
+# Processing response variable: Water quality 
+# Fitting model for response variable: Water quality ...
+# Error in model fitting for Water quality : contrasts can be applied only to factors with 2 or more levels 
+# All models fitted and saved to: C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temp_SAF_meta_analysis/DATA/OUTPUT_FROM_R/SAVED_OBJECTS_FROM_R 
+# Time difference of 8.034523 secs
 ```
 
 #############
@@ -1134,11 +880,7 @@ diagnostics_plot <- model_diagnostics %>%
   theme_minimal(base_size = 14) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
-<<<<<<< HEAD
 print(diagnostics_plot)
-=======
-print(fit_plot)
-
 ```
 
 
@@ -1159,7 +901,6 @@ coef_plot <- ggplot(fixed_effects_data, aes(x = Term, y = Estimate, color = Data
   theme_minimal()
 
 print(coef_plot)
-
 ```
 
 
@@ -1185,7 +926,6 @@ Comparison table of key model statistics
 
 ```{r}
 colnames(model_summaries)
->>>>>>> 0c8c8c4261ab99a2d836b1091c6bde53b50196ea
 ```
 
 ```{r}
@@ -1327,11 +1067,43 @@ end.time <- Sys.time()
 time.taken <- end.time - start.time
 time.taken
 ##############################################################
-<<<<<<< HEAD
+
 # Last go (02/12-2024)
 # Time difference of 1.117442 mins
 # Time difference of 3.097009 mins
 # Time difference of 2.744736 mins
+
+# Last go (01/01-2025)
+# Time difference of 2.148423 mins
+# Processing response variable: Biodiversity ...
+# Advarsel: Extra argument ('random') disregarded.
+# Processing response variable: Crop yield ...
+# Advarsel: Extra argument ('random') disregarded.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.
+# Processing response variable: Water quality ...
+# Advarsel: Extra argument ('random') disregarded.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.
+# Processing response variable: Pest and Disease ...
+# Advarsel: Extra argument ('random') disregarded.
+# Processing response variable: Soil quality ...
+# Advarsel: Extra argument ('random') disregarded.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.
+# Processing response variable: Greenhouse gas emission ...
+# Advarsel: Extra argument ('random') disregarded.
+# Processing response variable: Product quality ...
+# Advarsel: Extra argument ('random') disregarded.
+# Computing influence diagnostics for: Biodiversity ...
+# Computing influence diagnostics for: Crop yield ...
+# Computing influence diagnostics for: Water quality ...
+# Computing influence diagnostics for: Pest and Disease ...
+# Computing influence diagnostics for: Soil quality ...
+# Computing influence diagnostics for: Greenhouse gas emission ...
+# Computing influence diagnostics for: Product quality ...
+# Running Leave-One-Out for: Biodiversity ...
+# Running Leave-One-Out for: Crop yield ...
+# Running Leave-One-Out for: Water quality ...
+# Running Leave-One-Out for: Pest and Disease ...
+# Running Leave-One-Out for: Soil quality ...
+# Running Leave-One-Out for: Greenhouse gas emission ...
+# Running Leave-One-Out for: Product quality ...
+# Time difference of 2.148423 mins
 ```
 
 
@@ -1358,7 +1130,6 @@ time.taken
 # Bootstrap Confidence Intervals Calculation Complete for Imputed Imputed Dataset .
 # 
 # Forest Plot for Imputed Imputed Dataset :
-```
 
 Saving plots
 
@@ -1477,7 +1248,6 @@ datasets_effect_sizes$non_imp_dataset %>% glimpse()
 SAVING DATASETS AND MODEL OBJECTS
 ##########################################################################################################################################
 
->>>>>>> 0c8c8c4261ab99a2d836b1091c6bde53b50196ea
 ```{r}
 # Save the results
 output_dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
@@ -1534,6 +1304,7 @@ time.taken
 # Last go (02/12-2024)
 # Time difference of 49.21399 secs
 ```
+
 ```{r}
 # Perform leave-one-out analysis at the study level
 leave1out_results <- list()
@@ -1600,6 +1371,7 @@ diagnostics_data <- do.call(rbind, diagnostics_list[!sapply(diagnostics_list, is
 # Check the resulting data frame
 diagnostics_data |> glimpse()
 ```
+
 ```{r}
 # Save diagnostics dataset
 # diagnostics_list |> str()
