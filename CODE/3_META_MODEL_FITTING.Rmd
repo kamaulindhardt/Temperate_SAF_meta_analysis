@@ -235,98 +235,7 @@ cat("Number of distinct id_article entries:", num_distinct_articles, "\n")
 ```
 
 
-*Points to address after the Tshering meeting with her supervisor (26/11-2024)*
 
-* Subgroup Analysis:
-Keep subgroup analyses for each response_variable (e.g., biodiversity, crop yield) to respect conceptual differences. This ensures tailored insights into unique trends and moderators like tree_type or crop_type. Account for reduced statistical power in smaller subgroups by adjusting for multiple comparisons (e.g., Bonferroni). Compare heterogeneity metrics (Q, I², τ²) across subgroups to identify variability differences.
-
-* Meta-Regression:
-Use meta-regression as a complementary step to capture overarching patterns. Include response_variable as a moderator and test interactions (e.g., tree_type * response_variable) to detect shared vs. outcome-specific effects. Start with a simpler model and add key moderators incrementally to maintain interpretability.
-
-* Heterogeneity Comparison:
-Compare heterogeneity metrics (I², τ²) between original and imputed datasets to assess the impact of imputation. Highlight changes in variability and their implications.
-
-* Visualizations:
-Simplify forest plots, focusing on clarity (e.g., one plot per response variable). Use ggplot for clean annotations, log-scaled axes (if relevant), and consistent aesthetics. Add funnel plots for individual response variable models and meta-regression to assess bias and precision.
-
-*Points to address after the meeting with Maarit (03/12-2024*
-
-#### **1. Imputation**
-   - **Evaluate Missingness:** 
-     - Check patterns of missingness in the original data and verify study reliability.
-     - Assess missingness in moderator-response variable combinations.
-   - **Non-Random Missingness:** 
-     - Test for non-random missingness in standard deviations for moderator-response combinations.
-   - **Imputation Methodology:**
-     - Use robust methods (e.g., upper quartile) for imputation if data quality is uncertain.
-     - Avoid imputing response variables, moderators, or fixed-effect variables (especially continuous ones).
-   - **Model Comparison:**
-     - Compare model results using imputed vs. non-imputed datasets to assess imputation impact.
-
----
-
-#### **2. Moderators**
-   - Ensure a minimum of 10 studies per sublevel of moderators for sufficient statistical power.
-
----
-
-#### **3. Random Effects**
-   - **Revise `exp_id`:**
-     - Aggregate location data within `exp_id` to simplify its structure.
-   - **Simplify Random Effects:**
-     - Remove unnecessary random effects (`id_article/response_variable`) if `exp_id` sufficiently captures random intercepts/slopes.
-
----
-
-#### **4. Year as a Fixed Effect**
-   - Add standardized year as a fixed-effect, continuous variable to capture potential slope effects.
-   - Validate the structure and missingness of the `exp_id` variable before inclusion.
-   - "This morning, I worked on our database to determine which level we can use for the location. Since we are already focusing on the temperate climatic zone, I thought it would be good to use the country as the location."
----
-
-#### **5. Multilevel Modelling vs. Subgroup Analysis**
-   - Use **multilevel modelling** to account for incomplete combinations of moderators and response variables.
-   - Multilevel modelling is valid for disentangling hierarchical structures but, for transparency and communication purposes, subgroup meta-analysis will remain the primary approach.
-   - Consider specific interaction terms between moderators after including additive effects in the model.
-
----
-
-#### **6. Bias Assessment**
-   - Test for publication bias and variance error bias for each response variable and moderator.
-
----
-
-#### **7. Global Mean Comparisons**
-   - Include a global mean to compare overall responses, particularly in cases of sign changes across responses.
-
----
-
-#### **8. Model Diagnostics**
-   - **Delta AIC:**
-     - Use delta AIC to compare model performance between alternative specifications.
-   - **Influence Diagnostics:**
-     - Perform diagnostics on a study level using the `nlme` package with `id_article` as the grouping variable.
-
-
-Key Action Points
-	1. Check and Address Missing Data:
-		○ Assess patterns of missingness and trustworthiness of studies.
-		○ Implement robust imputation for error values only.
-	2. Aggregate and Simplify:
-		○ Aggregate soil texture levels and location data within exp_id.
-	3. Review Model Structure:
-		○ Simplify random effects.
-		○ Include standardized year as a fixed effect.
-	4. Evaluate Bias:
-		○ Perform publication and variance error bias assessments.
-	5. Use Multilevel Models:
-		○ Implement multilevel modeling to manage hierarchical structures.
-	6. Conduct Diagnostics:
-		○ Apply influence diagnostics at the study level (nlme).
-	7. Include Interaction Terms:
-		○ Incorporate interactions only after main effects in the model.
-	8. Global Response Comparisons:
-Use a global mean for overarching response evaluations.
 
 ##########################################################################################################################################
 LISTING RESPONSE VARIABLES AND SETTING UP COSTUM COLORS
@@ -618,60 +527,14 @@ model <- tryCatch({
         ~ 1 | id_article/response_variable,         # Nested random intercept for each response variable within articles
         ~ 1 | exp_id                                # Random intercept for individual experiments
       ),
-      
-```{r}
-# Function to fit models for each response variable using precomputed v_matrices
-fit_response_variable_model <- function(data_subset, response_variable, v_matrix, moderators = NULL) {
-  cat("\nFitting model for response variable:", response_variable, "...\n")
-  
-  # Define the moderator formula
-  moderator_formula <- if (!is.null(moderators)) {
-    as.formula(paste("yi ~", paste(moderators, collapse = " + ")))
-  } else {
-    as.formula("yi ~ 1")  # Intercept-only model
-  }
-
-# Fit a multivariate meta-analytic model using `rma.mv` within a try-catch block
-model <- tryCatch({
-    # Fit a random-effects multivariate meta-analysis model
-    rma.mv(
-      # Dependent variable: effect size (yi)
-      yi = yi,
-      # Variance-covariance matrix (V): accounts for within-study sampling variance and potential correlations
-      V = v_matrix,
-      # Moderators: a formula specifying the covariates to include in the model
-      mods = moderator_formula,
-      # Random-effects structure: defines how the random effects are modeled hierarchically
-      random = list(
-        ~ 1 | id_article/response_variable,         # Nested random intercept for each response variable within articles
-        ~ 1 | exp_id                                # Random intercept for individual experiments
-      ),
-      # Data: the dataset used for the analysis
-      data = data_subset,
-      # Method: optimization method for model fitting
-      method = "ML",                                # Maximum likelihood estimation
-      # Control settings: additional options for the optimization algorithm
-      control = list(
-        optimizer = "optim",                        # Specify the optimization function to use
-        optim.method = "BFGS",                      # Use the Broyden–Fletcher–Goldfarb–Shanno algorithm for optimization
-        iter.max = 1000,                            # Maximum number of iterations allowed
-        rel.tol = 1e-8                              # Convergence tolerance (stopping criterion for optimization)
-      )
-    )
-}, error = function(e) {                            # Catch any errors during model fitting
-    cat("Error in model fitting:", e$message, "\n") # Print the error message
-    return(NULL)                                    # Return NULL if an error occurs
-})
 
 
-  if (!is.null(model)) {
-    cat("Model fitting completed for response variable:", response_variable, ".\n")
-    return(model)
-  } else {
-    return(NULL)
-  }
-}
-```
+##########################################################################################################################################
+FITTING MODELS FOR EACH RESPONSE VARIABLE USING PRECOMPUTED V_MATRICES
+##########################################################################################################################################
+
+Original Model
+This model incorporates two levels of random effects: one nested within articles and response variables, and another at the experiment level.
 
 ```{r}
 ##########################################################################
@@ -702,23 +565,30 @@ fit_response_variable_model <- function(data_subset, response_variable, v_matrix
 
   # Fit the model
   model <- tryCatch({
-    rma.mv(
-      yi = yi,
-      V = v_matrix,
-      mods = moderator_formula,
-      random = list(
-        ~ 1 | id_article/response_variable,
-        ~ 1 | exp_id
+   rma.mv(
+    # Dependent variable: effect size
+    yi = yi,
+    # Variance-covariance matrix for within-study variability
+    V = v_matrix,
+    # Moderator formula: relationship between the effect size and moderators
+    mods = moderator_formula,
+    # Random effects structure
+     random = list(
+        ~ 1 | id_article/response_variable,         # Nested random intercept for each response variable within articles
+        ~ 1 | exp_id                                # Random effect: accounts for variability at the experiment level
       ),
-      data = data_subset,
-      method = "ML",
-      control = list(
-        optimizer = "optim",
-        optim.method = "BFGS",
-        iter.max = 1000,
-        rel.tol = 1e-8
-      )
+    # Data used for model fitting
+    data = data_subset,
+    # Method for model fitting
+    method = "ML",                          # Maximum Likelihood (ML) for parameter estimation
+    # Optimization settings
+    control = list(
+      optimizer = "optim",                  # Optimizer function to use for fitting
+      optim.method = "BFGS",                # Broyden–Fletcher–Goldfarb–Shanno algorithm for optimization
+      iter.max = 1000,                      # Maximum number of iterations allowed
+      rel.tol = 1e-8                        # Convergence tolerance for optimization
     )
+  )
   }, error = function(e) {
     cat("Error in model fitting for", response_variable, ":", e$message, "\n")
     return(NULL)
@@ -795,10 +665,563 @@ time.taken
 # Error in model fitting for Water quality : contrasts can be applied only to factors with 2 or more levels 
 # All models fitted and saved to: C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temp_SAF_meta_analysis/DATA/OUTPUT_FROM_R/SAVED_OBJECTS_FROM_R 
 # Time difference of 8.034523 secs
+
+# Last go (02/12-2024)
+# Processing response variable: Biodiversity 
+# Fitting model for response variable: Biodiversity ...
+# Advarsel: 14 rows with NAs omitted from model fitting.Model fitting completed for response variable: Biodiversity .
+# Processing response variable: Greenhouse gas emission 
+# Fitting model for response variable: Greenhouse gas emission ...
+# Error in model fitting for Greenhouse gas emission : contrasts can be applied only to factors with 2 or more levels 
+# Processing response variable: Product quality 
+# Fitting model for response variable: Product quality ...
+# Model fitting completed for response variable: Product quality .
+# Processing response variable: Crop yield 
+# Fitting model for response variable: Crop yield ...
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Model fitting completed for response variable: Crop yield .
+# Processing response variable: Pest and Disease 
+# Fitting model for response variable: Pest and Disease ...
+# Advarsel: Redundant predictors dropped from the model.Model fitting completed for response variable: Pest and Disease .
+# Processing response variable: Soil quality 
+# Fitting model for response variable: Soil quality ...
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Redundant predictors dropped from the model.Model fitting completed for response variable: Soil quality .
+# Processing response variable: Water quality 
+# Fitting model for response variable: Water quality ...
+# Error in model fitting for Water quality : contrasts can be applied only to factors with 2 or more levels 
+# All models fitted and saved to: C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temp_SAF_meta_analysis/DATA/OUTPUT_FROM_R/SAVED_OBJECTS_FROM_R 
+# Time difference of 9.78518 secs
+```
+
+Alternative Model 1: Simplified Random Effects
+This model simplifies the random effects structure, focusing only on variability at the experiment level.
+```{r}
+##########################################################################
+# Set up the parallel processing plan
+plan(multisession, workers = parallel::detectCores() - 1)
+##################################################
+# Start time tracking
+start.time <- Sys.time()
+##################################################
+##################################################
+
+
+# Function to fit models for each response variable using precomputed v_matrices
+fit_response_variable_model <- function(data_subset, response_variable, v_matrix, moderators = NULL) {
+  cat("\nFitting model for response variable:", response_variable, "...\n")
+  
+  # Define the moderator formula
+  moderator_formula <- if (!is.null(moderators)) {
+    as.formula(paste("yi ~", paste(moderators, collapse = " + ")))
+  } else {
+    as.formula("yi ~ 1")  # Intercept-only model
+  }
+
+  # Ensure all moderators are treated as factors
+  data_subset <- data_subset %>%
+    mutate(across(all_of(moderators), as.factor)) %>%
+    as.data.frame()
+
+  # Fit the model
+  model <- tryCatch({
+   rma.mv(
+    # Dependent variable: effect size
+    yi = yi,
+    # Variance-covariance matrix for within-study variability
+    V = v_matrix,
+    # Moderator formula: relationship between the effect size and moderators
+    mods = moderator_formula,
+    # Random effects structure
+    random = ~ 1 | exp_id,                 # Random effect: accounts for variability at the experiment level
+    # Data used for model fitting
+    data = data_subset,
+    # Method for model fitting
+    method = "ML",                          # Maximum Likelihood (ML) for parameter estimation
+    # Optimization settings
+    control = list(
+      optimizer = "optim",                  # Optimizer function to use for fitting
+      optim.method = "BFGS",                # Broyden–Fletcher–Goldfarb–Shanno algorithm for optimization
+      iter.max = 1000,                      # Maximum number of iterations allowed
+      rel.tol = 1e-8                        # Convergence tolerance for optimization
+    )
+  )
+  }, error = function(e) {
+    cat("Error in model fitting for", response_variable, ":", e$message, "\n")
+    return(NULL)
+  })
+  
+  # Return the model or NULL if fitting failed
+  if (!is.null(model)) {
+    cat("Model fitting completed for response variable:", response_variable, ".\n")
+    return(model)
+  } else {
+    return(NULL)
+  }
+}
+
+# Fit models for each response variable using the precomputed v_matrices
+model_results <- list()
+
+for (response in names(v_matrices)) {
+  cat("\nProcessing response variable:", response, "\n")
+  
+  # Subset the data for the current response variable
+  data_subset <- meta_data[meta_data$response_variable == response, ]
+  
+  # Retrieve the precomputed v_matrix
+  v_matrix <- v_matrices[[response]]
+  
+  # Define moderators
+  moderators <- c("tree_type", "crop_type", "age_system", "season", "soil_texture")
+
+  # Fit the model for the current response variable
+  model <- fit_response_variable_model(data_subset, response, v_matrix, moderators)
+  
+  # Save the model result
+  model_results[[response]] <- model
+}
+
+# Save the fitted models to a file
+saveRDS(model_results, file = file.path(output_dir, "fitted_models_by_response_variable_simplified.rds"))
+cat("\nAll models fitted and saved to:", output_dir, "\n")
+
+
+##################################################
+# End time tracking
+end.time <- Sys.time()
+# Calculate time taken
+time.taken <- end.time - start.time
+time.taken
+##############################################################
+# Last go (02/12-2024)
+# Time difference of 4.593977 secs
+# Processing response variable: Biodiversity 
+# Fitting model for response variable: Biodiversity ...
+# Advarsel: 14 rows with NAs omitted from model fitting.Model fitting completed for response variable: Biodiversity .
+# Processing response variable: Greenhouse gas emission 
+# Fitting model for response variable: Greenhouse gas emission ...
+# Error in model fitting for Greenhouse gas emission : contrasts can be applied only to factors with 2 or more levels 
+# Processing response variable: Product quality 
+# Fitting model for response variable: Product quality ...
+# Model fitting completed for response variable: Product quality .
+# Processing response variable: Crop yield 
+# Fitting model for response variable: Crop yield ...
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Model fitting completed for response variable: Crop yield .
+# Processing response variable: Pest and Disease 
+# Fitting model for response variable: Pest and Disease ...
+# Advarsel: Redundant predictors dropped from the model.Model fitting completed for response variable: Pest and Disease .
+# Processing response variable: Soil quality 
+# Fitting model for response variable: Soil quality ...
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Redundant predictors dropped from the model.Model fitting completed for response variable: Soil quality .
+# Processing response variable: Water quality 
+# Fitting model for response variable: Water quality ...
+# Error in model fitting for Water quality : contrasts can be applied only to factors with 2 or more levels 
+# All models fitted and saved to: C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temp_SAF_meta_analysis/DATA/OUTPUT_FROM_R/SAVED_OBJECTS_FROM_R 
+# Time difference of 4.593977 secs
+
+# Last go (02/12-2024)
+# Time difference of 4.643164 secs
+# Processing response variable: Biodiversity 
+# Fitting model for response variable: Biodiversity ...
+# Advarsel: 14 rows with NAs omitted from model fitting.Model fitting completed for response variable: Biodiversity .
+# Processing response variable: Greenhouse gas emission 
+# Fitting model for response variable: Greenhouse gas emission ...
+# Error in model fitting for Greenhouse gas emission : contrasts can be applied only to factors with 2 or more levels 
+# Processing response variable: Product quality 
+# Fitting model for response variable: Product quality ...
+# Model fitting completed for response variable: Product quality .
+# Processing response variable: Crop yield 
+# Fitting model for response variable: Crop yield ...
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Model fitting completed for response variable: Crop yield .
+# Processing response variable: Pest and Disease 
+# Fitting model for response variable: Pest and Disease ...
+# Advarsel: Redundant predictors dropped from the model.Model fitting completed for response variable: Pest and Disease .
+# Processing response variable: Soil quality 
+# Fitting model for response variable: Soil quality ...
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Redundant predictors dropped from the model.Model fitting completed for response variable: Soil quality .
+# Processing response variable: Water quality 
+# Fitting model for response variable: Water quality ...
+# Error in model fitting for Water quality : contrasts can be applied only to factors with 2 or more levels 
+# All models fitted and saved to: C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temp_SAF_meta_analysis/DATA/OUTPUT_FROM_R/SAVED_OBJECTS_FROM_R 
+# Time difference of 4.643164 secs
+```
+
+Minimally Reduced Model:
+This model further simplifies the random effects structure by removing all nested random effects,
+focusing only on the experiment level and an intercept-only model.
+
+```{r}
+##########################################################################
+# Set up the parallel processing plan
+plan(multisession, workers = parallel::detectCores() - 1)
+##########################################################################
+
+# Start time tracking
+start.time <- Sys.time()
+
+##########################################################################
+# Define the function to fit minimally reduced models for each response variable
+fit_minimal_model <- function(data_subset, response_variable, v_matrix, moderators = NULL) {
+  cat("\nFitting minimally reduced model for response variable:", response_variable, "...\n")
+
+  # Define the intercept-only formula
+  minimal_formula <- if (!is.null(moderators)) {
+    as.formula(paste("yi ~", paste(moderators, collapse = " + ")))
+  } else {
+    as.formula("yi ~ 1")
+  }
+
+  # Ensure all moderators are treated as factors
+  if (!is.null(moderators)) {
+    data_subset <- data_subset %>%
+      mutate(across(all_of(moderators), as.factor)) %>%
+      as.data.frame()
+  }
+
+  # Fit the model
+  model <- tryCatch({
+    rma.mv(
+      # Dependent variable: effect size
+      yi = yi,
+      # Variance-covariance matrix for within-study variability
+      V = v_matrix,
+      # Moderator formula: Intercept-only model
+      mods = minimal_formula,
+      # Random effects structure
+      random = ~ 1 | exp_id,                 # Random effect: accounts for variability at the experiment level
+      # Data used for model fitting
+      data = data_subset,
+      # Method for model fitting
+      method = "ML",                          # Maximum Likelihood (ML) for parameter estimation
+      # Optimization settings
+      control = list(
+        optimizer = "optim",                  # Optimizer function to use for fitting
+        optim.method = "BFGS",                # Broyden–Fletcher–Goldfarb–Shanno algorithm for optimization
+        iter.max = 1000,                      # Maximum number of iterations allowed
+        rel.tol = 1e-8                        # Convergence tolerance for optimization
+      )
+    )
+  }, error = function(e) {
+    cat("Error in model fitting for", response_variable, ":", e$message, "\n")
+    return(NULL)
+  })
+
+  # Return the model or NULL if fitting failed
+  if (!is.null(model)) {
+    cat("Model fitting completed for response variable:", response_variable, ".\n")
+    return(model)
+  } else {
+    return(NULL)
+  }
+}
+
+##########################################################################
+# Fit minimally reduced models for each response variable using the precomputed v_matrices
+minimal_model_results <- list()
+
+for (response in names(v_matrices)) {
+  cat("\nProcessing response variable:", response, "\n")
+
+  # Subset the data for the current response variable
+  data_subset <- meta_data[meta_data$response_variable == response, ]
+
+  # Retrieve the precomputed v_matrix
+  v_matrix <- v_matrices[[response]]
+
+  # Define moderators (if applicable)
+  moderators <- c("tree_type", "crop_type", "age_system", "season", "soil_texture")
+
+  # Fit the minimally reduced model for the current response variable
+  model <- fit_minimal_model(data_subset, response, v_matrix, moderators)
+
+  # Save the model result
+  minimal_model_results[[response]] <- model
+}
+
+##########################################################################
+# Save the fitted minimally reduced models to a file
+saveRDS(minimal_model_results, file = file.path(output_dir, "fitted_models_by_response_variable_minimal.rds"))
+cat("\nAll minimally reduced models fitted and saved to:", output_dir, "\n")
+
+##########################################################################
+# End time tracking
+end.time <- Sys.time()
+# Calculate time taken
+time.taken <- end.time - start.time
+cat("\nTotal time taken:", time.taken, "\n")
+##########################################################################
+# Last go (02/12-2024)
+# Total time taken: 4.232735 
+# Processing response variable: Biodiversity 
+# Fitting minimally reduced model for response variable: Biodiversity ...
+# Model fitting completed for response variable: Biodiversity .
+# Processing response variable: Greenhouse gas emission 
+# Fitting minimally reduced model for response variable: Greenhouse gas emission ...
+# Model fitting completed for response variable: Greenhouse gas emission .
+# Processing response variable: Product quality 
+# Fitting minimally reduced model for response variable: Product quality ...
+# Model fitting completed for response variable: Product quality .
+# Processing response variable: Crop yield 
+# Fitting minimally reduced model for response variable: Crop yield ...
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Model fitting completed for response variable: Crop yield .
+# Processing response variable: Pest and Disease 
+# Fitting minimally reduced model for response variable: Pest and Disease ...
+# Model fitting completed for response variable: Pest and Disease .
+# Processing response variable: Soil quality 
+# Fitting minimally reduced model for response variable: Soil quality ...
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Model fitting completed for response variable: Soil quality .
+# Processing response variable: Water quality 
+# Fitting minimally reduced model for response variable: Water quality ...
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Model fitting completed for response variable: Water quality .
+# All minimally reduced models fitted and saved to: C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temp_SAF_meta_analysis/DATA/OUTPUT_FROM_R/SAVED_OBJECTS_FROM_R 
+# Total time taken: 4.232735 
 ```
 
 #############
 # STEP 4
+##########################################################################################################################################
+MODEL COMPARISONS, EVALUATION AND DIAGNOSTICS
+##########################################################################################################################################
+
+```{r}
+# Compare models for each response variable
+model_comparisons <- list()
+
+for (response in names(original_model_results)) {
+  cat("\nComparing models for response variable:", response, "\n")
+  
+  original_model <- original_model_results[[response]]
+  alternative_model <- simplified_model_results[[response]]
+  minimal_model <- minimal_model_results[[response]]
+  
+  if (!is.null(original_model) & !is.null(alternative_model) & !is.null(minimal_model)) {
+    # Extract AIC for each model, handle NULL cases
+    aic_values <- c(
+      "Original" = if (!is.null(original_model)) original_model$aic else NA,
+      "Alternative" = if (!is.null(alternative_model)) alternative_model$aic else NA,
+      "Minimal" = if (!is.null(minimal_model)) minimal_model$aic else NA
+    )
+    
+    # Perform likelihood ratio tests, handle potential errors
+    lr_original_vs_alternative <- tryCatch(
+      anova(original_model, alternative_model),
+      error = function(e) { cat("LR test failed for Original vs. Alternative:", e$message, "\n"); NULL }
+    )
+    lr_original_vs_minimal <- tryCatch(
+      anova(original_model, minimal_model),
+      error = function(e) { cat("LR test failed for Original vs. Minimal:", e$message, "\n"); NULL }
+    )
+    
+    # Store results
+    model_comparisons[[response]] <- list(
+      AIC = aic_values,
+      LR_Original_vs_Alternative = lr_original_vs_alternative,
+      LR_Original_vs_Minimal = lr_original_vs_minimal
+    )
+    
+    # Print AIC values
+    cat("AIC Values:\n", aic_values, "\n")
+  } else {
+    cat("Model fitting failed for one or more models for", response, "\n")
+  }
+}
+
+# Display results for all response variables
+model_comparisons |> glimpse() |> head()
+```
+
+
+```{r}
+# Visualize Model Comparisons
+# Create visualizations for the AIC and likelihood ratio test (LRT) results from `model_comparisons`.
+
+# Extract AIC values and LRT results
+comparison_results <- lapply(names(model_comparisons), function(response) {
+  comparison <- model_comparisons[[response]]
+  if (!is.null(comparison)) {
+    tibble(
+      Response = response,
+      AIC_Original = comparison$AIC[["Original"]],
+      AIC_Alternative = comparison$AIC[["Alternative"]],
+      AIC_Minimal = comparison$AIC[["Minimal"]],
+      LRT_Original_vs_Alternative = comparison$LR_Original_vs_Alternative$pval,
+      LRT_Original_vs_Minimal = comparison$LR_Original_vs_Minimal$pval
+    )
+  } else {
+    tibble(
+      Response = response,
+      AIC_Original = NA,
+      AIC_Alternative = NA,
+      AIC_Minimal = NA,
+      LRT_Original_vs_Alternative = NA,
+      LRT_Original_vs_Minimal = NA
+    )
+  }
+}) %>% bind_rows()
+
+comparison_results |> str()
+
+# Melt the data for AIC visualization
+aic_data <- comparison_results %>%
+  select(Response, 
+         AIC_Original, 
+         AIC_Alternative, 
+         AIC_Minimal) %>%
+  pivot_longer(cols = starts_with("AIC"), names_to = "Model", values_to = "AIC") %>%
+  mutate(Model = factor(Model, levels = c("AIC_Original", "AIC_Alternative", "AIC_Minimal"),
+                        labels = c("Original", "Alternative", "Minimal")))
+
+# Plot AIC values
+plot_aic <- ggplot(aic_data, aes(x = Response, y = AIC, fill = Model)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "AIC Comparisons Across Models",
+       x = "Response Variable",
+       y = "AIC",
+       fill = "Model") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Prepare LRT data
+lrt_data <- comparison_results %>%
+  select(Response, LRT_Original_vs_Alternative, LRT_Original_vs_Minimal) %>%
+  pivot_longer(cols = starts_with("LRT"), names_to = "Comparison", values_to = "p_value") %>%
+  mutate(Comparison = factor(Comparison, 
+                              levels = c("LRT_Original_vs_Alternative", "LRT_Original_vs_Minimal"),
+                              labels = c("Original vs. Alternative", "Original vs. Minimal")))
+
+# Plot LRT p-values
+plot_lrt <- ggplot(lrt_data, aes(x = Response, y = p_value, color = Comparison)) +
+  geom_point(size = 3) +
+  geom_hline(yintercept = 0.05, linetype = "dashed", color = "red") +
+  labs(title = "LRT P-Values for Model Comparisons",
+       x = "Response Variable",
+       y = "P-Value",
+       color = "Comparison") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Display the plots
+print(plot_aic)
+print(plot_lrt)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+# Load the saved models
+
+original_model_results <- readRDS(file.path(output_dir, "fitted_models_by_response_variable.rds"))
+simplified_model_results <- readRDS(file.path(output_dir, "fitted_models_by_response_variable_simplified.rds"))
+minimally_reduced_model <- readRDS(file.path(output_dir, "fitted_models_by_response_variable_minimal.rds"))
+
+names(original_model_results)
+names(simplified_model_results)
+names(minimally_reduced_model)
+
+# [1] "Biodiversity"     "Product quality"  "Crop yield"       "Pest and Disease" "Soil quality"    
+# [1] "Biodiversity"     "Product quality"  "Crop yield"       "Pest and Disease" "Soil quality"   
+
+# Not able to fitt models (output = Errors: "Error in model fitting for Greenhouse gas emission or Water quality : contrasts can be applied
+# only to factors with 2 or more levels ", for Greenhouse gas emission and Water quality)
+```
+
+
+
+```{r}
+### Visual Evaluation Protocol: AIC and BIC Comparison
+
+# Function to create a performance comparison table for individual response variables
+compare_models <- function(original_model_list, simplified_model_list, response_variable) {
+  original_model <- original_model_list[[response_variable]]
+  simplified_model <- simplified_model_list[[response_variable]]
+
+  if (is.null(original_model) || is.null(simplified_model)) {
+    cat("Model missing for response variable:", response_variable, "\n")
+    return(NULL)
+  }
+
+  performance_metrics <- tibble(
+    ResponseVariable = response_variable,
+    Model = c("Original", "Simplified"),
+    AIC = c(AIC(original_model), AIC(simplified_model)),
+    BIC = c(BIC(original_model), BIC(simplified_model))
+  )
+  return(performance_metrics)
+}
+
+# Visualize AIC and BIC side-by-side for all response variables
+plot_model_comparison_by_response <- function(performance_comparison) {
+  performance_long <- performance_comparison %>%
+    pivot_longer(cols = c(AIC, BIC), names_to = "Metric", values_to = "Value") %>%
+    mutate(ResponseVariable = as.factor(ResponseVariable))
+
+  ggplot(performance_long, aes(x = Model, y = Value, fill = Metric)) +
+    geom_bar(stat = "identity", position = position_dodge()) +
+    facet_wrap(~ResponseVariable, scales = "free_y") +
+    labs(
+      title = "Model Performance Comparison by Response Variable",
+      x = "Model",
+      y = "Value",
+      fill = "Metric"
+    ) +
+    theme_minimal() +
+    scale_fill_brewer(palette = "Set2")
+}
+
+# Example Usage
+# Assuming `original_model_results` and `simplified_model_results` are lists of model objects by response variable
+response_variables <- names(original_model_results)
+
+# Generate performance metrics for all response variables
+all_performance_metrics <- lapply(response_variables, function(rv) {
+  compare_models(original_model_results, simplified_model_results, rv)
+})
+
+# Combine all metrics into a single data frame
+all_performance_metrics <- bind_rows(all_performance_metrics)
+
+# Print the performance metrics
+glimpse(all_performance_metrics)
+```
+```{r}
+
+# Generate the visualization
+plot_model_comparison_by_response(all_performance_metrics)
+```
+
+```{r}
+summary(original_model)$random
+summary(simplified_model)$random
+```
+
+#############
+# STEP 5
 ##########################################################################################################################################
 MODEL DIAGNOSTICS ON EACH SUBSET MODEL FITTING 
 ##########################################################################################################################################
@@ -1304,24 +1727,87 @@ time.taken
 # Last go (02/12-2024)
 # Time difference of 49.21399 secs
 ```
+```{r}
+model_results |> str()
+```
 
 ```{r}
-# Perform leave-one-out analysis at the study level
+##########################################################################
+# Set up the parallel processing plan
+plan(multisession, workers = parallel::detectCores() - 1)
+##################################################
+# Start time tracking
+start.time <- Sys.time()
+##################################################
+##################################################
+
+
+
+# Custom Leave-One-Out for rma.mv models
+leave1out_mv <- function(model, data, study_id_col) {
+  unique_studies <- unique(data[[study_id_col]])
+  results <- list()
+  
+  for (study in unique_studies) {
+    cat("Leaving out study:", study, "...\n")
+    
+    # Subset data to exclude the current study
+    data_subset <- data[data[[study_id_col]] != study, ]
+    
+    # Refit the model without the excluded study
+    tryCatch({
+      refit_model <- rma.mv(yi = model$yi,
+                            V = model$V,
+                            mods = model$X,
+                            random = model$s.names,
+                            data = data_subset,
+                            method = "ML")
+      
+      # Store refit model's coefficients
+      results[[as.character(study)]] <- list(
+        coefficients = refit_model$b,
+        fit_stats = refit_model$fit.stats
+      )
+    }, error = function(e) {
+      cat("Error with study:", study, "->", e$message, "\n")
+      results[[as.character(study)]] <- NULL
+    })
+  }
+  
+  return(results)
+}
+
+# Perform Leave-One-Out for all response variables
 leave1out_results <- list()
 
 for (response in names(model_results)) {
-  cat("\nRunning Leave-One-Out for:", response, "...\n")
+  cat("\nPerforming Leave-One-Out for:", response, "...\n")
   
   model <- model_results[[response]]
   
   if (!is.null(model)) {
-    # Perform LOO only for studies (id_article)
-    leave1out_results[[response]] <- leave1out(model)
+    leave1out_results[[response]] <- leave1out_mv(
+      model = model,
+      data = model$data,
+      study_id_col = "id_article"
+    )
   } else {
     cat("Skipping Leave-One-Out for:", response, "due to missing model.\n")
   }
 }
 
+
+
+
+##################################################
+# End time tracking
+end.time <- Sys.time()
+# Calculate time taken
+time.taken <- end.time - start.time
+time.taken
+##############################################################
+# Last go (01/01-2025)
+# Time difference of  mins
 ```
 
 ```{r}
@@ -1460,30 +1946,7 @@ write.csv(thresholds, file.path(output_dir, "flagged_influential_studies.csv"), 
 
 
 
-```{r}
-##########################################################################
-# Set up the parallel processing plan
-plan(multisession, workers = parallel::detectCores() - 1)
-##################################################
-# Start time tracking
-start.time <- Sys.time()
-##################################################
-##################################################
 
-
-
-
-
-##################################################
-# End time tracking
-end.time <- Sys.time()
-# Calculate time taken
-time.taken <- end.time - start.time
-time.taken
-##############################################################
-# Last go (02/12-2024)
-# Time difference of 2.056713 mins
-```
 
 
 ```{r}
@@ -1540,21 +2003,33 @@ model_results |> glimpse()
 
 ```{r}
 # Combine results from all response variables into a single data frame
-# Prepare data for visualization
 forest_plot_data <- bind_rows(
   lapply(names(model_results), function(response) {
     model <- model_results[[response]]
     
-    if (!is.null(model) && length(model$yi) > 0) {
-      data.frame(
-        Study = model$data$id_article,  # Use the unique id_obs for studies
-        EffectSize = model$yi,      # Effect sizes
-        CI_Lower = model$yi - 1.96 * sqrt(model$vi),  # Lower CI
-        CI_Upper = model$yi + 1.96 * sqrt(model$vi),  # Upper CI
-        ResponseVariable = response # Response variable
-      )
+    if (!is.null(model) && !is.null(model$data)) {
+      n_effects <- length(model$yi)
+      n_studies <- nrow(model$data)
+      
+      # Ensure the lengths match or skip inconsistent data
+      if (n_effects == n_studies) {
+        data.frame(
+          Study = model$data$id_article,                 # Study IDs
+          EffectSize = model$yi,                        # Effect sizes
+          CI_Lower = model$yi - 1.96 * sqrt(model$vi),  # Lower CI
+          CI_Upper = model$yi + 1.96 * sqrt(model$vi),  # Upper CI
+          ResponseVariable = response                   # Response variable
+        )
+      } else {
+        warning(sprintf(
+          "Skipping response variable '%s': Mismatched lengths between model$yi (%d) and model$data (%d).",
+          response, n_effects, n_studies
+        ))
+        NULL
+      }
     } else {
-      NULL  # Skip if no valid data
+      warning(sprintf("Skipping response variable '%s': Missing model or data.", response))
+      NULL
     }
   })
 )
@@ -1586,6 +2061,7 @@ aggregated_data <- forest_plot_data %>%
 
 aggregated_data
 ```
+
 
 
 ```{r}

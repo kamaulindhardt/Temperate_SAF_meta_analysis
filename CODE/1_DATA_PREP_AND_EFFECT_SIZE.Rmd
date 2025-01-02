@@ -144,6 +144,7 @@ conflict_prefer("locale", "readr")
 conflict_prefer("extract", "raster")
 conflict_prefer("col_factor", "scales")
 conflict_prefer("geocode", "tidygeocoder")
+conflict_prefer("chisq.test", "stats")
 ```
 ```{r}
 # Set a global theme and color scale
@@ -1084,33 +1085,539 @@ database_clean_sd |> glimpse()
 ```
 
 
+
 #############
 # STEP 3
+##########################################################################################################################################
+ASSESS MISSINGNESS PATTERNS OF DATA BEFORE IMPUTATION
+##########################################################################################################################################
+
+```{r}
+# Check missingness summary for `control_sd` and `silvo_sd`
+missingness_summary <- database_clean_sd %>%
+  as.data.frame() %>%
+  summarise(
+    total_rows = n(),
+    missing_control_sd = sum(is.na(control_sd)),
+    missing_silvo_sd = sum(is.na(silvo_sd)),
+    percent_missing_control_sd = mean(is.na(control_sd)) * 100,
+    percent_missing_silvo_sd = mean(is.na(silvo_sd)) * 100
+  )
+
+
+
+# Add missingness indicators to the dataset
+database_clean_sd_missingness <- database_clean_sd %>%
+  as.data.frame() %>%
+  mutate(
+    missing_control_sd = ifelse(is.na(control_sd), 1, 0),
+    missing_silvo_sd = ifelse(is.na(silvo_sd), 1, 0)
+  )
+
+missingness_summary
+```
+```{r}
+# Visualize missingness across response variables and moderators
+missingness_plot <- database_clean_sd_missingness %>%
+  select(response_variable, missing_control_sd, missing_silvo_sd) %>%
+  group_by(response_variable) %>%
+  summarise(
+    missing_control_sd = mean(missing_control_sd) * 100,
+    missing_silvo_sd = mean(missing_silvo_sd) * 100
+  ) %>%
+  pivot_longer(cols = c(missing_control_sd, missing_silvo_sd),
+               names_to = "Variable",
+               values_to = "Percent_Missing") %>%
+  ggplot(aes(x = response_variable, y = Percent_Missing, fill = Variable)) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  labs(
+    title = "Missingness Percentage of Standard Deviation Across Response Variables",
+    x = "Response Variable",
+    y = "Percent Missing",
+    fill = "Variable"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+missingness_plot
+```
+```{r}
+# Filter the dataset for rows with missing sd (either control_sd or silvo_sd)
+missing_sd_data <- database_clean_sd_missingness %>%
+  filter(is.na(control_sd) | is.na(silvo_sd))
+
+# Summarize the counts of response variables for the filtered data
+missing_sd_summary <- missing_sd_data %>%
+  group_by(response_variable) %>%
+  summarise(count = n()) %>%
+  arrange(desc(count))
+
+# Plot the distribution of response variables for missing sd data
+ggplot(missing_sd_summary, aes(x = reorder(response_variable, -count), y = count, fill = response_variable)) +
+  geom_bar(stat = "identity", show.legend = FALSE) +
+  labs(
+    title = "Distribution of Response Variables with Missing Standard Deviation",
+    x = "Response Variable",
+    y = "Count of Missing Entries"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+```{r}
+# Filter the dataset for rows with missing sd (either control_sd or silvo_sd)
+missing_sd_data_rel <- database_clean_sd_missingness %>%
+  mutate(missing_sd = ifelse(is.na(control_sd) | is.na(silvo_sd), 1, 0))
+
+# database_clean_sd_missingness |> filter(response_variable == "Soil quality") |> nrow()
+
+# Calculate the percentage of missing sd values relative to total observations for each response variable
+missing_sd_summary_rel <- missing_sd_data_rel %>%
+  group_by(response_variable) %>%
+  summarise(
+    total_observations = n(),
+    missing_sd_count = sum(missing_sd),
+    percent_missing = (missing_sd_count / total_observations) * 100
+  ) %>%
+  arrange(desc(percent_missing))
+
+missing_sd_summary_rel
+```
+```{r}
+# Plot the relative missingness
+missing_sd_summary_rel |> 
+  ggplot(aes(x = reorder(response_variable, -percent_missing), y = percent_missing, fill = response_variable)) +
+  geom_bar(stat = "identity", show.legend = FALSE) +
+  labs(
+    title = "Relative Missingness of Standard Deviation by Response Variable",
+    x = "Response Variable",
+    y = "Percent Missing",
+    fill = "Response Variable"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+
+```{r}
+# Assess missingness patterns across moderators
+moderators <- c("tree_type", "crop_type", "age_system", "season", "soil_texture")
+
+missingness_by_moderators <- database_clean_sd_missingness %>%
+  select(all_of(moderators), missing_control_sd, missing_silvo_sd) %>%
+  summarise(across(everything(), ~ mean(is.na(.)) * 100))
+
+missingness_by_moderators
+
+# Visualize missingness with a heatmap
+heatmap_missingness <- database_clean_sd_missingness %>%
+  select(control_sd, silvo_sd, response_variable, all_of(moderators)) %>%
+  gg_miss_upset()
+
+heatmap_missingness
+```
+
+##########################################################################################################################################
+Assess missingness patterns for _sd variables by location and study ID (id_article)
+##########################################################################################################################################
+
+```{r}
+# Calculate missingness by location
+missing_by_location <- database_clean_sd_missingness %>%
+  group_by(location) %>%
+  summarise(
+    total = n(),
+    missing_control_sd = sum(is.na(control_sd)),
+    missing_silvo_sd = sum(is.na(silvo_sd)),
+    perc_missing_control_sd = 100 * mean(is.na(control_sd)),
+    perc_missing_silvo_sd = 100 * mean(is.na(silvo_sd))
+  ) %>%
+  arrange(desc(perc_missing_control_sd), desc(perc_missing_silvo_sd))
+
+# Print missingness summary by location
+cat("\nMissingness by Location:\n")
+print(missing_by_location)
+```
+
+```{r}
+# Missingness by location
+ggplot(missing_by_location, aes(x = reorder(location, -perc_missing_control_sd), y = perc_missing_control_sd)) +
+  geom_bar(stat = "identity", fill = "blue", alpha = 0.7) +
+  geom_bar(aes(y = perc_missing_silvo_sd), stat = "identity", fill = "red", alpha = 0.7) +
+  labs(
+    title = "Missingness Percentage by Location",
+    x = "Location",
+    y = "Percentage Missing",
+    fill = "Missingness Type"
+  ) +
+  theme_minimal() +
+  coord_flip()
+```
+
+```{r}
+# Calculate missingness by study ID (id_article)
+missing_by_study <- database_clean_sd_missingness %>%
+  group_by(id_article) %>%
+  summarise(
+    total = n(),
+    missing_control_sd = sum(is.na(control_sd)),
+    missing_silvo_sd = sum(is.na(silvo_sd)),
+    perc_missing_control_sd = 100 * mean(is.na(control_sd)),
+    perc_missing_silvo_sd = 100 * mean(is.na(silvo_sd))
+  ) %>%
+  arrange(desc(perc_missing_control_sd), desc(perc_missing_silvo_sd))
+
+# Print missingness summary by study ID
+cat("\nMissingness by Study ID:\n")
+print(missing_by_study)
+```
+
+```{r}
+# Missingness by study ID
+ggplot(missing_by_study, aes(x = reorder(as.factor(id_article), -perc_missing_control_sd), y = perc_missing_control_sd)) +
+  geom_bar(stat = "identity", fill = "blue", alpha = 0.7) +
+  geom_bar(aes(y = perc_missing_silvo_sd), stat = "identity", fill = "red", alpha = 0.7) +
+  labs(
+    title = "Missingness Percentage by Study ID",
+    x = "Study ID",
+    y = "Percentage Missing",
+    fill = "Missingness Type"
+  ) +
+  theme_minimal() +
+  coord_flip()
+```
+
+
+##########################################################################################################################################
+Little's MCAR test for missingness
+##########################################################################################################################################
+
+Implications of missing.patterns:
+A high number of missing patterns indicates complex missingness in your dataset, which might suggest that the data is not Missing Completely at Random (MCAR). Instead, it might be Missing at Random (MAR) or Not Missing at Random (NMAR).
+
+```{r}
+####################################################################################################################
+# Prepare the data for missingness assessment
+database_clean_sd_df <- database_clean_sd |> as.data.frame() |> select(-geometry) 
+####################################################################################################################
+
+
+
+# Select the variables for the test
+test_data <- database_clean_sd_df %>%
+  select(control_sd, silvo_sd, everything())  # Include control_sd, silvo_sd, and all variables
+
+# Convert non-numeric columns to numeric using one-hot encoding or factor levels
+test_data_numeric <- test_data %>%
+  mutate(across(where(is.character), ~ as.numeric(as.factor(.)))) %>%  # Convert characters to numeric
+  mutate(across(where(is.factor), as.numeric)) %>%                     # Convert factors to numeric
+  select(where(~ sum(!is.na(.)) > 0))                                  # Remove columns with all missing values
+
+# Check for problematic values
+problematic_values <- test_data_numeric %>%
+  summarise(across(everything(), ~ sum(is.infinite(.)) + sum(is.nan(.)) + sum(is.na(.))))
+
+problematic_values |> glimpse()
+
+# Exclude columns with more than 50% missing values
+test_data_cleaned <- test_data_numeric %>%
+  # Keep control_sd and silvo_sd
+  select(control_sd, silvo_sd, response_variable, experiment_year, year_est_exp, exp_id,
+         # Moderators info
+         tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width) %>%  
+  # Remove columns with >50% missing
+  select(where(~ sum(is.na(.)) < nrow(test_data_numeric) * 0.5)) |> 
+  # Convert date-time columns to numeric (e.g., extract the year)
+  mutate(
+    experiment_year = as.numeric(format(experiment_year, "%Y")),
+    year_est_exp = as.numeric(format(year_est_exp, "%Y"))
+  )
+
+# Confirm all columns are numeric
+all(sapply(test_data_cleaned, is.numeric)) 
+
+# Check which columns are not numeric
+non_numeric_cols <- sapply(test_data_cleaned, function(col) !is.numeric(col))
+names(non_numeric_cols[non_numeric_cols])
+
+# Inspect missing values after cleaning
+colSums(is.na(test_data_cleaned))
+
+# Perform Little's MCAR test on cleaned data
+mcar_test <- naniar::mcar_test(test_data_cleaned)
+mcar_test
+```
+
+```{r}
+# Visualize missingness pattern
+md.pattern(database_clean_sd_df)
+
+# Heatmap of missing data
+
+aggr_plot <- aggr(database_clean_sd_df, col = c('navyblue', 'red'), numbers = TRUE, sortVars = TRUE, 
+                  labels = names(database_clean_sd_df), cex.axis = .7, gap = 3, ylab = c("Missingness", "Pattern"))
+aggr_plot
+```
+
+```{r}
+# Add missing indicators for control_sd and silvo_sd
+test_data_cleaned_sd <- test_data_cleaned %>%
+  mutate(
+    missing_control_sd = is.na(control_sd),
+    missing_silvo_sd = is.na(silvo_sd)
+  )
+
+# Check relationship between missingness and other variables
+ggplot(test_data_cleaned_sd, aes(x = tree_age, fill = missing_control_sd)) +
+  geom_histogram(position = "dodge") +
+  labs(title = "Relationship Between Tree Age and Missingness in control_sd")
+```
+
+Fit logistic regression models to see if missingness depends on observed variables.
+
+```{r}
+# Test if missingness depends on observed variables using logistic regression
+
+# Add missingness indicators for control_sd and silvo_sd
+test_data_cleaned_sd_test <- test_data_cleaned %>%
+  mutate(
+    missing_control_sd = as.numeric(is.na(control_sd)),
+    missing_silvo_sd = as.numeric(is.na(silvo_sd))
+  )
+
+# Test 1: Logistic regression using specified moderators
+missing_control_model_1 <- glm(
+  missing_control_sd ~ tree_type + crop_type + age_system + tree_age + season + soil_texture + no_tree_per_m + tree_height + alley_width,
+  data = test_data_cleaned_sd_test, family = binomial
+)
+
+missing_silvo_model_1 <- glm(
+  missing_silvo_sd ~ tree_type + crop_type + age_system + tree_age + season + soil_texture + no_tree_per_m + tree_height + alley_width,
+  data = test_data_cleaned_sd_test, family = binomial
+)
+
+# Summarize results for Test 1
+cat("\nTest 1: Logistic regression results using specified moderators\n")
+cat("\nControl SD Missingness:\n")
+summary(missing_control_model_1)
+
+cat("\nSilvo SD Missingness:\n")
+summary(missing_silvo_model_1)
+
+# Test 2: Logistic regression using response variables
+missing_control_model_2 <- glm(
+  missing_control_sd ~ response_variable,
+  data = test_data_cleaned_sd_test, family = binomial
+)
+
+missing_silvo_model_2 <- glm(
+  missing_silvo_sd ~ response_variable,
+  data = test_data_cleaned_sd_test, family = binomial
+)
+
+# Summarize results for Test 2
+cat("\nTest 2: Logistic regression results using response variables\n")
+cat("\nControl SD Missingness:\n")
+summary(missing_control_model_2)
+
+cat("\nSilvo SD Missingness:\n")
+summary(missing_silvo_model_2)
+
+```
+
+### Missingness Assessment Interpretation:
+
+For both `control_sd` and `silvo_sd`, the patterns of missing data appear to depend on several observed factors (`Moderators`) as well as the type of response variable (`response_variable`):
+
+1. **Key Factors Associated with Missingness**:
+   - **Tree Type and Crop Type**: These categories are significantly associated with whether data is missing. This means that certain types of trees or crops are more likely to have missing values for `control_sd` and `silvo_sd`.
+   - **Season and Soil Texture**: Missing data is more common in certain seasons and specific soil textures, suggesting these conditions might make it harder to collect or report standard deviation data.
+   - **Tree Age**: Older trees tend to have fewer missing values, perhaps because experiments on mature trees are more stable or complete.
+   - **Tree Height**: Taller trees are linked to higher missingness, possibly because they are part of more complex or harder-to-measure systems.
+
+2. **Response Variable Type**:
+   - The type of response variable (e.g., biodiversity, crop yield) is also a strong predictor of missingness. This could mean that some variables are inherently harder to measure accurately, or researchers focus less on reporting standard deviations for specific types of responses.
+
+---
+
+### Why Do Categorical Variables Like `Tree Type` and `Crop Type` Have Significant Associations with Missingness?
+
+Categorical variables can influence missingness if the categories represent different conditions or contexts where data collection might vary. For example:
+
+- **Tree Type**: Different types of trees might be studied in varying experimental setups. For instance:
+  - Fruit trees might be in highly controlled settings with fewer missing values.
+  - Timber trees in diverse, large-scale environments might have more missing data due to logistical challenges.
+
+- **Crop Type**: Similarly, certain crops might be associated with specific research focuses or reporting standards:
+  - Cereals might be studied in detail with less missingness because of their importance.
+  - Specialty crops like herbs might have more missing values due to less emphasis on certain measurements.
+
+The "positive association" means that when a particular category (e.g., a specific tree or crop type) is present, the odds of missing data increase compared to a baseline category.
+
+---
+
+### Next Steps:
+
+Since missingness is likely **Missing at Random (MAR)** (dependent on observed factors like tree type, crop type, etc.), we can proceed with **multiple imputation**:
+
+1. Use the significant predictors (`tree_type`, `crop_type`, `season`, etc.) as covariates in an imputation model.
+2. Test different imputation methods, like predictive mean matching or linear or Bayesian regression, to see which works best.
+3. Validate the imputed data by checking its consistency with known trends or patterns in your data and assess on AIC and BIC.
+
+
+Elucidate Associations of Tree Type and Crop Type with Missingness
+
+```{r}
+# Step 1: Summarize Missingness by Tree Type and Crop Type
+missing_summary_tree_crop <- test_data_cleaned_sd_test %>%
+  group_by(tree_type, crop_type) %>%
+  summarise(
+    missing_control_sd = mean(missing_control_sd, na.rm = TRUE) * 100,
+    missing_silvo_sd = mean(missing_silvo_sd, na.rm = TRUE) * 100,
+    .groups = "drop"
+  )
+
+# Print Summary Table
+missing_summary_tree_crop
+```
+```{r}
+# Step 2: Visualize Missingness by Tree Type and Crop Type
+
+# Plot for Control SD Missingness
+plot_control_missingness <- ggplot(missing_summary_tree_crop, aes(x = tree_type, y = missing_control_sd, fill = crop_type)) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  labs(
+    title = "Control SD Missingness by Tree Type and Crop Type",
+    x = "Tree Type",
+    y = "% Missing Control SD",
+    fill = "Crop Type"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Plot for Silvo SD Missingness
+plot_silvo_missingness <- ggplot(missing_summary_tree_crop, aes(x = tree_type, y = missing_silvo_sd, fill = crop_type)) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  labs(
+    title = "Silvo SD Missingness by Tree Type and Crop Type",
+    x = "Tree Type",
+    y = "% Missing Silvo SD",
+    fill = "Crop Type"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+
+plot_control_missingness
+plot_silvo_missingness
+```
+
+
+```{r}
+# Step 3: Statistical Tests to Confirm Associations
+# Chi-Square Test for Independence between Tree Type and Control SD Missingness
+chi_sq_tree_control <- chisq.test(table(test_data_cleaned_sd_test$tree_type, test_data_cleaned_sd_test$missing_control_sd))
+chi_sq_tree_control
+
+# Chi-Square Test for Independence between Crop Type and Control SD Missingness
+chi_sq_crop_control <- chisq.test(table(test_data_cleaned_sd_test$crop_type, test_data_cleaned_sd_test$missing_control_sd))
+chi_sq_crop_control
+
+# Chi-Square Test for Independence between Tree Type and Silvo SD Missingness
+chi_sq_tree_silvo <- chisq.test(table(test_data_cleaned_sd_test$tree_type, test_data_cleaned_sd_test$missing_silvo_sd))
+chi_sq_tree_silvo
+
+# Chi-Square Test for Independence between Crop Type and Silvo SD Missingness
+chi_sq_crop_silvo <- chisq.test(table(test_data_cleaned_sd_test$crop_type, test_data_cleaned_sd_test$missing_silvo_sd))
+chi_sq_crop_silvo
+
+# Step 4: Logistic Regression Models for Tree Type and Crop Type
+# Logistic Regression for Control SD
+logit_control <- glm(missing_control_sd ~ tree_type + crop_type, data = test_data_cleaned_sd_test, family = binomial)
+logit_control
+
+# Logistic Regression for Silvo SD
+logit_silvo <- glm(missing_silvo_sd ~ tree_type + crop_type, data = test_data_cleaned_sd_test, family = binomial)
+logit_silvo
+```
+
+```{r}
+database_clean_sd_df |> glimpse()
+```
+```{r}
+# Aggregate missingness percentages by tree_type and crop_type
+missingness_distribution <- database_clean_sd_df %>%
+  group_by(tree_type, crop_type) %>%
+  summarise(
+    missing_control_sd = mean(missing_control_sd, na.rm = TRUE) * 100,
+    missing_silvo_sd = mean(missing_silvo_sd, na.rm = TRUE) * 100,
+    .groups = "drop"
+  ) %>%
+  pivot_longer(
+    cols = c(missing_control_sd, missing_silvo_sd),
+    names_to = "Variable",
+    values_to = "Percent_Missing"
+  )
+
+# Plot missingness distribution for tree_type
+missingness_tree_plot <- ggplot(missingness_distribution, aes(x = tree_type, y = Percent_Missing, fill = Variable)) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  labs(
+    title = "Missingness Distribution by Tree Type",
+    x = "Tree Type",
+    y = "Percent Missing",
+    fill = "Variable"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Plot missingness distribution for crop_type
+missingness_crop_plot <- ggplot(missingness_distribution, aes(x = crop_type, y = Percent_Missing, fill = Variable)) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  labs(
+    title = "Missingness Distribution by Crop Type",
+    x = "Crop Type",
+    y = "Percent Missing",
+    fill = "Variable"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Print the plots
+print(missingness_tree_plot)
+print(missingness_crop_plot)
+```
+
+The visualizations demonstrate the percentage of missing values in `control_sd` and `silvo_sd` across levels of tree type and crop type. For tree type, there is no missingness for the category "fruit/nut & other," while "biomass" and "timber" have consistent missingness rates of around 40% for both variables. This suggests that the missingness for tree type is category-specific and potentially influenced by the characteristics or measurement challenges associated with "biomass" and "timber." For crop type, cereals show a much lower percentage of missingness (approximately 20%) compared to legumes and tuber/root crops, where missingness rates exceed 40-50%. This indicates that crop type has a more pronounced impact on missingness, with cereals potentially benefiting from more standardized measurement protocols or fewer data collection challenges. The absence of missing data in "fruit/nut & other" tree types highlights the importance of considering specific categories when addressing missing data. These patterns suggest that imputation strategies should account for crop type as a key predictor, while also recognizing the absence of missingness in certain tree type categories, such as "fruit/nut & other," which do not require imputation. Further statistical analysis could validate these observations and refine imputation models.
+
+
+
+
+
+
+#############
+# STEP 4
 ##########################################################################################################################################
 HANDELING OF MISSING VALUES IN THE DATASET
 ##########################################################################################################################################
 
-Perform imputation on  silvo_se, control_se using "mice" (Multivariate Imputation by Chained Equations), Upper Quartile, and Mean Imputation
+Perform imputation on  silvo_se, control_se using 
+"mice" (Multivariate Imputation by Chained Equations), 
+Upper Quartile, 
+Mean Imputation,
+Linear regression imputation (norm.predict)
+
+
 
 ```{r}
 ##########################################################################
 # Set up the parallel processing plan
 plan(multisession, workers = parallel::detectCores() - 1)
 ##########################################################################
-
 # Start time tracking
 start.time <- Sys.time()
 
-##########################################################################
-##########################################################################
-# Set up the parallel processing plan
-plan(multisession, workers = parallel::detectCores() - 1)
-##########################################################################
-
-# Start time tracking
-start.time <- Sys.time()
-
-##########################################################################
+#######################################################################################
 # Step 1: Check and enforce correct data types
 col_for_impute <- database_clean_sd |> 
   as.data.frame() |> 
@@ -1139,7 +1646,7 @@ col_for_impute <- database_clean_sd |>
     exp_id = as.numeric(exp_id)
   )
 
-##########################################################################
+#######################################################################################
 # Step 2: Define the function for each imputation method
 impute_data <- function(data, method_name) {
   if (method_name == "pmm") {
@@ -1148,6 +1655,7 @@ impute_data <- function(data, method_name) {
     pred_matrix[, c("tree_age", "crop_type", "tree_type", "bioclim_sub_regions", "experiment_year", "alley_width", 
                     "id_article", "id_obs", "treat_id", "exp_id")] <- 0
 
+    ##########################################################################
     # Define imputation method for PMM
     method <- c(
       "silvo_se" = "pmm",
@@ -1176,18 +1684,18 @@ impute_data <- function(data, method_name) {
       seed = 1234,
       printFlag = FALSE
     )
-    # Return the raw mids object for PMM
     return(imputed_mids)
     
   } else if (method_name == "upper_quartile") {
+    ##########################################################################
     # Upper Quartile Imputation for Variance
     upper_quartile_variance <- data %>%
-      # The 75th percentile represents a value higher than the median, ensuring that the imputed variances are not unrealistically small while 
+      # The 75th percentile represents a value higher than the median, ensuring that the imputed variances 
+      # are not unrealistically small while 
       # still grounded in observed data. This helps maintain a conservative weighting in the meta-analysis.
       summarise(across(c(silvo_se, control_se), ~ quantile(.^2, 0.75, na.rm = TRUE))) %>%
       pivot_longer(cols = everything(), names_to = "variable", values_to = "upper_quartile")
 
-    # Impute missing variance with the upper quartile
     data <- data %>%
       mutate(
         silvo_se = ifelse(is.na(silvo_se), sqrt(upper_quartile_variance$upper_quartile[1]), silvo_se),
@@ -1196,7 +1704,6 @@ impute_data <- function(data, method_name) {
     return(data)
     
   } else if (method_name == "mean_imputation") {
-    # Example: Mean Imputation
     data <- data %>%
       mutate(
         silvo_se = ifelse(is.na(silvo_se), mean(silvo_se, na.rm = TRUE), silvo_se),
@@ -1205,28 +1712,65 @@ impute_data <- function(data, method_name) {
         control_n = ifelse(is.na(control_n), mean(control_n, na.rm = TRUE), control_n)
       )
     return(data)
+
+  } else if (method_name == "linear_imputation") {
+    ##########################################################################
+    # Linear Regression Imputation (norm.predict)
+    pred_matrix <- mice::make.predictorMatrix(data)
+    pred_matrix[, c("tree_age", "crop_type", "tree_type", "bioclim_sub_regions", "experiment_year", "alley_width", 
+                    "id_article", "id_obs", "treat_id", "exp_id")] <- 0
+
+    method <- c(
+      "silvo_se" = "norm.predict",
+      "control_se" = "norm.predict",
+      "silvo_n" = "",            # Not imputed
+      "control_n" = "",          # Not imputed
+      "tree_age" = "",           # Not imputed
+      "crop_type" = "",          # Not imputed
+      "tree_type" = "",          # Not imputed
+      "bioclim_sub_regions" = "",# Not imputed
+      "experiment_year" = "",    # Not imputed
+      "alley_width" = "",        # Not imputed
+      "id_article" = "",         # Not imputed
+      "id_obs" = "",             # Not imputed
+      "treat_id" = "",           # Not imputed
+      "exp_id" = ""              # Not imputed
+    )
+
+    imputed_mids <- mice(
+      data,
+      m = 20,
+      maxit = 100,
+      method = method,
+      predictorMatrix = pred_matrix,
+      seed = 1234,
+      printFlag = FALSE
+    )
+    return(imputed_mids)
+
   } else {
     stop("Invalid method name.")
   }
 }
 
-##########################################################################
+#######################################################################################
 # Step 3: Apply each imputation method
-imputation_methods <- c("pmm", "upper_quartile", "mean_imputation")
+imputation_methods <- c("pmm", "upper_quartile", "mean_imputation", "linear_imputation")
 imputed_datasets <- list()
 
-# Separate storage for the raw mids object from PMM
+# Separate storage for the raw mids objects
 imputed_mids_pmm <- NULL
+imputed_mids_linear <- NULL
 
 for (method_name in imputation_methods) {
   cat("Applying", method_name, "imputation...\n")
   if (method_name == "pmm") {
-    # Save the mids object for PMM
     imputed_mids_pmm <- impute_data(col_for_impute, method_name)
-    # Convert to a completed dataset for combined list
     imputed_datasets[[method_name]] <- mice::complete(imputed_mids_pmm)
+  } else if (method_name == "linear_imputation") {
+    imputed_mids_linear <- impute_data(col_for_impute, method_name)
+    imputed_datasets[[method_name]] <- mice::complete(imputed_mids_linear)
   } else {
-    # Directly store the completed dataset for other methods
     imputed_datasets[[method_name]] <- impute_data(col_for_impute, method_name)
   }
 }
@@ -1245,23 +1789,13 @@ time.taken <- end.time - start.time
 cat("\nTotal time taken:", time.taken, "\n")
 
 ##########################################################################
-# imputed_mids_pmm is the raw mids object for PMM
+# imputed_mids_pmm and imputed_mids_linear are the raw mids objects for PMM and linear regression respectively
 # imputed_datasets contains completed datasets for all methods
 
 ##########################################################################
-# End time tracking
-end.time <- Sys.time()
-time.taken <- end.time - start.time
-cat("\nTotal time taken:", time.taken, "\n")
-##########################################################################
-# Last run (28/11-24)
-# Total time taken: 11.16786 sec
-# Total time taken: 13.66807 
-
-# Last run (01/01-25)
-# Total time taken: 10.50317 
+# Last run (02/01-25)
+# Total time taken: 21.27449 
 ```
-
 
 ```{r}
 # Check the summary of imputed dataset list
@@ -1403,10 +1937,21 @@ for (variable in c("silvo_se", "control_se")) {
 }
 
 # Combine all data into one frame
-plot_data <- bind_rows(combined_plot_data)
+imputation_plot_data_all <- bind_rows(combined_plot_data)
 
+imputation_plot_data_all
+
+# Remove linear imputation for better visualization
+imputation_plot_data_no_linear <- 
+  imputation_plot_data_all |> 
+  filter(method != "linear_imputation")
+```
+
+```{r}
 # Plot densities for all methods and variables
-ggplot(plot_data, aes(x = value, fill = type)) +
+plot_imputation_data_all <- 
+  imputation_plot_data_all |> 
+  ggplot(aes(x = value, fill = type)) +
   geom_density(alpha = 0.5) +
   facet_grid(variable ~ method) +
   labs(
@@ -1418,8 +1963,30 @@ ggplot(plot_data, aes(x = value, fill = type)) +
   scale_fill_viridis_d(option = "D", begin = 0.2, end = 0.8) +  # Discrete color scale 
    scale_x_log10() + # Apply log10 scale to x-axis
   theme(strip.text = element_text(size = 10, face = "bold"))
-```
 
+plot_imputation_data_all
+
+
+# Plot densities for all methods and variables without linear imputation
+plot_imputation_data_no_linear <- 
+  imputation_plot_data_no_linear |> 
+  ggplot(aes(x = value, fill = type)) +
+  geom_density(alpha = 0.5) +
+  facet_grid(variable ~ method) +
+  labs(
+    title = "Density Comparison: Original vs. Imputed Values (Excluding Linear Imputation)",
+    x = "Value",
+    y = "Density"
+  ) +
+  theme_minimal() +
+   scale_fill_viridis_d(option = "D", begin = 0.2, end = 0.8) +  # Discrete color scale 
+   scale_x_log10() + # Apply log10 scale to x-axis
+  theme(strip.text = element_text(size = 10, face = "bold"))
+
+
+plot_imputation_data_all
+plot_imputation_data_no_linear
+```
 
 
 
@@ -1617,7 +2184,17 @@ ggplot(combined_metrics_with_original, aes(x = method, y = value, fill = method)
 comparison_gt <- prepared_data_gt %>%
   # Reorder the columns in the data frame before passing to gt
   select(
-    metric, category, original, upper_quartile, upper_quartile_relative, pmm, pmm_relative,  pmm_best,  pmm_best_relative, mean_imputation, mean_imputation_relative
+    metric, category, original, 
+    linear_imputation,
+    linear_imputation_relative,
+    mean_imputation, 
+    mean_imputation_relative,
+    upper_quartile, 
+    upper_quartile_relative, 
+    pmm, 
+    pmm_relative,  
+    pmm_best,  
+    pmm_best_relative, 
          ) |> 
   # Set `metric` as row names
   gt(rowname_col = "metric") %>%  
@@ -1628,14 +2205,16 @@ comparison_gt <- prepared_data_gt %>%
   # Rename columns for clarity
   cols_label(
     original = "Original",
+    linear_imputation = "Linear Imputation",
+    linear_imputation_relative = "Linear Imputation Relative",
     upper_quartile = "Upper Quartile",
     upper_quartile_relative = "Upper Quartile Relative",
     mean_imputation = "Mean Imputation",
     mean_imputation_relative = "Mean Imputation Relative",
-    pmm_best = "PMM Best",
-    pmm_best_relative = "PMM Best Relative",
     pmm = "PMM",
-    pmm_relative = "PMM Relative"
+    pmm_relative = "PMM Relative",    
+    pmm_best = "PMM Best",
+    pmm_best_relative = "PMM Best Relative"
   ) %>%
   # Format numeric columns to two decimal places
   fmt_number(
@@ -1686,16 +2265,35 @@ comparison_gt
 ```{r}
 # Apply color shading to all `_relative` columns
 comparison_gt <- prepared_data_gt %>%
-  # Reorder the columns in the data frame before passing to gt
+   # Reorder the columns in the data frame before passing to gt
   select(
-    metric, category, original, upper_quartile, upper_quartile_relative, pmm, pmm_relative,  pmm_best,  pmm_best_relative, mean_imputation, mean_imputation_relative
-         ) |> 
+    metric, category, original, 
+    linear_imputation,
+    linear_imputation_relative,
+    mean_imputation, 
+    mean_imputation_relative,
+    upper_quartile, 
+    upper_quartile_relative, 
+    pmm, 
+    pmm_relative,  
+    pmm_best,  
+    pmm_best_relative
+    ) |> 
   # Set `metric` as row names
   gt() %>%
   data_color(
     columns = ends_with("_relative"), # Target all _relative columns
     method = "numeric", # Use numeric method for gradient mapping
-    palette = c("#00FF00", "#FFFF00", "#FF0000"), # Green to Yellow to Red
+    palette = c(
+    "#00FF00", # Bright Green
+    "#80FF00", # Light Green
+    "#A8FF00", # Lime Green
+    "#FFFF00", # Yellow
+    "#FFA500", # Orange
+    "#FF4500", # Orange-Red
+    "#FF0000", # Bright Red
+    "#8B0000"  # Dark Red
+),
     domain = c(0, 0.3), # Domain for relative differences
     na_color = "#f0f0f0" # Light gray for missing/NA values
   ) %>%
@@ -1705,17 +2303,24 @@ comparison_gt <- prepared_data_gt %>%
   ) %>%
   cols_label(
     original = "Original",
-    upper_quartile = "Upper Quartile",
-    upper_quartile_relative = "Upper Quartile Relative",
+    linear_imputation = "Linear Imputation",
+    linear_imputation_relative = "Linear Imputation Relative",
     mean_imputation = "Mean Imputation",
     mean_imputation_relative = "Mean Imputation Relative",
-    pmm_best = "PMM Best",
-    pmm_best_relative = "PMM Best Relative",
+    upper_quartile = "Upper Quartile",
+    upper_quartile_relative = "Upper Quartile Relative",
     pmm = "PMM",
-    pmm_relative = "PMM Relative"
-  ) %>%
+    pmm_relative = "PMM Relative",
+    pmm_best = "PMM Best",
+    pmm_best_relative = "PMM Best Relative"
+    ) %>%
   fmt_number(
-    columns = c(original, pmm, upper_quartile, mean_imputation, pmm_best),
+    columns = c(original, 
+                linear_imputation,
+                mean_imputation,
+                upper_quartile,
+                pmm, 
+                pmm_best),
     decimals = 2
   ) %>%
   fmt_number(
@@ -1738,12 +2343,12 @@ comparison_gt
 
 
 
-**
+
 
 
 
 #############
-# STEP 4
+# STEP 5
 ##########################################################################################################################################
 MERGING THE IMPUTED DATASET BACK TO THE ORIGINAL DATA AND VISUALISE
 ##########################################################################################################################################
@@ -1751,7 +2356,9 @@ MERGING THE IMPUTED DATASET BACK TO THE ORIGINAL DATA AND VISUALISE
 ```{r}
 merged_data <- database_clean_sd %>%
   full_join(
-    imputed_datasets$pmm_best %>%
+    # selecting pmm (out of all the imputation methods, pmm was selected as the best method out of all the imputation methods:
+    # mice, upper quartile, mean, linear regression imputation (norm.predict)), based on JSD and variance comparison
+    imputed_datasets$pmm %>% 
       select(id_article, id_obs, silvo_se, control_se), # Select relevant imputed columns
     by = c("id_article", "id_obs"),
     suffix = c("_original", "_imputed") # Keep original vs. imputed columns distinct
@@ -1899,7 +2506,8 @@ qqplot_combined <- qq_data_jitter %>%
     legend.position = "bottom"
   )
 
-print(qqplot_combined)
+# View the QQ plot
+qqplot_combined
 ```
 
 ```{r}
@@ -1937,14 +2545,13 @@ density_plot_clean <- density_data_clean %>%
     legend.position = "bottom"
   )
 
-# Display the plot
-print(density_plot_clean)
-
+# Display the density plot
+density_plot_clean
 ```
 
 
 #############
-# STEP 5
+# STEP 6
 ##########################################################################################################################################
 SAVING TWO VERSIONS OF PREPROCESSED DATA FOR FURTHER ANALYSIS AND VISUALIZATION
 ##########################################################################################################################################
@@ -2071,7 +2678,7 @@ cat("- Best-imputed dataset: imp_pmm_best_dataset.rds\n")
 
 
 #############
-# STEP 6
+# STEP 7
 ##########################################################################################################################################
 CALCULATING EFFECT SIZES FOR IMPUTED AND NON-IMPUTED DATASETS
 ##########################################################################################################################################
@@ -2286,6 +2893,14 @@ time.taken
 # Imputed Data - Heterogeneity (I^2): 99.93018 
 # Imputed Data - Between-study variance (tau^2): 0.01053153 
 # Time difference of 5.424392 secs
+
+# Last go (02/01-2025)
+# Time difference of 6.113353 secs
+# Advarsel: 177 studies with NAs omitted from model fitting.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Non-Imputed Data - Heterogeneity (I^2): 9.354748 
+# Non-Imputed Data - Between-study variance (tau^2): 1.438406e-06 
+# Imputed Data - Heterogeneity (I^2): 99.93201 
+# Imputed Data - Between-study variance (tau^2): 0.01083873 
+# Time difference of 6.113353 secs
 ```
  
  
@@ -2311,6 +2926,14 @@ print(ks_test_result)
 # 
 # data:  non_imp_data_rom$yi and imp_data_rom$yi
 # D = 0.030426, p-value = 0.7468
+# alternative hypothesis: two-sided
+
+# Last go (02/01-2025)
+# Advarsel: p-value will be approximate in the presence of ties
+# 	Asymptotic two-sample Kolmogorov-Smirnov test
+# 
+# data:  non_imp_data_rom$yi and imp_data_rom$yi
+# D = 0.031966, p-value = 0.6897
 # alternative hypothesis: two-sided
 ```
 
@@ -2345,6 +2968,7 @@ summary_imp <- imp_data_rom %>%
 summary_non_imp
 summary_imp
 
+# Last go (01/01-2025)
 # Description:df [1 × 3]
 # mean_yi
 # <dbl>
@@ -2362,6 +2986,25 @@ summary_imp
 # sd_yi
 # <dbl>
 # 0.02660392	0.002633719	0.2446765
+
+# Last go (02/01-2025)
+# Description:df [1 × 3]
+# mean_yi
+# <dbl>
+# median_yi
+# <dbl>
+# sd_yi
+# <dbl>
+# 0.02767394	0.003205885	0.2501374	
+# 
+# Description:df [1 × 3]
+# mean_yi
+# <dbl>
+# median_yi
+# <dbl>
+# sd_yi
+# <dbl>
+# 0.02369684	0.001916168	0.2386678	
 ```
  
 ```{r}
@@ -2396,12 +3039,17 @@ boxplot_imp <- ggplot(imp_data_rom, aes(y = yi)) +
 # Arrange the plots in a 2x2 layout
 (density_plot_non_imp | density_plot_imp) /
 (boxplot_non_imp | boxplot_imp)
-
 ```
 
 
+
+
+
+
+
+
 #############
-# STEP 7
+# STEP 8
 ##########################################################################################################################################
 SAVING FINAL PREPROCESSED META-DATASETS (IMPUTED AND NON-IMPUTED) - THESE ARE USED FOR RMA.MV() MODELLING
 ##########################################################################################################################################

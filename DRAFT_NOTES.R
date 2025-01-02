@@ -1,4 +1,169 @@
 
+*Points to address after the Tshering meeting with her supervisor (26/11-2024)*
+
+* Subgroup Analysis:
+Keep subgroup analyses for each response_variable (e.g., biodiversity, crop yield) to respect conceptual differences. This ensures tailored insights into unique trends and moderators like tree_type or crop_type. Account for reduced statistical power in smaller subgroups by adjusting for multiple comparisons (e.g., Bonferroni). Compare heterogeneity metrics (Q, I², τ²) across subgroups to identify variability differences.
+
+* Meta-Regression:
+Use meta-regression as a complementary step to capture overarching patterns. Include response_variable as a moderator and test interactions (e.g., tree_type * response_variable) to detect shared vs. outcome-specific effects. Start with a simpler model and add key moderators incrementally to maintain interpretability.
+
+* Heterogeneity Comparison:
+Compare heterogeneity metrics (I², τ²) between original and imputed datasets to assess the impact of imputation. Highlight changes in variability and their implications.
+
+* Visualizations:
+Simplify forest plots, focusing on clarity (e.g., one plot per response variable). Use ggplot for clean annotations, log-scaled axes (if relevant), and consistent aesthetics. Add funnel plots for individual response variable models and meta-regression to assess bias and precision.
+
+*Points to address after the meeting with Maarit (03/12-2024*
+
+#### **1. Imputation**
+   - **Evaluate Missingness:** 
+     - Check patterns of missingness in the original data and verify study reliability.
+     - Assess missingness in moderator-response variable combinations.
+   - **Non-Random Missingness:** 
+     - Test for non-random missingness in standard deviations for moderator-response combinations.
+   - **Imputation Methodology:**
+     - Use robust methods (e.g., upper quartile) for imputation if data quality is uncertain.
+     - Avoid imputing response variables, moderators, or fixed-effect variables (especially continuous ones).
+   - **Model Comparison:**
+     - Compare model results using imputed vs. non-imputed datasets to assess imputation impact.
+
+---> missingness pattern assessment before imputation on the _sd (we should have received something from Maarit). The pmm method might not be appropriate. We should impute based on the missingness. We can also test the linear reg. method. Remind Maarit about the imputation paper + script. Add the test the linear reg. method
+
+---> Missingness pattern (across response variable and moderators). 
+Are there specific patterns. And then what to do with that? 
+
+
+---
+
+#### **2. Moderators**
+   - Ensure a minimum of 10 studies per sublevel of moderators for sufficient statistical power.
+
+
+
+---
+
+#### **3. Random Effects**
+   - **Revise `exp_id`:**
+     - Aggregate location data within `exp_id` to simplify its structure.
+   - **Simplify Random Effects:**
+     - Remove unnecessary random effects (`id_article/response_variable`) if `exp_id` sufficiently captures random intercepts/slopes.
+
+---
+
+#### **4. Year as a Fixed Effect**
+   - Add standardized year as a fixed-effect, continuous variable to capture potential slope effects.
+   - Validate the structure and missingness of the `exp_id` variable before inclusion.
+   - "This morning, I worked on our database to determine which level we can use for the location. Since we are already focusing on the temperate climatic zone, I thought it would be good to use the country as the location."
+---
+
+#### **5. Multilevel Modelling vs. Subgroup Analysis**
+   - Use **multilevel modelling** to account for incomplete combinations of moderators and response variables.
+   - Multilevel modelling is valid for disentangling hierarchical structures but, for transparency and communication purposes, subgroup meta-analysis will remain the primary approach.
+   - Consider specific interaction terms between moderators after including additive effects in the model.
+
+---
+
+#### **6. Bias Assessment**
+   - Test for publication bias and variance error bias for each response variable and moderator.
+
+---
+
+#### **7. Global Mean Comparisons**
+   - Include a global mean to compare overall responses, particularly in cases of sign changes across responses.
+
+---
+
+#### **8. Model Diagnostics**
+   - **Delta AIC:**
+     - Use delta AIC to compare model performance between alternative specifications.
+   - **Influence Diagnostics:**
+     - Perform diagnostics on a study level using the `nlme` package with `id_article` as the grouping variable.
+
+
+
+
+Key Action Points
+	1. Check and Address Missing Data:
+		○ Assess patterns of missingness and trustworthiness of studies.
+		○ Implement robust imputation for error values only.
+	2. Aggregate and Simplify:
+		○ Aggregate soil texture levels and location data within exp_id.
+	3. Review Model Structure:
+		○ Simplify random effects.
+		○ Include standardized year as a fixed effect.
+	4. Evaluate Bias:
+		○ Perform publication and variance error bias assessments.
+	5. Use Multilevel Models:
+		○ Implement multilevel modeling to manage hierarchical structures.
+	6. Conduct Diagnostics:
+		○ Apply influence diagnostics at the study level (nlme).
+	7. Include Interaction Terms:
+		○ Incorporate interactions only after main effects in the model.
+	8. Global Response Comparisons:
+Use a global mean for overarching response evaluations.
+
+
+*Points to address after our 2025 meeting (02/01-2025)*
+
+---> missingness pattern assessment before imputation on the _sd (we should have received something from Maarit). 
+	The pmm method might not be appropriate. We should impute based on the missingness. We can also test the linear reg. method. 
+	Remind Maarit about the imputation paper + script. Add the test the linear reg. method
+
+---> Missingness pattern (across response variable and moderators). 
+Are there specific patterns. And then what to do with that? 
+
+----> Water qual and GGE is left out of the analysis because of too little data
+
+----> Leave-one-out analysis for sensitivity analysis on moderators and articles/studies on the effect size. This should be done on the full dataset and not on subsets of response variables
+
+----> Publication-ready plots: Forest plots, caterpillar plots, funnel plots, and geographical maps of study locations.
+
+----> Update the methods section with the new approach for the multivariate analysis
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 ```{r}
 # Convert moderators to factors
 preprocess_data <- function(data, moderators) {
@@ -8703,4 +8868,234 @@ plot_imp <- plot_missing_proportions(imp_dataset, imp_dataset_imputed, moderator
 
 # Display the plots side by side
 plot_non_imp + plot_imp
+```
+
+
+
+```{r}
+# Function to fit models for each response variable using precomputed v_matrices
+fit_response_variable_model <- function(data_subset, response_variable, v_matrix, moderators = NULL) {
+  cat("\nFitting model for response variable:", response_variable, "...\n")
+  
+  # Define the moderator formula
+  moderator_formula <- if (!is.null(moderators)) {
+    as.formula(paste("yi ~", paste(moderators, collapse = " + ")))
+  } else {
+    as.formula("yi ~ 1")  # Intercept-only model
+  }
+  
+  # Fit a multivariate meta-analytic model using `rma.mv` within a try-catch block
+  model <- tryCatch({
+    # Fit a random-effects multivariate meta-analysis model
+    rma.mv(
+      # Dependent variable: effect size (yi)
+      yi = yi,
+      # Variance-covariance matrix (V): accounts for within-study sampling variance and potential correlations
+      V = v_matrix,
+      # Moderators: a formula specifying the covariates to include in the model
+      mods = moderator_formula,
+      # Random-effects structure: defines how the random effects are modeled hierarchically
+      random = list(
+        ~ 1 | id_article/response_variable,         # Nested random intercept for each response variable within articles
+        ~ 1 | exp_id                                # Random intercept for individual experiments
+      ),
+      # Data: the dataset used for the analysis
+      data = data_subset,
+      # Method: optimization method for model fitting
+      method = "ML",                                # Maximum likelihood estimation
+      # Control settings: additional options for the optimization algorithm
+      control = list(
+        optimizer = "optim",                        # Specify the optimization function to use
+        optim.method = "BFGS",                      # Use the Broyden–Fletcher–Goldfarb–Shanno algorithm for optimization
+        iter.max = 1000,                            # Maximum number of iterations allowed
+        rel.tol = 1e-8                              # Convergence tolerance (stopping criterion for optimization)
+      )
+    )
+  }, error = function(e) {                            # Catch any errors during model fitting
+    cat("Error in model fitting:", e$message, "\n") # Print the error message
+    return(NULL)                                    # Return NULL if an error occurs
+  })
+  
+  
+  if (!is.null(model)) {
+    cat("Model fitting completed for response variable:", response_variable, ".\n")
+    return(model)
+  } else {
+    return(NULL)
+  }
+}
+```
+
+
+
+
+```{r}
+##########################################################################
+# Set up the parallel processing plan
+plan(multisession, workers = parallel::detectCores() - 1)
+##########################################################################
+
+# Start time tracking
+start.time <- Sys.time()
+
+##########################################################################
+##########################################################################
+# Set up the parallel processing plan
+plan(multisession, workers = parallel::detectCores() - 1)
+##########################################################################
+
+# Start time tracking
+start.time <- Sys.time()
+
+##########################################################################
+# Step 1: Check and enforce correct data types
+col_for_impute <- database_clean_sd |> 
+  as.data.frame() |> 
+  select(-geometry) |> 
+  select(
+    # Columns that need to be imputed
+    silvo_se, control_se, 
+    # Columns that are used by mice to impute values
+    tree_age, crop_type, tree_type, bioclim_sub_regions, experiment_year, alley_width, silvo_n, control_n,
+    # IDs that are used to back-link imputed values to the dataset
+    id_article, id_obs, treat_id, exp_id
+  ) |> 
+  mutate(
+    silvo_se = as.numeric(silvo_se),
+    control_se = as.numeric(control_se),
+    silvo_n = as.numeric(silvo_n),
+    control_n = as.numeric(control_n),
+    tree_age = as.numeric(tree_age),
+    crop_type = as.factor(crop_type),
+    tree_type = as.factor(tree_type),
+    bioclim_sub_regions = as.factor(bioclim_sub_regions),
+    alley_width = as.factor(alley_width),
+    id_article = as.numeric(id_article),
+    id_obs = as.numeric(id_obs),
+    treat_id = as.numeric(treat_id),
+    exp_id = as.numeric(exp_id)
+  )
+
+##########################################################################
+# Step 2: Define the function for each imputation method
+impute_data <- function(data, method_name) {
+  if (method_name == "pmm") {
+    # Predictive Mean Matching
+    pred_matrix <- mice::make.predictorMatrix(data)
+    pred_matrix[, c("tree_age", "crop_type", "tree_type", "bioclim_sub_regions", "experiment_year", "alley_width", 
+                    "id_article", "id_obs", "treat_id", "exp_id")] <- 0
+    
+    # Define imputation method for PMM
+    method <- c(
+      "silvo_se" = "pmm",
+      "control_se" = "pmm",
+      "silvo_n" = "",            # Not imputed
+      "control_n" = "",          # Not imputed
+      "tree_age" = "",           # Not imputed
+      "crop_type" = "",          # Not imputed
+      "tree_type" = "",          # Not imputed
+      "bioclim_sub_regions" = "",# Not imputed
+      "experiment_year" = "",    # Not imputed
+      "alley_width" = "",        # Not imputed
+      "id_article" = "",         # Not imputed
+      "id_obs" = "",             # Not imputed
+      "treat_id" = "",           # Not imputed
+      "exp_id" = ""              # Not imputed
+    )
+    
+    # Perform imputation using mice
+    imputed_mids <- mice(
+      data,
+      m = 20,
+      maxit = 100,
+      method = method,
+      predictorMatrix = pred_matrix,
+      seed = 1234,
+      printFlag = FALSE
+    )
+    # Return the raw mids object for PMM
+    return(imputed_mids)
+    
+  } else if (method_name == "upper_quartile") {
+    # Upper Quartile Imputation for Variance
+    upper_quartile_variance <- data %>%
+      # The 75th percentile represents a value higher than the median, ensuring that the imputed variances 
+      # are not unrealistically small while 
+      # still grounded in observed data. This helps maintain a conservative weighting in the meta-analysis.
+      summarise(across(c(silvo_se, control_se), ~ quantile(.^2, 0.75, na.rm = TRUE))) %>%
+      pivot_longer(cols = everything(), names_to = "variable", values_to = "upper_quartile")
+    
+    # Impute missing variance with the upper quartile
+    data <- data %>%
+      mutate(
+        silvo_se = ifelse(is.na(silvo_se), sqrt(upper_quartile_variance$upper_quartile[1]), silvo_se),
+        control_se = ifelse(is.na(control_se), sqrt(upper_quartile_variance$upper_quartile[2]), control_se)
+      )
+    return(data)
+    
+  } else if (method_name == "mean_imputation") {
+    # Example: Mean Imputation
+    data <- data %>%
+      mutate(
+        silvo_se = ifelse(is.na(silvo_se), mean(silvo_se, na.rm = TRUE), silvo_se),
+        control_se = ifelse(is.na(control_se), mean(control_se, na.rm = TRUE), control_se),
+        silvo_n = ifelse(is.na(silvo_n), mean(silvo_n, na.rm = TRUE), silvo_n),
+        control_n = ifelse(is.na(control_n), mean(control_n, na.rm = TRUE), control_n)
+      )
+    return(data)
+  } else {
+    stop("Invalid method name.")
+  }
+}
+
+##########################################################################
+# Step 3: Apply each imputation method
+imputation_methods <- c("pmm", "upper_quartile", "mean_imputation")
+imputed_datasets <- list()
+
+# Separate storage for the raw mids object from PMM
+imputed_mids_pmm <- NULL
+
+for (method_name in imputation_methods) {
+  cat("Applying", method_name, "imputation...\n")
+  if (method_name == "pmm") {
+    # Save the mids object for PMM
+    imputed_mids_pmm <- impute_data(col_for_impute, method_name)
+    # Convert to a completed dataset for combined list
+    imputed_datasets[[method_name]] <- mice::complete(imputed_mids_pmm)
+  } else {
+    # Directly store the completed dataset for other methods
+    imputed_datasets[[method_name]] <- impute_data(col_for_impute, method_name)
+  }
+}
+
+##########################################################################
+# Step 4: Compare results
+for (method_name in imputation_methods) {
+  cat("\nSummary of Imputed Dataset -", method_name, ":\n")
+  print(summary(imputed_datasets[[method_name]]))
+}
+
+##########################################################################
+# End time tracking
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+cat("\nTotal time taken:", time.taken, "\n")
+
+##########################################################################
+# imputed_mids_pmm is the raw mids object for PMM
+# imputed_datasets contains completed datasets for all methods
+
+##########################################################################
+# End time tracking
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+cat("\nTotal time taken:", time.taken, "\n")
+##########################################################################
+# Last run (28/11-24)
+# Total time taken: 11.16786 sec
+# Total time taken: 13.66807 
+
+# Last run (01/01-25)
+# Total time taken: 10.50317 
 ```
