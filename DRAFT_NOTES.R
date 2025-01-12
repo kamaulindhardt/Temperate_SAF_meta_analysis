@@ -134,7 +134,97 @@ Are there specific patterns. And then what to do with that?
 
 
 
-
+(1)
+# Group data by relevant columns for Experiment ID
+# The exp_id variable is created as a unique identifier for experiments, 
+# based on grouping by: id_article (the article ID), location (the geographical location of the experiment), and 
+# the experiment_year (the year the experiment was conducted)
+group_by(id_article, location, experiment_year) |>
+  mutate(exp_id = cur_group_id()) |>
+  ungroup() |> 
+  
+  
+  (2)
+# Group data by relevant columns for Experiment ID
+# The exp_id variable is created as a unique identifier for experiments, 
+# based on grouping by: id_article (the article ID), location (the geographical location of the experiment), 
+# the experiment_year (the year the experiment was conducted), and study duration (the number of years the study has been completed)
+group_by(id_article, location, experiment_year, study duration) |>
+  mutate(exp_id = cur_group_id()) |>
+  ungroup() |> 
+  
+  A)
+# Fit a multivariate meta-analytic model using `rma.mv` within a try-catch block
+model <- tryCatch({
+  # Fit a random-effects multivariate meta-analysis model
+  rma.mv(
+    # Dependent variable: effect size (yi)
+    yi = yi,
+    # Variance-covariance matrix (V): accounts for within-study sampling variance and potential correlations
+    V = v_matrix,
+    # Moderators: a formula specifying the covariates to include in the model
+    mods = moderator_formula,
+    # Random-effects structure: defines how the random effects are modeled hierarchically
+    random = list(
+      ~ 1 | id_article,                           # Random intercept for each article/study
+      ~ 1 | id_article/response_variable,         # Nested random intercept for each response variable within articles
+      ~ 1 | exp_id                                # Random intercept for individual experiments
+    ),
+    
+    
+    B)      
+  # Fit a multivariate meta-analytic model using `rma.mv` within a try-catch block
+  model <- tryCatch({
+    # Fit a random-effects multivariate meta-analysis model
+    rma.mv(
+      # Dependent variable: effect size (yi)
+      yi = yi,
+      # Variance-covariance matrix (V): accounts for within-study sampling variance and potential correlations
+      V = v_matrix,
+      # Moderators: a formula specifying the covariates to include in the model
+      mods = moderator_formula,
+      # Random-effects structure: defines how the random effects are modeled hierarchically
+      random = list(
+        ~ 1 | id_article/response_variable,         # Nested random intercept for each response variable within articles
+        ~ 1 | exp_id                                # Random intercept for individual experiments
+      ),
+      
+      
+      C)
+    # Fit a multivariate meta-analytic model using `rma.mv` within a try-catch block
+    model <- tryCatch({
+      # Fit a random-effects multivariate meta-analysis model
+      rma.mv(
+        # Dependent variable: effect size (yi)
+        yi = yi,
+        # Variance-covariance matrix (V): accounts for within-study sampling variance and potential correlations
+        V = v_matrix,
+        # Moderators: a formula specifying the covariates to include in the model
+        mods = moderator_formula,
+        # Random-effects structure: defines how the random effects are modeled hierarchically
+        random = list(
+          ~ 1 | exp_id                                # Random intercept for individual experiments
+        ),
+        
+        D)
+      # Fit a multivariate meta-analytic model using `rma.mv` within a try-catch block
+      model <- tryCatch({
+        # Fit a random-effects multivariate meta-analysis model
+        rma.mv(
+          # Dependent variable: effect size (yi)
+          yi = yi,
+          # Variance-covariance matrix (V): accounts for within-study sampling variance and potential correlations
+          V = v_matrix,
+          # Moderators: a formula specifying the covariates to include in the model
+          mods = moderator_formula,
+          # Random-effects structure: defines how the random effects are modeled hierarchically
+          random = list(
+            ~ 1 + Year | id_article,                    # Random intercept for each year and article/study
+            ~ 1 | id_article/response_variable,         # Nested random intercept for each response variable within articles
+            ~ 1 | exp_id                                # Random intercept for individual experiments
+          ),
+          
+          
 
 
 
@@ -9098,4 +9188,6045 @@ cat("\nTotal time taken:", time.taken, "\n")
 
 # Last run (01/01-25)
 # Total time taken: 10.50317 
+```
+
+
+
+
+
+
+
+
+
+
+```{r}
+# Visualize Model Comparisons
+# Create visualizations for the AIC and likelihood ratio test (LRT) results from `model_comparisons`.
+
+# Extract AIC values and LRT results
+comparison_results <- lapply(names(model_comparisons), function(response) {
+  comparison <- model_comparisons[[response]]
+  if (!is.null(comparison)) {
+    tibble(
+      Response = response,
+      AIC_Original = comparison$AIC[["Original"]],
+      AIC_Alternative = comparison$AIC[["Alternative"]],
+      AIC_Minimal = comparison$AIC[["Minimal"]],
+      LRT_Original_vs_Alternative = comparison$LR_Original_vs_Alternative$pval,
+      LRT_Original_vs_Minimal = comparison$LR_Original_vs_Minimal$pval
+    )
+  } else {
+    tibble(
+      Response = response,
+      AIC_Original = NA,
+      AIC_Alternative = NA,
+      AIC_Minimal = NA,
+      LRT_Original_vs_Alternative = NA,
+      LRT_Original_vs_Minimal = NA
+    )
+  }
+}) %>% bind_rows()
+
+comparison_results |> 
+  
+  # Melt the data for AIC visualization
+  aic_data <- comparison_results %>%
+  select(Response, 
+         AIC_Original, 
+         AIC_Alternative, 
+         AIC_Minimal) %>%
+  pivot_longer(cols = starts_with("AIC"), names_to = "Model", values_to = "AIC") %>%
+  mutate(Model = factor(Model, levels = c("AIC_Original", "AIC_Alternative", "AIC_Minimal"),
+                        labels = c("Original", "Alternative", "Minimal")))
+
+# Plot AIC values
+plot_aic <- ggplot(aic_data, aes(x = Response, y = AIC, fill = Model)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "AIC Comparisons Across Models",
+       x = "Response Variable",
+       y = "AIC",
+       fill = "Model") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Prepare LRT data
+lrt_data <- comparison_results %>%
+  select(Response, LRT_Original_vs_Alternative, LRT_Original_vs_Minimal) %>%
+  pivot_longer(cols = starts_with("LRT"), names_to = "Comparison", values_to = "p_value") %>%
+  mutate(Comparison = factor(Comparison, 
+                             levels = c("LRT_Original_vs_Alternative", "LRT_Original_vs_Minimal"),
+                             labels = c("Original vs. Alternative", "Original vs. Minimal")))
+
+# Plot LRT p-values
+plot_lrt <- ggplot(lrt_data, aes(x = Response, y = p_value, color = Comparison)) +
+  geom_point(size = 3) +
+  geom_hline(yintercept = 0.05, linetype = "dashed", color = "red") +
+  labs(title = "LRT P-Values for Model Comparisons",
+       x = "Response Variable",
+       y = "P-Value",
+       color = "Comparison") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Display the plots
+print(plot_aic)
+print(plot_lrt)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Original Model
+This model incorporates two levels of random effects: one nested within articles and response variables, and another at the experiment level.
+
+```{r}
+##########################################################################
+# Set up the parallel processing plan
+plan(multisession, workers = parallel::detectCores() - 1)
+##################################################
+# Start time tracking
+start.time <- Sys.time()
+##################################################
+##################################################
+
+
+# Function to fit models for each response variable using precomputed v_matrices
+fit_response_variable_model <- function(data_subset, response_variable, v_matrix, moderators = NULL) {
+  cat("\nFitting model for response variable:", response_variable, "...\n")
+  
+  # Define the moderator formula
+  moderator_formula <- if (!is.null(moderators)) {
+    as.formula(paste("yi ~", paste(moderators, collapse = " + ")))
+  } else {
+    as.formula("yi ~ 1")  # Intercept-only model
+  }
+  
+  # Ensure all moderators are treated as factors
+  data_subset <- data_subset %>%
+    mutate(across(all_of(moderators), as.factor)) %>%
+    as.data.frame()
+  
+  # Fit the model
+  model <- tryCatch({
+    rma.mv(
+      # Dependent variable: effect size
+      yi = yi,
+      # Variance-covariance matrix for within-study variability
+      V = v_matrix,
+      # Moderator formula: relationship between the effect size and moderators
+      mods = moderator_formula,
+      # Random effects structure
+      random = list(
+        ~ 1 | id_article/response_variable,         # Nested random intercept for each response variable within articles
+        ~ 1 | exp_id                                # Random effect: accounts for variability at the experiment level
+      ),
+      # Data used for model fitting
+      data = data_subset,
+      # Method for model fitting
+      method = "ML",                          # Maximum Likelihood (ML) for parameter estimation
+      # Optimization settings
+      control = list(
+        optimizer = "optim",                  # Optimizer function to use for fitting
+        optim.method = "BFGS",                # Broyden–Fletcher–Goldfarb–Shanno algorithm for optimization
+        iter.max = 1000,                      # Maximum number of iterations allowed
+        rel.tol = 1e-8                        # Convergence tolerance for optimization
+      )
+    )
+  }, error = function(e) {
+    cat("Error in model fitting for", response_variable, ":", e$message, "\n")
+    return(NULL)
+  })
+  
+  # Return the model or NULL if fitting failed
+  if (!is.null(model)) {
+    cat("Model fitting completed for response variable:", response_variable, ".\n")
+    return(model)
+  } else {
+    return(NULL)
+  }
+}
+
+# Fit models for each response variable using the precomputed v_matrices
+model_results <- list()
+
+for (response in names(v_matrices)) {
+  cat("\nProcessing response variable:", response, "\n")
+  
+  # Subset the data for the current response variable
+  data_subset <- meta_data[meta_data$response_variable == response, ]
+  
+  # Retrieve the precomputed v_matrix
+  v_matrix <- v_matrices[[response]]
+  
+  # Define moderators
+  moderators <- c("tree_type", "crop_type", "age_system", "season", "soil_texture")
+  
+  # Fit the model for the current response variable
+  model <- fit_response_variable_model(data_subset, response, v_matrix, moderators)
+  
+  # Save the model result
+  model_results[[response]] <- model
+}
+
+# Save the fitted models to a file
+saveRDS(model_results, file = file.path(output_dir, "fitted_models_by_response_variable.rds"))
+cat("\nAll models fitted and saved to:", output_dir, "\n")
+
+
+##################################################
+# End time tracking
+end.time <- Sys.time()
+# Calculate time taken
+time.taken <- end.time - start.time
+time.taken
+##############################################################
+# Last go (02/12-2024)
+# Time difference of 11.96204 secs
+
+# Last go (01/01-2025)
+# Time difference of 8.034523 secs
+# Processing response variable: Biodiversity 
+# Fitting model for response variable: Biodiversity ...
+# Advarsel: 14 rows with NAs omitted from model fitting.Model fitting completed for response variable: Biodiversity .
+# Processing response variable: Greenhouse gas emission 
+# Fitting model for response variable: Greenhouse gas emission ...
+# Error in model fitting for Greenhouse gas emission : contrasts can be applied only to factors with 2 or more levels 
+# Processing response variable: Product quality 
+# Fitting model for response variable: Product quality ...
+# Model fitting completed for response variable: Product quality .
+# Processing response variable: Crop yield 
+# Fitting model for response variable: Crop yield ...
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Model fitting completed for response variable: Crop yield .
+# Processing response variable: Pest and Disease 
+# Fitting model for response variable: Pest and Disease ...
+# Advarsel: Redundant predictors dropped from the model.Model fitting completed for response variable: Pest and Disease .
+# Processing response variable: Soil quality 
+# Fitting model for response variable: Soil quality ...
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Redundant predictors dropped from the model.Model fitting completed for response variable: Soil quality .
+# Processing response variable: Water quality 
+# Fitting model for response variable: Water quality ...
+# Error in model fitting for Water quality : contrasts can be applied only to factors with 2 or more levels 
+# All models fitted and saved to: C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temp_SAF_meta_analysis/DATA/OUTPUT_FROM_R/SAVED_OBJECTS_FROM_R 
+# Time difference of 8.034523 secs
+
+# Last go (02/12-2024)
+# Processing response variable: Biodiversity 
+# Fitting model for response variable: Biodiversity ...
+# Advarsel: 14 rows with NAs omitted from model fitting.Model fitting completed for response variable: Biodiversity .
+# Processing response variable: Greenhouse gas emission 
+# Fitting model for response variable: Greenhouse gas emission ...
+# Error in model fitting for Greenhouse gas emission : contrasts can be applied only to factors with 2 or more levels 
+# Processing response variable: Product quality 
+# Fitting model for response variable: Product quality ...
+# Model fitting completed for response variable: Product quality .
+# Processing response variable: Crop yield 
+# Fitting model for response variable: Crop yield ...
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Model fitting completed for response variable: Crop yield .
+# Processing response variable: Pest and Disease 
+# Fitting model for response variable: Pest and Disease ...
+# Advarsel: Redundant predictors dropped from the model.Model fitting completed for response variable: Pest and Disease .
+# Processing response variable: Soil quality 
+# Fitting model for response variable: Soil quality ...
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Redundant predictors dropped from the model.Model fitting completed for response variable: Soil quality .
+# Processing response variable: Water quality 
+# Fitting model for response variable: Water quality ...
+# Error in model fitting for Water quality : contrasts can be applied only to factors with 2 or more levels 
+# All models fitted and saved to: C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temp_SAF_meta_analysis/DATA/OUTPUT_FROM_R/SAVED_OBJECTS_FROM_R 
+# Time difference of 9.78518 secs
+```
+
+Alternative Model 1: Simplified Random Effects
+This model simplifies the random effects structure, focusing only on variability at the experiment level.
+```{r}
+##########################################################################
+# Set up the parallel processing plan
+plan(multisession, workers = parallel::detectCores() - 1)
+##################################################
+# Start time tracking
+start.time <- Sys.time()
+##################################################
+##################################################
+
+
+# Function to fit models for each response variable using precomputed v_matrices
+fit_response_variable_model <- function(data_subset, response_variable, v_matrix, moderators = NULL) {
+  cat("\nFitting model for response variable:", response_variable, "...\n")
+  
+  # Define the moderator formula
+  moderator_formula <- if (!is.null(moderators)) {
+    as.formula(paste("yi ~", paste(moderators, collapse = " + ")))
+  } else {
+    as.formula("yi ~ 1")  # Intercept-only model
+  }
+  
+  # Ensure all moderators are treated as factors
+  data_subset <- data_subset %>%
+    mutate(across(all_of(moderators), as.factor)) %>%
+    as.data.frame()
+  
+  # Fit the model
+  model <- tryCatch({
+    rma.mv(
+      # Dependent variable: effect size
+      yi = yi,
+      # Variance-covariance matrix for within-study variability
+      V = v_matrix,
+      # Moderator formula: relationship between the effect size and moderators
+      mods = moderator_formula,
+      # Random effects structure
+      random = ~ 1 | exp_id,                 # Random effect: accounts for variability at the experiment level
+      # Data used for model fitting
+      data = data_subset,
+      # Method for model fitting
+      method = "ML",                          # Maximum Likelihood (ML) for parameter estimation
+      # Optimization settings
+      control = list(
+        optimizer = "optim",                  # Optimizer function to use for fitting
+        optim.method = "BFGS",                # Broyden–Fletcher–Goldfarb–Shanno algorithm for optimization
+        iter.max = 1000,                      # Maximum number of iterations allowed
+        rel.tol = 1e-8                        # Convergence tolerance for optimization
+      )
+    )
+  }, error = function(e) {
+    cat("Error in model fitting for", response_variable, ":", e$message, "\n")
+    return(NULL)
+  })
+  
+  # Return the model or NULL if fitting failed
+  if (!is.null(model)) {
+    cat("Model fitting completed for response variable:", response_variable, ".\n")
+    return(model)
+  } else {
+    return(NULL)
+  }
+}
+
+# Fit models for each response variable using the precomputed v_matrices
+model_results <- list()
+
+for (response in names(v_matrices)) {
+  cat("\nProcessing response variable:", response, "\n")
+  
+  # Subset the data for the current response variable
+  data_subset <- meta_data[meta_data$response_variable == response, ]
+  
+  # Retrieve the precomputed v_matrix
+  v_matrix <- v_matrices[[response]]
+  
+  # Define moderators
+  moderators <- c("tree_type", "crop_type", "age_system", "season", "soil_texture")
+  
+  # Fit the model for the current response variable
+  model <- fit_response_variable_model(data_subset, response, v_matrix, moderators)
+  
+  # Save the model result
+  model_results[[response]] <- model
+}
+
+# Save the fitted models to a file
+saveRDS(model_results, file = file.path(output_dir, "fitted_models_by_response_variable_simplified.rds"))
+cat("\nAll models fitted and saved to:", output_dir, "\n")
+
+
+##################################################
+# End time tracking
+end.time <- Sys.time()
+# Calculate time taken
+time.taken <- end.time - start.time
+time.taken
+##############################################################
+# Last go (02/12-2024)
+# Time difference of 4.593977 secs
+# Processing response variable: Biodiversity 
+# Fitting model for response variable: Biodiversity ...
+# Advarsel: 14 rows with NAs omitted from model fitting.Model fitting completed for response variable: Biodiversity .
+# Processing response variable: Greenhouse gas emission 
+# Fitting model for response variable: Greenhouse gas emission ...
+# Error in model fitting for Greenhouse gas emission : contrasts can be applied only to factors with 2 or more levels 
+# Processing response variable: Product quality 
+# Fitting model for response variable: Product quality ...
+# Model fitting completed for response variable: Product quality .
+# Processing response variable: Crop yield 
+# Fitting model for response variable: Crop yield ...
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Model fitting completed for response variable: Crop yield .
+# Processing response variable: Pest and Disease 
+# Fitting model for response variable: Pest and Disease ...
+# Advarsel: Redundant predictors dropped from the model.Model fitting completed for response variable: Pest and Disease .
+# Processing response variable: Soil quality 
+# Fitting model for response variable: Soil quality ...
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Redundant predictors dropped from the model.Model fitting completed for response variable: Soil quality .
+# Processing response variable: Water quality 
+# Fitting model for response variable: Water quality ...
+# Error in model fitting for Water quality : contrasts can be applied only to factors with 2 or more levels 
+# All models fitted and saved to: C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temp_SAF_meta_analysis/DATA/OUTPUT_FROM_R/SAVED_OBJECTS_FROM_R 
+# Time difference of 4.593977 secs
+
+# Last go (02/12-2024)
+# Time difference of 4.643164 secs
+# Processing response variable: Biodiversity 
+# Fitting model for response variable: Biodiversity ...
+# Advarsel: 14 rows with NAs omitted from model fitting.Model fitting completed for response variable: Biodiversity .
+# Processing response variable: Greenhouse gas emission 
+# Fitting model for response variable: Greenhouse gas emission ...
+# Error in model fitting for Greenhouse gas emission : contrasts can be applied only to factors with 2 or more levels 
+# Processing response variable: Product quality 
+# Fitting model for response variable: Product quality ...
+# Model fitting completed for response variable: Product quality .
+# Processing response variable: Crop yield 
+# Fitting model for response variable: Crop yield ...
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Model fitting completed for response variable: Crop yield .
+# Processing response variable: Pest and Disease 
+# Fitting model for response variable: Pest and Disease ...
+# Advarsel: Redundant predictors dropped from the model.Model fitting completed for response variable: Pest and Disease .
+# Processing response variable: Soil quality 
+# Fitting model for response variable: Soil quality ...
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Redundant predictors dropped from the model.Model fitting completed for response variable: Soil quality .
+# Processing response variable: Water quality 
+# Fitting model for response variable: Water quality ...
+# Error in model fitting for Water quality : contrasts can be applied only to factors with 2 or more levels 
+# All models fitted and saved to: C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temp_SAF_meta_analysis/DATA/OUTPUT_FROM_R/SAVED_OBJECTS_FROM_R 
+# Time difference of 4.643164 secs
+```
+
+Minimally Reduced Model:
+  This model further simplifies the random effects structure by removing all nested random effects,
+focusing only on the experiment level and an intercept-only model.
+
+```{r}
+##########################################################################
+# Set up the parallel processing plan
+plan(multisession, workers = parallel::detectCores() - 1)
+##########################################################################
+
+# Start time tracking
+start.time <- Sys.time()
+
+##########################################################################
+# Define the function to fit minimally reduced models for each response variable
+fit_minimal_model <- function(data_subset, response_variable, v_matrix, moderators = NULL) {
+  cat("\nFitting minimally reduced model for response variable:", response_variable, "...\n")
+  
+  # Define the intercept-only formula
+  minimal_formula <- if (!is.null(moderators)) {
+    as.formula(paste("yi ~", paste(moderators, collapse = " + ")))
+  } else {
+    as.formula("yi ~ 1")
+  }
+  
+  # Ensure all moderators are treated as factors
+  if (!is.null(moderators)) {
+    data_subset <- data_subset %>%
+      mutate(across(all_of(moderators), as.factor)) %>%
+      as.data.frame()
+  }
+  
+  # Fit the model
+  model <- tryCatch({
+    rma.mv(
+      # Dependent variable: effect size
+      yi = yi,
+      # Variance-covariance matrix for within-study variability
+      V = v_matrix,
+      # Moderator formula: Intercept-only model
+      mods = minimal_formula,
+      # Random effects structure
+      random = ~ 1 | exp_id,                 # Random effect: accounts for variability at the experiment level
+      # Data used for model fitting
+      data = data_subset,
+      # Method for model fitting
+      method = "ML",                          # Maximum Likelihood (ML) for parameter estimation
+      # Optimization settings
+      control = list(
+        optimizer = "optim",                  # Optimizer function to use for fitting
+        optim.method = "BFGS",                # Broyden–Fletcher–Goldfarb–Shanno algorithm for optimization
+        iter.max = 1000,                      # Maximum number of iterations allowed
+        rel.tol = 1e-8                        # Convergence tolerance for optimization
+      )
+    )
+  }, error = function(e) {
+    cat("Error in model fitting for", response_variable, ":", e$message, "\n")
+    return(NULL)
+  })
+  
+  # Return the model or NULL if fitting failed
+  if (!is.null(model)) {
+    cat("Model fitting completed for response variable:", response_variable, ".\n")
+    return(model)
+  } else {
+    return(NULL)
+  }
+}
+
+##########################################################################
+# Fit minimally reduced models for each response variable using the precomputed v_matrices
+minimal_model_results <- list()
+
+for (response in names(v_matrices)) {
+  cat("\nProcessing response variable:", response, "\n")
+  
+  # Subset the data for the current response variable
+  data_subset <- meta_data[meta_data$response_variable == response, ]
+  
+  # Retrieve the precomputed v_matrix
+  v_matrix <- v_matrices[[response]]
+  
+  # Define moderators (if applicable)
+  moderators <- c("tree_type", "crop_type", "age_system", "season", "soil_texture")
+  
+  # Fit the minimally reduced model for the current response variable
+  model <- fit_minimal_model(data_subset, response, v_matrix, moderators)
+  
+  # Save the model result
+  minimal_model_results[[response]] <- model
+}
+
+##########################################################################
+# Save the fitted minimally reduced models to a file
+saveRDS(minimal_model_results, file = file.path(output_dir, "fitted_models_by_response_variable_minimal.rds"))
+cat("\nAll minimally reduced models fitted and saved to:", output_dir, "\n")
+
+##########################################################################
+# End time tracking
+end.time <- Sys.time()
+# Calculate time taken
+time.taken <- end.time - start.time
+cat("\nTotal time taken:", time.taken, "\n")
+##########################################################################
+# Last go (02/12-2024)
+# Total time taken: 4.232735 
+# Processing response variable: Biodiversity 
+# Fitting minimally reduced model for response variable: Biodiversity ...
+# Model fitting completed for response variable: Biodiversity .
+# Processing response variable: Greenhouse gas emission 
+# Fitting minimally reduced model for response variable: Greenhouse gas emission ...
+# Model fitting completed for response variable: Greenhouse gas emission .
+# Processing response variable: Product quality 
+# Fitting minimally reduced model for response variable: Product quality ...
+# Model fitting completed for response variable: Product quality .
+# Processing response variable: Crop yield 
+# Fitting minimally reduced model for response variable: Crop yield ...
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Model fitting completed for response variable: Crop yield .
+# Processing response variable: Pest and Disease 
+# Fitting minimally reduced model for response variable: Pest and Disease ...
+# Model fitting completed for response variable: Pest and Disease .
+# Processing response variable: Soil quality 
+# Fitting minimally reduced model for response variable: Soil quality ...
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Model fitting completed for response variable: Soil quality .
+# Processing response variable: Water quality 
+# Fitting minimally reduced model for response variable: Water quality ...
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Model fitting completed for response variable: Water quality .
+# All minimally reduced models fitted and saved to: C:/Users/au759124/OneDrive - Aarhus universitet/Documents/Temp_SAF_meta_analysis/DATA/OUTPUT_FROM_R/SAVED_OBJECTS_FROM_R 
+# Total time taken: 4.232735 
+```
+
+
+
+
+
+
+
+```{r}
+# Compare models for each response variable
+model_comparisons <- list()
+
+for (response in names(original_model_results)) {
+  cat("\nComparing models for response variable:", response, "\n")
+  
+  original_model <- original_model_results[[response]]
+  alternative_model <- simplified_model_results[[response]]
+  minimal_model <- minimal_model_results[[response]]
+  
+  if (!is.null(original_model) & !is.null(alternative_model) & !is.null(minimal_model)) {
+    # Extract AIC for each model, handle NULL cases
+    aic_values <- c(
+      "Original" = if (!is.null(original_model)) original_model$aic else NA,
+      "Alternative" = if (!is.null(alternative_model)) alternative_model$aic else NA,
+      "Minimal" = if (!is.null(minimal_model)) minimal_model$aic else NA
+    )
+    
+    # Perform likelihood ratio tests, handle potential errors
+    lr_original_vs_alternative <- tryCatch(
+      anova(original_model, alternative_model),
+      error = function(e) { cat("LR test failed for Original vs. Alternative:", e$message, "\n"); NULL }
+    )
+    lr_original_vs_minimal <- tryCatch(
+      anova(original_model, minimal_model),
+      error = function(e) { cat("LR test failed for Original vs. Minimal:", e$message, "\n"); NULL }
+    )
+    
+    # Store results
+    model_comparisons[[response]] <- list(
+      AIC = aic_values,
+      LR_Original_vs_Alternative = lr_original_vs_alternative,
+      LR_Original_vs_Minimal = lr_original_vs_minimal
+    )
+    
+    # Print AIC values
+    cat("AIC Values:\n", aic_values, "\n")
+  } else {
+    cat("Model fitting failed for one or more models for", response, "\n")
+  }
+}
+
+# Display results for all response variables
+model_comparisons |> glimpse() |> head()
+```
+
+```{r}
+model_comparisons |> str()
+```
+
+```{r}
+# Inspect log-likelihood values and model structures
+inspect_model_fit <- function(model, model_name) {
+  if (!is.null(model)) {
+    cat("\nModel:", model_name, "\n")
+    cat("Log-Likelihood:", logLik(model), "\n")
+    cat("Fixed Effects:\n")
+    print(model$beta)
+    cat("Random Effects:\n")
+    print(model$sigma2)
+  } else {
+    cat("\nModel:", model_name, "is NULL\n")
+  }
+}
+
+##################################################################################
+# Replace with the specific response variable to inspect
+response_variable <- "Crop yield"  
+
+inspect_model_fit(original_model_results[[response_variable]], "Original")
+inspect_model_fit(simplified_model_results[[response_variable]], "Alternative")
+inspect_model_fit(minimal_model_results[[response_variable]], "Minimal")
+```
+
+
+```{r}
+##########################################################################
+# Compare models systematically for each response variable
+##########################################################################
+
+# Initialize an empty list to store model comparison results
+meta_analysis_model_comparisons <- list()
+
+# Loop through each response variable
+for (response in names(full_model_results)) {
+  cat("\nComparing models for response variable:", response, "\n")
+  
+  # Retrieve models for the current response variable
+  full_model <- full_model_results[[response]]
+  simplified_model <- simplified_model_results[[response]]
+  minimal_model <- minimal_model_results[[response]]
+  fixed_effects_model <- fixed_effects_model_results[[response]]
+  
+  if (!is.null(full_model) & !is.null(simplified_model) & !is.null(minimal_model) & !is.null(fixed_effects_model)) {
+    
+    # Extract AIC for each model, handle NULL cases
+    aic_values <- c(
+      "Full" = if (!is.null(full_model)) full_model$aic else NA,
+      "Simplified" = if (!is.null(simplified_model)) simplified_model$aic else NA,
+      "Minimal" = if (!is.null(minimal_model)) minimal_model$aic else NA,
+      "Fixed Effects Only" = if (!is.null(fixed_effects_model)) fixed_effects_model$aic else NA
+    )
+    
+    # Perform likelihood ratio tests, handle potential errors
+    lr_full_vs_simplified <- tryCatch(
+      anova(full_model, simplified_model),
+      error = function(e) { cat("LR test failed for Full vs. Simplified:", e$message, "\n"); NULL }
+    )
+    lr_full_vs_minimal <- tryCatch(
+      anova(full_model, minimal_model),
+      error = function(e) { cat("LR test failed for Full vs. Minimal:", e$message, "\n"); NULL }
+    )
+    lr_full_vs_fixed <- tryCatch(
+      anova(full_model, fixed_effects_model),
+      error = function(e) { cat("LR test failed for Full vs. Fixed Effects Only:", e$message, "\n"); NULL }
+    )
+    
+    # Store results
+    meta_analysis_model_comparisons[[response]] <- list(
+      AIC = aic_values,
+      LR_Full_vs_Simplified = lr_full_vs_simplified,
+      LR_Full_vs_Minimal = lr_full_vs_minimal,
+      LR_Full_vs_Fixed = lr_full_vs_fixed
+    )
+    
+    # Print AIC values
+    cat("AIC Values:\n", aic_values, "\n")
+  } else {
+    cat("Model fitting failed for one or more models for", response, "\n")
+  }
+}
+
+##########################################################################
+# Display comparison results summary
+##########################################################################
+# Print a glimpse of the comparison results
+meta_analysis_model_comparisons |> glimpse()
+
+##########################################################################
+# Save comparison results to file for further analysis
+##########################################################################
+saveRDS(meta_analysis_model_comparisons, file = "meta_analysis_model_comparison_results.rds")
+cat("Model comparison results saved to model_comparison_results.rds\n")
+```
+
+
+```{r}
+##########################################################################
+# Visualizations for Model Comparisons
+##########################################################################
+
+# Load necessary libraries
+library(ggplot2)
+
+##########################################################################
+# 1. AIC Comparison Plot
+##########################################################################
+# Combine AIC values into a data frame for visualization
+aic_df <- do.call(rbind, lapply(meta_analysis_model_comparisons, function(x) {
+  if (!is.null(x$AIC)) {
+    data.frame(
+      Response = names(meta_analysis_model_comparisons),
+      Model = names(x$AIC),
+      AIC = x$AIC
+    )
+  }
+}))
+
+# Plot AIC values
+ggplot(aic_df, aes(x = Response, y = AIC, fill = Model)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "AIC Comparison Across Models", x = "Response Variable", y = "AIC") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+##########################################################################
+# 2. Likelihood Ratio Test (LRT) Results
+##########################################################################
+# Extract p-values from LRT results
+lrt_pvalues <- do.call(rbind, lapply(meta_analysis_model_comparisons, function(x) {
+  if (!is.null(x$LR_Full_vs_Simplified) && !is.null(x$LR_Full_vs_Minimal)) {
+    data.frame(
+      Response = names(meta_analysis_model_comparisons),
+      Comparison = c("Full vs Simplified", "Full vs Minimal"),
+      PValue = c(x$LR_Full_vs_Simplified$pval, x$LR_Full_vs_Minimal$pval)
+    )
+  }
+}))
+
+# Plot p-values
+ggplot(lrt_pvalues, aes(x = Response, y = -log10(PValue), color = Comparison)) +
+  geom_point(size = 3) +
+  labs(title = "Likelihood Ratio Test P-Values", x = "Response Variable", y = "-log10(P-Value)") +
+  geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "red") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+##########################################################################
+# 3. Residual Variance (QE) Comparison
+##########################################################################
+# Extract QE values
+qe_df <- do.call(rbind, lapply(meta_analysis_model_comparisons, function(x) {
+  if (!is.null(x$LR_Full_vs_Simplified)) {
+    data.frame(
+      Response = names(meta_analysis_model_comparisons),
+      Model = c("Full", "Simplified", "Minimal", "Fixed Effects"),
+      QE = c(x$LR_Full_vs_Simplified$QE.f, x$LR_Full_vs_Simplified$QE.r,
+             x$LR_Full_vs_Minimal$QE.r, x$LR_Full_vs_Fixed$QE.r)
+    )
+  }
+}))
+
+# Plot QE values
+ggplot(qe_df, aes(x = Response, y = QE, fill = Model)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Residual Variance (QE) Comparison", x = "Response Variable", y = "Residual Variance (QE)") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+##########################################################################
+# 4. R-Squared Values
+##########################################################################
+# Extract R-squared values
+r2_df <- do.call(rbind, lapply(meta_analysis_model_comparisons, function(x) {
+  if (!is.null(x$LR_Full_vs_Simplified)) {
+    data.frame(
+      Response = names(meta_analysis_model_comparisons),
+      Model = c("Full", "Simplified", "Minimal", "Fixed Effects"),
+      R2 = c(x$LR_Full_vs_Simplified$R2, NA, NA, NA) # Add R2 if available
+    )
+  }
+}))
+
+# Plot R-squared values
+ggplot(r2_df, aes(x = Response, y = R2, fill = Model)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "R-Squared Comparison Across Models", x = "Response Variable", y = "R-Squared") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+```{r}
+### Visual Evaluation Protocol: AIC and BIC Comparison
+
+# Function to create a performance comparison table for individual response variables
+compare_models <- function(original_model_list, simplified_model_list, response_variable) {
+  original_model <- original_model_list[[response_variable]]
+  simplified_model <- simplified_model_list[[response_variable]]
+  
+  if (is.null(original_model) || is.null(simplified_model)) {
+    cat("Model missing for response variable:", response_variable, "\n")
+    return(NULL)
+  }
+  
+  performance_metrics <- tibble(
+    ResponseVariable = response_variable,
+    Model = c("Original", "Simplified"),
+    AIC = c(AIC(original_model), AIC(simplified_model)),
+    BIC = c(BIC(original_model), BIC(simplified_model))
+  )
+  return(performance_metrics)
+}
+
+# Visualize AIC and BIC side-by-side for all response variables
+plot_model_comparison_by_response <- function(performance_comparison) {
+  performance_long <- performance_comparison %>%
+    pivot_longer(cols = c(AIC, BIC), names_to = "Metric", values_to = "Value") %>%
+    mutate(ResponseVariable = as.factor(ResponseVariable))
+  
+  ggplot(performance_long, aes(x = Model, y = Value, fill = Metric)) +
+    geom_bar(stat = "identity", position = position_dodge()) +
+    facet_wrap(~ResponseVariable, scales = "free_y") +
+    labs(
+      title = "Model Performance Comparison by Response Variable",
+      x = "Model",
+      y = "Value",
+      fill = "Metric"
+    ) +
+    theme_minimal() +
+    scale_fill_brewer(palette = "Set2")
+}
+
+# Example Usage
+# Assuming `original_model_results` and `simplified_model_results` are lists of model objects by response variable
+response_variables <- names(original_model_results)
+
+# Generate performance metrics for all response variables
+all_performance_metrics <- lapply(response_variables, function(rv) {
+  compare_models(original_model_results, simplified_model_results, rv)
+})
+
+# Combine all metrics into a single data frame
+all_performance_metrics <- bind_rows(all_performance_metrics)
+
+# Print the performance metrics
+glimpse(all_performance_metrics)
+```
+```{r}
+
+# Generate the visualization
+plot_model_comparison_by_response(all_performance_metrics)
+```
+
+```{r}
+summary(original_model)$random
+summary(simplified_model)$random
+```
+
+
+
+
+
+
+
+
+
+
+```{r}
+##########################################################################
+# Systematic Comparison of Models for Each Response Variable
+##########################################################################
+# Perform likelihood ratio tests for each response variable with additional validation
+lrt_results <- lapply(names(full_model_results), function(response) {
+  tryCatch({
+    full_model <- full_model_results[[response]]
+    simplified_model <- simplified_model_results[[response]]
+    minimal_model <- minimal_model_results[[response]]
+    fixed_model <- fixed_effects_model_results[[response]]
+    
+    # Debug: Check if models are non-NULL
+    if (is.null(full_model) || is.null(simplified_model) || is.null(minimal_model) || is.null(fixed_model)) {
+      stop("One or more models are NULL for response: ", response)
+    }
+    
+    # Debug: Check data consistency
+    if (!identical(length(full_model$yi), length(simplified_model$yi)) || 
+        !identical(length(full_model$vi), length(simplified_model$vi))) {
+      stop("Mismatch in data lengths for full vs. simplified model for response: ", response)
+    }
+    if (!identical(length(full_model$yi), length(minimal_model$yi)) || 
+        !identical(length(full_model$vi), length(minimal_model$vi))) {
+      stop("Mismatch in data lengths for full vs. minimal model for response: ", response)
+    }
+    if (!identical(length(full_model$yi), length(fixed_model$yi)) || 
+        !identical(length(full_model$vi), length(fixed_model$vi))) {
+      stop("Mismatch in data lengths for full vs. fixed model for response: ", response)
+    }
+    
+    # Run ANOVA
+    simplified_lrt <- anova(full_model, simplified_model) $`Pr(>Chi)`[2]
+    minimal_lrt <- anova(full_model, minimal_model)$`Pr(>Chi)`[2]
+    fixed_lrt <- anova(full_model, fixed_model)$`Pr(>Chi)`[2]
+    
+    data.frame(
+      Response = response,
+      LRT_Full_vs_Simplified = simplified_lrt,
+      LRT_Full_vs_Minimal = minimal_lrt,
+      LRT_Full_vs_Fixed = fixed_lrt
+    )
+  }, error = function(e) {
+    message("Error processing response variable: ", response, " - ", e$message)
+    NULL
+  })
+})
+
+# Filter out NULL elements and validate results
+lrt_results <- lrt_results[!sapply(lrt_results, is.null)]
+if (length(lrt_results) > 0) {
+  lrt_results <- do.call(rbind, lrt_results)
+  lrt_results <- lrt_results %>% mutate(across(starts_with("LRT"), ~ -log10(.)))
+} else {
+  message("No valid results to process.")
+  lrt_results <- data.frame()
+}
+```
+
+```{r}
+full_ids <- full_model_results[["Biodiversity"]]$data$id_obs
+minimal_ids <- minimal_model_results[["Biodiversity"]]$data$id_obs
+
+extra_ids_in_minimal <- setdiff(minimal_ids, full_ids)
+missing_ids_in_minimal <- setdiff(full_ids, minimal_ids)
+
+message("Extra IDs in Minimal Model: ", length(extra_ids_in_minimal))
+message("Missing IDs in Minimal Model: ", length(missing_ids_in_minimal))
+
+# Inspect the discrepancies
+extra_ids_in_minimal
+missing_ids_in_minimal
+```
+```{r}
+minimal_model_results[["Biodiversity"]] <- update(
+  minimal_model_results[["Biodiversity"]],
+  data = full_model_results[["Biodiversity"]]$data
+)
+```
+
+
+#############
+# STEP 5
+##########################################################################################################################################
+KEY INFLUENCE DIAGNOSTICS ON EACH SUBSET - SIMPLIFIED MODEL FITTING 
+##########################################################################################################################################
+
+
+```{r}
+##########################################################################
+# Set up the parallel processing plan
+plan(multisession, workers = parallel::detectCores() - 1)
+##################################################
+# Start time tracking
+start.time <- Sys.time()
+##################################################
+##################################################
+
+# Fit models for each response variable
+model_results_infdia <- list()
+
+for (response in unique(meta_data$response_variable)) {
+  cat("\nProcessing response variable:", response, "...\n")
+  
+  # Subset data for the current response variable
+  data_subset <- meta_data[meta_data$response_variable == response, ]
+  
+  # Fit the model with random effects for `id_article`
+  res <- tryCatch({
+    rma(yi = yi, 
+        vi = vi, 
+        # Add study-level random effect
+        random = ~ 1 | id_article,  
+        data = data_subset, 
+        # Restricted ML
+        method = "REML")
+  }, error = function(e) {
+    cat("Model fitting failed for", response, ":", e$message, "\n")
+    return(NULL)
+  })
+  
+  # Save the fitted model
+  model_results_infdia[[response]] <- res
+}
+
+# Recompute influence diagnostics
+influence_diagnostics <- list()
+
+for (response in names(model_results_infdia)) {
+  cat("\nComputing influence diagnostics for:", response, "...\n")
+  
+  model <- model_results_infdia[[response]]
+  
+  if (!is.null(model)) {
+    inf <- tryCatch({
+      influence(model)
+    }, error = function(e) {
+      cat("Influence diagnostics failed for:", response, ":", e$message, "\n")
+      return(NULL)
+    })
+    influence_diagnostics[[response]] <- inf
+  } else {
+    cat("Skipping influence diagnostics for:", response, "due to missing model.\n")
+  }
+}
+
+
+# Perform leave-one-out analysis
+leave1out_results <- list()
+
+for (response in names(model_results_infdia)) {
+  cat("\nRunning Leave-One-Out for:", response, "...\n")
+  
+  model <- model_results_infdia[[response]]
+  
+  if (!is.null(model)) {
+    leave1out_results[[response]] <- leave1out(model)
+  } else {
+    cat("Skipping Leave-One-Out for:", response, "due to missing model.\n")
+  }
+}
+
+
+##################################################
+# End time tracking
+end.time <- Sys.time()
+# Calculate time taken
+time.taken <- end.time - start.time
+time.taken
+##############################################################
+
+# Last go (02/12-2024)
+# Time difference of 1.117442 mins
+# Time difference of 3.097009 mins
+# Time difference of 2.744736 mins
+
+# Last go (01/01-2025)
+# Time difference of 2.148423 mins
+# Processing response variable: Biodiversity ...
+# Advarsel: Extra argument ('random') disregarded.
+# Processing response variable: Crop yield ...
+# Advarsel: Extra argument ('random') disregarded.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.
+# Processing response variable: Water quality ...
+# Advarsel: Extra argument ('random') disregarded.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.
+# Processing response variable: Pest and Disease ...
+# Advarsel: Extra argument ('random') disregarded.
+# Processing response variable: Soil quality ...
+# Advarsel: Extra argument ('random') disregarded.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.
+# Processing response variable: Greenhouse gas emission ...
+# Advarsel: Extra argument ('random') disregarded.
+# Processing response variable: Product quality ...
+# Advarsel: Extra argument ('random') disregarded.
+# Computing influence diagnostics for: Biodiversity ...
+# Computing influence diagnostics for: Crop yield ...
+# Computing influence diagnostics for: Water quality ...
+# Computing influence diagnostics for: Pest and Disease ...
+# Computing influence diagnostics for: Soil quality ...
+# Computing influence diagnostics for: Greenhouse gas emission ...
+# Computing influence diagnostics for: Product quality ...
+# Running Leave-One-Out for: Biodiversity ...
+# Running Leave-One-Out for: Crop yield ...
+# Running Leave-One-Out for: Water quality ...
+# Running Leave-One-Out for: Pest and Disease ...
+# Running Leave-One-Out for: Soil quality ...
+# Running Leave-One-Out for: Greenhouse gas emission ...
+# Running Leave-One-Out for: Product quality ...
+# Time difference of 2.148423 mins
+```
+
+
+=======
+  # Last go: (17/11-24)
+  # Time difference of 25.3915 secs
+  # 
+  # Calculating Bootstrap Confidence Intervals for Non-Imputed Dataset ...
+  # Bootstrap Confidence Intervals Calculation Complete for Non-Imputed Dataset .
+  # 
+  # Forest Plot for Non-Imputed Dataset :
+  # 
+  # Calculating Bootstrap Confidence Intervals for Imputed Dataset ...
+  # Bootstrap Confidence Intervals Calculation Complete for Imputed Dataset .
+  # 
+  # Forest Plot for Imputed Dataset :
+  # Advarsel: longer object length is not a multiple of shorter object length
+  # Calculating Bootstrap Confidence Intervals for Non-Imputed Imputed Dataset ...
+  # Bootstrap Confidence Intervals Calculation Complete for Non-Imputed Imputed Dataset .
+  # 
+  # Forest Plot for Non-Imputed Imputed Dataset :
+  # 
+  # Calculating Bootstrap Confidence Intervals for Imputed Imputed Dataset ...
+  # Bootstrap Confidence Intervals Calculation Complete for Imputed Imputed Dataset .
+  # 
+  # Forest Plot for Imputed Imputed Dataset :
+  
+  Saving plots
+
+
+Fit the simplified multivariate random-effects model for diagnostics
+
+```{r}
+##########################################################################
+# Set up the parallel processing plan
+plan(multisession, workers = parallel::detectCores() - 1)
+##################################################
+# Start time tracking
+start.time <- Sys.time()
+##################################################
+##################################################
+
+# Helper function to run the multivariate random-effects model
+run_meta_analysis <- function(data, dataset_name) {
+  cat("Running analysis for", dataset_name, "\n")
+  
+  # Step 1: Calculate the variance-covariance matrix if needed
+  V_matrix <- as.matrix(data$vi) # Example assumes `vi` is already correct
+  
+  # Step 2: Fit the simplified multivariate random-effects model
+  model_meta_diagnostics <- tryCatch({
+    rma(
+      yi = data$yi,
+      vi = data$vi,
+      random = list(
+        ~ 1 | id_article,
+        ~ 1 | id_article/response_variable,
+        ~ 1 | exp_id
+      ),
+      data = data,
+      method = "ML"
+    )
+  }, error = function(e) {
+    stop("Error in model fitting: ", e$message)
+  })
+  
+  # Step 3: Compute influence diagnostics
+  inf <- influence(model_meta_diagnostics)
+  
+  # Return the model and diagnostics
+  return(list(model = model_meta_diagnostics, influence = inf))
+}
+
+# Step 1: Apply meta-analysis function to each dataset
+results <- lapply(names(datasets), function(dataset_name) {
+  tryCatch({
+    run_meta_analysis(datasets[[dataset_name]], dataset_name)
+  }, error = function(e) {
+    cat("Error in dataset", dataset_name, ":", e$message, "\n")
+    return(NULL)
+  })
+})
+
+# Step 2: Name the results list
+names(results) <- names(datasets)
+
+
+##################################################
+# End time tracking
+end.time <- Sys.time()
+# Calculate time taken
+time.taken <- end.time - start.time
+time.taken
+##############################################################
+# Last go: (27/11-24)
+# Time difference of 2.942727 hours
+```
+
+
+```{r}
+saveRDS(results, file = "meta_analysis_diagnosis_on_datasets_results.rds")
+```
+
+
+```{r}
+# Step 3: Plot influence diagnostics
+par(mfrow = c(8, 1), oma = c(2, 2, 2, 2)) # Set up plotting area
+for (dataset_name in names(results)) {
+  if (!is.null(results[[dataset_name]])) {
+    plot(results[[dataset_name]]$influence) # Default plot
+    mtext(paste("Influence Diagnostics for", dataset_name), side = 3, line = 0.5, outer = FALSE)
+  }
+}
+
+
+# Optional: Inspect the results
+# str(results)
+```
+
+```{r}
+datasets_effect_sizes$non_imp_dataset %>% glimpse()
+```
+
+
+
+
+
+
+
+
+
+
+
+
+##########################################################################################################################################
+SAVING DATASETS AND MODEL OBJECTS
+##########################################################################################################################################
+
+```{r}
+# Save the results
+output_dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
+saveRDS(model_results_infdia, file = file.path(output_dir, "simplified_fitted_models.rds"))
+saveRDS(influence_diagnostics, file = file.path(output_dir, "simplified_influence_diagnostics.rds"))
+cat("\nModels and influence diagnostics saved to:", output_dir, "\n")
+```
+
+```{r}
+influence_diagnostics |> str()
+```
+
+
+```{r}
+##########################################################################
+# Set up the parallel processing plan
+plan(multisession, workers = parallel::detectCores() - 1)
+##################################################
+# Start time tracking
+start.time <- Sys.time()
+##################################################
+##################################################
+
+# Generate plots for influence diagnostics
+plot_dir <- file.path(output_dir, "Influence_Diagnostics_Plots")
+if (!dir.exists(plot_dir)) dir.create(plot_dir, recursive = TRUE)
+
+for (response in names(influence_diagnostics)) {
+  cat("\nGenerating influence diagnostic plots for:", response, "...\n")
+  
+  inf <- influence_diagnostics[[response]]
+  
+  if (!is.null(inf)) {
+    tryCatch({
+      par(mfrow = c(8, 1))
+      plot(inf)
+      dev.copy(jpeg, file = file.path(plot_dir, paste0("influence_plot_", gsub(" ", "_", response), ".jpg")))
+      dev.off()
+    }, error = function(e) {
+      cat("Plotting failed for", response, ":", e$message, "\n")
+    })
+  } else {
+    cat("No influence diagnostics available for:", response, "\n")
+  }
+}
+cat("\nInfluence diagnostic plots saved to:", plot_dir, "\n")
+
+##################################################
+# End time tracking
+end.time <- Sys.time()
+# Calculate time taken
+time.taken <- end.time - start.time
+time.taken
+##############################################################
+# Last go (02/12-2024)
+# Time difference of 49.21399 secs
+```
+```{r}
+model_results |> str()
+```
+
+```{r}
+##########################################################################
+# Set up the parallel processing plan
+plan(multisession, workers = parallel::detectCores() - 1)
+##################################################
+# Start time tracking
+start.time <- Sys.time()
+##################################################
+##################################################
+
+
+
+# Custom Leave-One-Out for rma.mv models
+leave1out_mv <- function(model, data, study_id_col) {
+  unique_studies <- unique(data[[study_id_col]])
+  results <- list()
+  
+  for (study in unique_studies) {
+    cat("Leaving out study:", study, "...\n")
+    
+    # Subset data to exclude the current study
+    data_subset <- data[data[[study_id_col]] != study, ]
+    
+    # Refit the model without the excluded study
+    tryCatch({
+      refit_model <- rma.mv(yi = model$yi,
+                            V = model$V,
+                            mods = model$X,
+                            random = model$s.names,
+                            data = data_subset,
+                            method = "ML")
+      
+      # Store refit model's coefficients
+      results[[as.character(study)]] <- list(
+        coefficients = refit_model$b,
+        fit_stats = refit_model$fit.stats
+      )
+    }, error = function(e) {
+      cat("Error with study:", study, "->", e$message, "\n")
+      results[[as.character(study)]] <- NULL
+    })
+  }
+  
+  return(results)
+}
+
+# Perform Leave-One-Out for all response variables
+leave1out_results <- list()
+
+for (response in names(model_results)) {
+  cat("\nPerforming Leave-One-Out for:", response, "...\n")
+  
+  model <- model_results[[response]]
+  
+  if (!is.null(model)) {
+    leave1out_results[[response]] <- leave1out_mv(
+      model = model,
+      data = model$data,
+      study_id_col = "id_article"
+    )
+  } else {
+    cat("Skipping Leave-One-Out for:", response, "due to missing model.\n")
+  }
+}
+
+
+
+
+##################################################
+# End time tracking
+end.time <- Sys.time()
+# Calculate time taken
+time.taken <- end.time - start.time
+time.taken
+##############################################################
+# Last go (01/01-2025)
+# Time difference of  mins
+```
+
+```{r}
+# Function to extract influence diagnostic data
+extract_diagnostics <- function(inf_obj, response_variable) {
+  if (is.null(inf_obj)) {
+    cat("No influence diagnostics available for", response_variable, "\n")
+    return(NULL)
+  }
+  
+  # Extract diagnostics safely and pad missing elements with NA
+  tryCatch({
+    n_studies <- length(inf_obj$inf$rstudent)  # Total number of studies
+    
+    diagnostics <- data.frame(
+      Study = if (!is.null(rownames(inf_obj$inf$rstudent))) rownames(inf_obj$inf$rstudent) else seq_len(n_studies),
+      rstudent = inf_obj$inf$rstudent,
+      dffits = inf_obj$inf$dffits,
+      cook.d = inf_obj$inf$cook.d,
+      cov.r = inf_obj$inf$cov.r,
+      tau2.del = inf_obj$inf$tau2.del,
+      QE.del = inf_obj$inf$QE.del,
+      hat = inf_obj$inf$hat,
+      weight = inf_obj$inf$weight,
+      ResponseVariable = response_variable
+    )
+    
+    return(diagnostics)
+  }, error = function(e) {
+    cat("Error extracting diagnostics for", response_variable, ":", e$message, "\n")
+    return(NULL)
+  })
+}
+```
+
+```{r}
+# Combine diagnostics into a single data frame
+# Combine diagnostics into a single data frame
+diagnostics_list <- lapply(names(influence_diagnostics), function(response) {
+  inf <- influence_diagnostics[[response]]
+  extract_diagnostics(inf, response)
+})
+
+# Filter out NULL entries
+diagnostics_data <- do.call(rbind, diagnostics_list[!sapply(diagnostics_list, is.null)])
+
+# Check the resulting data frame
+diagnostics_data |> glimpse()
+```
+
+```{r}
+# Save diagnostics dataset
+# diagnostics_list |> str()
+
+# Define the output directory
+output_dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
+
+# Save the diagnostics list as an RDS file
+saveRDS(diagnostics_list, file = file.path(output_dir, "diagnostics_list.rds"))
+cat("Diagnostics list saved as RDS file to:", file.path(output_dir, "diagnostics_list.rds"), "\n")
+```
+
+
+```{r}
+# Check the distribution of diagnostics by response variable
+table(diagnostics_data$ResponseVariable)
+
+# Summarize key diagnostics for each response variable
+summary_stats <- diagnostics_data %>%
+  group_by(ResponseVariable) %>%
+  summarise(
+    Mean_rstudent = mean(rstudent, na.rm = TRUE),
+    Max_rstudent = max(rstudent, na.rm = TRUE),
+    Mean_dffits = mean(dffits, na.rm = TRUE),
+    Max_dffits = max(dffits, na.rm = TRUE),
+    Mean_cook.d = mean(cook.d, na.rm = TRUE),
+    Max_cook.d = max(cook.d, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+summary_stats
+```
+```{r}
+ggplot(diagnostics_data, aes(x = Study, y = rstudent, color = ResponseVariable)) +
+  geom_point(size = 2, alpha = 0.8) +
+  geom_hline(yintercept = c(-2, 2), linetype = "dashed", color = "red") +
+  facet_wrap(~ ResponseVariable, scales = "free") +
+  theme_minimal(base_size = 14) +
+  labs(
+    title = "Standardized Residuals by Study",
+    x = "Study ID",
+    y = "Standardized Residuals"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.y = element_text(size = 10),
+    axis.text.x = element_text(size = 10),
+    legend.position = "none",
+    panel.spacing = unit(1, "lines")
+  )
+```
+```{r}
+ggplot(diagnostics_data, aes(x = Study, y = cook.d, color = ResponseVariable)) +
+  geom_point(size = 2, alpha = 0.8) +
+  geom_hline(yintercept = 0.5, linetype = "dashed", color = "red") +
+  facet_wrap(~ ResponseVariable, scales = "free") +
+  theme_minimal(base_size = 14) +
+  labs(
+    title = "Cook's Distance by Study",
+    x = "Study ID",
+    y = "Cook's Distance"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.y = element_text(size = 10),
+    axis.text.x = element_text(size = 10),
+    legend.position = "none",
+    panel.spacing = unit(1, "lines")
+  )
+```
+
+```{r}
+# Define thresholds
+thresholds <- diagnostics_data %>%
+  mutate(
+    IsInfluential = (abs(rstudent) > 2) | (cook.d > 0.5)
+  )
+
+# Check how many studies are flagged as influential
+table(thresholds$ResponseVariable, thresholds$IsInfluential)
+
+# Save flagged data for review
+output_dir <- here::here("DATA", "OUTPUT_FROM_R")
+write.csv(thresholds, file.path(output_dir, "flagged_influential_studies.csv"), row.names = FALSE)
+```
+
+
+
+
+
+
+```{r}
+# Define the output directory an file path for the plot
+output_dir <- here::here("DATA", "OUTPUT_FROM_R", "FIGURES")
+output_file <- file.path(output_dir, "leave_one_out_effect_sizes.png")
+
+# Save the plot to the output directory
+ggsave(output_file, plot = loo_plot, width = 12, height = 8, dpi = 300)
+cat("Plot saved to:", output_file, "\n")
+```
+
+
+```{r}
+# Inspect the diagnostics data structure for a single response variable
+str(diagnostics_list[[1]])
+```
+
+
+```{r}
+# Define a threshold for Cook's Distance
+cooks_threshold <- 0.8  # Adjust as necessary
+
+# Identify influential studies
+influential_studies <- diagnostics_data %>%
+  filter(cook.d > cooks_threshold) %>%
+  distinct(Study, ResponseVariable)
+
+# Map back to `meta_data`
+mapped_influential <- meta_data %>%
+  semi_join(influential_studies, by = c("id_article" = "Study"))
+
+# View the result
+print(mapped_influential)
+```
+
+
+
+##########################################################################################################################################
+FOR ALL RESPONSE VARIABLES
+##########################################################################################################################################
+
+```{r}
+# Step 1: Validate Model Components
+validate_model_components <- function(model) {
+  data <- model$data
+  v_matrix <- model$V
+  
+  if (is.null(data)) stop("Data is NULL for the model.")
+  if (is.null(v_matrix)) stop("V matrix is NULL for the model.")
+  
+  if (nrow(v_matrix) != nrow(data) || ncol(v_matrix) != nrow(data)) {
+    stop("Dimension mismatch: V matrix does not align with data for model.")
+  }
+}
+
+# Step 2: Filter and Recreate Models
+filter_and_recreate_model <- function(model, common_ids) {
+  data <- model$data
+  v_matrix <- model$V
+  
+  # Filter data and V matrix
+  filtered_data <- data[data$id_obs %in% common_ids, ]
+  filtered_v <- v_matrix[data$id_obs %in% common_ids, data$id_obs %in% common_ids, drop = FALSE]
+  
+  # Validate filtered components
+  if (nrow(filtered_data) != nrow(filtered_v)) {
+    stop("Mismatch between filtered data and V matrix dimensions.")
+  }
+  
+  # Recreate model
+  rma.mv(
+    yi = filtered_data$yi,
+    V = filtered_v,
+    mods = formula(model$mods),
+    random = model$random,
+    method = "ML",
+    data = filtered_data
+  )
+}
+
+# Step 3: Process ANOVA Per Response
+process_anova_per_response <- function(full_models, other_models) {
+  aic_differences <- lapply(names(full_models), function(response) {
+    tryCatch({
+      # Extract and validate models
+      full_model <- full_models[[response]]
+      reduced_model <- other_models[[response]]
+      
+      validate_model_components(full_model)
+      validate_model_components(reduced_model)
+      
+      # Find common IDs
+      full_data <- full_model$data
+      reduced_data <- reduced_model$data
+      common_ids <- intersect(full_data$id_obs, reduced_data$id_obs)
+      
+      message("Response: ", response, " - Common IDs: ", length(common_ids))
+      
+      if (length(common_ids) == 0) stop("No matching observations for ", response)
+      
+      # Recreate models with filtered data
+      updated_full_model <- filter_and_recreate_model(full_model, common_ids)
+      updated_reduced_model <- filter_and_recreate_model(reduced_model, common_ids)
+      
+      # Perform ANOVA
+      return(process_anova(updated_full_model, updated_reduced_model))
+    }, error = function(e) {
+      message("Error for response ", response, ": ", e$message)
+      return(NA)
+    })
+  })
+  
+  names(aic_differences) <- names(full_models)
+  return(aic_differences)
+}
+
+# Step 4: Validate Components for Full and Simplified Models
+lapply(full_model_results, function(model) {
+  tryCatch({
+    validate_model_components(model)
+  }, error = function(e) {
+    message("Validation failed: ", e$message)
+  })
+})
+
+lapply(simplified_model_results, function(model) {
+  tryCatch({
+    validate_model_components(model)
+  }, error = function(e) {
+    message("Validation failed: ", e$message)
+  })
+})
+
+# Step 5: Process AIC Differences
+simplified_aic_diffs <- process_anova_per_response(full_model_results, simplified_model_results)
+minimal_aic_diffs <- process_anova_per_response(full_model_results, minimal_model_results)
+fixed_aic_diffs <- process_anova_per_response(full_model_results, fixed_effects_model_results)
+
+# Step 6: Combine and Display Results
+aic_differences_df <- data.frame(
+  Response = names(simplified_aic_diffs),
+  Simplified = unlist(simplified_aic_diffs),
+  Minimal = unlist(minimal_aic_diffs),
+  Fixed = unlist(fixed_aic_diffs)
+)
+
+# Step 7: Log Summary of Results
+if (any(is.na(aic_differences_df))) {
+  message("Some models failed during processing. Review logs for details.")
+}
+
+print(aic_differences_df)
+
+```
+
+
+```{r}
+# Function to extract key diagnostics from a fitted model
+extract_model_diagnostics <- function(model, response_variable) {
+  if (is.null(model)) {
+    return(data.frame(
+      ResponseVariable = response_variable,
+      AIC = NA,
+      BIC = NA,
+      LogLikelihood = NA,
+      Tau2 = NA,
+      I2 = NA,
+      QM = NA,
+      QMp = NA
+    ))
+  }
+  
+  # Extract diagnostics
+  aic <- AIC(model)
+  bic <- BIC(model)
+  log_likelihood <- as.numeric(logLik(model))
+  tau2 <- sum(model$sigma2)
+  i2 <- round((tau2 / (tau2 + mean(model$vi))) * 100, 1)
+  qm <- model$QM
+  qmp <- model$QMp
+  
+  data.frame(
+    ResponseVariable = response_variable,
+    AIC = aic,
+    BIC = bic,
+    LogLikelihood = log_likelihood,
+    Tau2 = tau2,
+    I2 = i2,
+    QM = qm,
+    QMp = qmp
+  )
+}
+```
+
+```{r}
+# Extract diagnostics for all models
+model_diagnostics_full_model <- bind_rows(
+  lapply(names(full_model_results), function(response) {
+    extract_model_diagnostics(full_model_results[[response]], response)
+  })
+)
+
+model_diagnostics_simplified_model <- bind_rows(
+  lapply(names(simplified_model_results), function(response) {
+    extract_model_diagnostics(simplified_model_results[[response]], response)
+  })
+)
+```
+
+```{r}
+# Save diagnostics table
+write.csv(model_diagnostics, file.path(output_dir, "model_diagnostics_summary.csv"), row.names = FALSE)
+```
+
+```{r}
+# Visualize AIC, BIC, and Log-Likelihood
+diagnostics_plot <- model_diagnostics %>%
+  pivot_longer(cols = c(AIC, BIC, LogLikelihood), names_to = "Metric", values_to = "Value") %>%
+  ggplot(aes(x = ResponseVariable, y = Value, fill = Metric)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(
+    title = "Model Fit Comparison",
+    x = "Response Variable",
+    y = "Metric Value",
+    fill = "Metric"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+print(diagnostics_plot)
+```
+
+
+
+Visualization 2: Fixed Effects Estimates Comparison
+
+```{r}
+# Plot Fixed Effects Estimates with Confidence Intervals
+coef_plot <- ggplot(fixed_effects_data, aes(x = Term, y = Estimate, color = Dataset)) +
+  geom_point(position = position_dodge(width = 0.5), size = 3) +
+  geom_errorbar(aes(ymin = CI_Lower, ymax = CI_Upper),
+                width = 0.2, position = position_dodge(width = 0.5)) +
+  coord_flip() +
+  labs(title = "Comparison of Fixed Effects Estimates Across Models",
+       x = "Fixed Effect Term",
+       y = "Estimate",
+       color = "Dataset") +
+  theme_minimal()
+
+print(coef_plot)
+```
+
+
+
+
+```{r}
+# Pivot the data
+pivoted_diagnostics <- all_meta_analysis_model_diagnostics %>%
+  pivot_wider(
+    names_from = ModelType,
+    values_from = c(AIC, BIC, LogLikelihood),
+    names_prefix = "Model_"
+  )
+
+# Debug: Check the resulting structure
+pivoted_diagnostics |> str()
+pivoted_diagnostics |> glimpse()
+
+# Debugging: Check for NAs in pivoted_diagnostics
+pivoted_diagnostics %>%
+  summarise(across(starts_with("AIC_"), ~ sum(is.na(.)), .names = "NA_count_{col}")) %>%
+  print()
+
+# Compute relative differences
+relative_diagnostics <- pivoted_diagnostics %>%
+  mutate(
+    # AIC relative differences
+    AIC_Relative_Difference_To_Full_Model_Simplified = (AIC_Model_Simplified / AIC_Model_Full) * 100,
+    AIC_Relative_Difference_To_Full_Model_Minimal = (AIC_Model_Minimal / AIC_Model_Full) * 100,
+    AIC_Relative_Difference_To_Full_Model_Fixed = (AIC_Model_Fixed / AIC_Model_Full) * 100,
+    
+    # BIC relative differences
+    BIC_Relative_Difference_To_Full_Model_Simplified = (BIC_Model_Simplified / BIC_Model_Full) * 100,
+    BIC_Relative_Difference_To_Full_Model_Minimal = (BIC_Model_Minimal / BIC_Model_Full) * 100,
+    BIC_Relative_Difference_To_Full_Model_Fixed = (BIC_Model_Fixed / BIC_Model_Full) * 100,
+    
+    # LogLikelihood relative differences
+    LogLikelihood_Relative_Difference_To_Full_Model_Simplified = (LogLikelihood_Model_Simplified / LogLikelihood_Model_Full) * 100,
+    LogLikelihood_Relative_Difference_To_Full_Model_Minimal = (LogLikelihood_Model_Minimal / LogLikelihood_Model_Full) * 100,
+    LogLikelihood_Relative_Difference_To_Full_Model_Fixed = (LogLikelihood_Model_Fixed / LogLikelihood_Model_Full) * 100
+  ) %>%
+  # Select relevant columns for comparison
+  select(
+    ResponseVariable, starts_with("AIC_Relative"), starts_with("BIC_Relative"), starts_with("LogLikelihood_Relative")
+  ) %>%
+  # Pivot to long format for visualization or export
+  pivot_longer(
+    cols = -ResponseVariable,
+    names_to = c("Metric", "Comparison"),
+    names_sep = "_Relative_Difference_To_Full_Model_",
+    values_to = "RelativeValue"
+  )
+
+relative_diagnostics |> str()
+
+```
+
+
+
+```{r}
+
+# Preprocessing step: Align and fill missing values with `NA` to ensure comparability
+# Step 1: Preprocess pivoted_diagnostics
+preprocessed_diagnostics <- pivoted_diagnostics %>%
+  rowwise() %>%
+  mutate(
+    AIC_Full = ifelse(is.na(AIC_Full), max(c(AIC_Simplified, AIC_Minimal, AIC_Fixed), na.rm = TRUE), AIC_Full),
+    BIC_Full = ifelse(is.na(BIC_Full), max(c(BIC_Simplified, BIC_Minimal, BIC_Fixed), na.rm = TRUE), BIC_Full),
+    LogLikelihood_Full = ifelse(is.na(LogLikelihood_Full), min(c(LogLikelihood_Simplified, LogLikelihood_Minimal, LogLikelihood_Fixed), na.rm = TRUE), LogLikelihood_Full)
+  ) %>%
+  ungroup()
+
+preprocessed_diagnostics |> str()
+preprocessed_diagnostics |>  glimpse()
+
+# Perform relative calculations based on the Full model
+relative_diagnostics <- preprocessed_diagnostics %>%
+  mutate(
+    AIC_Relative_Simplified = AIC_Simplified - AIC_Full,
+    AIC_Relative_Minimal = AIC_Minimal - AIC_Full,
+    AIC_Relative_Fixed = AIC_Fixed - AIC_Full,
+    BIC_Relative_Simplified = BIC_Simplified - BIC_Full,
+    BIC_Relative_Minimal = BIC_Minimal - BIC_Full,
+    BIC_Relative_Fixed = BIC_Fixed - BIC_Full,
+    LogLikelihood_Relative_Simplified = LogLikelihood_Simplified - LogLikelihood_Full,
+    LogLikelihood_Relative_Minimal = LogLikelihood_Minimal - LogLikelihood_Full,
+    LogLikelihood_Relative_Fixed = LogLikelihood_Fixed - LogLikelihood_Full
+  ) %>%
+  select(ResponseVariable, starts_with("AIC_Relative"), starts_with("BIC_Relative"), starts_with("LogLikelihood_Relative")) %>%
+  pivot_longer(
+    cols = -ResponseVariable,
+    names_to = c("Metric", "ModelType"),
+    names_sep = "_Relative_",
+    values_to = "Value"
+  )
+
+# Debug: Check the resulting relative diagnostics
+relative_diagnostics |> glimpse()
+
+# Aggregate performance metrics across all response variables
+aggregated_relative_diagnostics <- relative_diagnostics %>%
+  group_by(ModelType, Metric) %>%
+  summarise(MeanRelativeValue = mean(Value, na.rm = TRUE), .groups = "drop")
+
+# Debug: Check the aggregated results
+aggregated_relative_diagnostics |> str()
+
+relative_diagnostics |> str()
+aggregated_diagnostics |> str()
+```
+
+
+```{r}
+# Heterogeneity Comparison Plot
+I2_plot <- ggplot(model_summaries, aes(x = Dataset, y = I2, fill = Dataset)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = round(I2, 2)), vjust = -0.5) +
+  labs(title = "Comparison of I² (Heterogeneity) Across Models",
+       x = "Dataset",
+       y = "I² (%)") +
+  theme_minimal() +
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 45, hjust = 1))
+
+print(I2_plot)
+
+```
+
+Comparison table of key model statistics
+
+```{r}
+colnames(model_summaries)
+```
+
+```{r}
+# Visualize Variance Components (Tau2) and Heterogeneity (I²)
+variance_plot <- model_diagnostics %>%
+  ggplot(aes(x = ResponseVariable)) +
+  geom_bar(aes(y = Tau2, fill = "Tau2 (Variance Components)"), stat = "identity", position = "dodge") +
+  geom_point(aes(y = I2 / 100, color = "I² (Heterogeneity)"), size = 4) +
+  scale_y_continuous(
+    name = "Variance Components (Tau2)",
+    sec.axis = sec_axis(~.*100, name = "Heterogeneity (I² %)"),
+    limits = c(0, 0.02, na.rm = TRUE)
+  ) +
+  labs(
+    title = "Variance Components and Heterogeneity",
+    x = "Response Variable"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+variance_plot
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+# Combine results from all response variables into a single data frame
+forest_plot_data <- bind_rows(
+  lapply(names(model_results), function(response) {
+    model <- model_results[[response]]
+    
+    if (!is.null(model) && !is.null(model$data)) {
+      n_effects <- length(model$yi)
+      n_studies <- nrow(model$data)
+      
+      # Ensure the lengths match or skip inconsistent data
+      if (n_effects == n_studies) {
+        data.frame(
+          Study = model$data$id_article,                 # Study IDs
+          EffectSize = model$yi,                        # Effect sizes
+          CI_Lower = model$yi - 1.96 * sqrt(model$vi),  # Lower CI
+          CI_Upper = model$yi + 1.96 * sqrt(model$vi),  # Upper CI
+          ResponseVariable = response                   # Response variable
+        )
+      } else {
+        warning(sprintf(
+          "Skipping response variable '%s': Mismatched lengths between model$yi (%d) and model$data (%d).",
+          response, n_effects, n_studies
+        ))
+        NULL
+      }
+    } else {
+      warning(sprintf("Skipping response variable '%s': Missing model or data.", response))
+      NULL
+    }
+  })
+)
+
+# Check the prepared data
+forest_plot_data |> glimpse()
+```
+```{r}
+# Prepare Aggregated Data
+aggregated_data <- forest_plot_data %>%
+  group_by(ResponseVariable) %>%
+  summarise(
+    overall_effect = mean(EffectSize, na.rm = TRUE),
+    lower_ci = mean(CI_Lower, na.rm = TRUE),
+    upper_ci = mean(CI_Upper, na.rm = TRUE),
+    num_observations = n(),
+    num_studies = n_distinct(Study), # Assuming 'Study' represents unique studies
+    size_category = case_when(
+      num_studies <= 2 ~ "1-2",
+      num_studies <= 4 ~ "3-4",
+      num_studies > 4 ~ "5+"
+    ),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    size_category = factor(size_category, levels = c("1-2", "3-4", "5+")),
+    response_rank = rank(overall_effect)
+  )
+
+aggregated_data
+```
+
+
+
+```{r}
+# Create the forest plot with custom colors
+forest_plot <- aggregated_data |> 
+  ggplot(aes(x = overall_effect, y = reorder(ResponseVariable, response_rank))) +
+  # Add points for effect sizes
+  geom_point(aes(size = size_category, color = ResponseVariable)) +
+  # Add horizontal error bars for confidence intervals
+  geom_errorbarh(aes(xmin = lower_ci, xmax = upper_ci, color = ResponseVariable), height = 0.2) +
+  # Add vertical line at zero
+  geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
+  # Customize point size scale
+  scale_size_manual(
+    values = c("1-2" = 3, "3-4" = 5, "5+" = 7),
+    name = "Number of Studies"
+  ) +
+  # Customize color scale
+  scale_color_manual(
+    values = custom_colors,
+    name = "Response Variable"
+  ) +
+  # Customize plot labels and appearance
+  labs(
+    title = "Forest Plot of Response Variables with Custom Colors",
+    x = "Effect Size (Overall)",
+    y = "Response Variable",
+    size = "Number of Studies"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    axis.text.y = element_text(size = 10),
+    axis.text.x = element_text(size = 12),
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+    legend.position = "none"
+  )
+
+# Display the plot
+forest_plot
+```
+
+
+
+
+
+
+```{r}
+##########################################################################
+# Set up the parallel processing plan
+plan(multisession, workers = parallel::detectCores() - 1)
+##########################################################################
+# Start time tracking
+start.time <- Sys.time()
+##########################################################################
+# Protocol to Fit and Save Four Suggested Models for Meta-Analysis
+
+##########################################################################
+# Model 1: Comprehensive (Full) Model
+# Incorporates the most complex structure with nested random effects and all moderators.
+##########################################################################
+
+# Define the function to fit the full model for each response variable
+fit_full_model <- function(data_subset, response_variable, v_matrix, moderators) {
+  cat("\nFitting full model for response variable:", response_variable, "...\n")
+  
+  # Ensure all moderators are treated as factors
+  data_subset <- data_subset %>%
+    mutate(across(all_of(moderators), as.factor)) %>%
+    as.data.frame()
+  
+  # Define the moderator formula
+  moderator_formula <- as.formula(paste("yi ~", paste(moderators, collapse = " + ")))
+  
+  # Fit the model
+  model <- tryCatch({
+    rma.mv(
+      yi = yi,                              # Dependent variable: effect size
+      V = v_matrix,                         # Variance-covariance matrix for within-study variability
+      mods = moderator_formula,             # Moderator formula: relationship between the effect size and moderators
+      random = list(
+        ~ 1 | id_article/response_variable, # Nested random intercept for response variable nested within articles
+        ~ 1 | exp_id                        # Random effect: accounts for variability at the experiment level
+      ),
+      data = data_subset,                   # Data used for model fitting
+      method = "REML",                      # REML instead of ML to estimate variance components more robustly.
+      control = list(
+        optimizer = "optim",                # Optimizer function to use for fitting
+        optim.method = "BFGS",              # Optimization algorithm
+        iter.max = 1000,                    # Maximum number of iterations allowed
+        rel.tol = 1e-8                      # Convergence tolerance for optimization
+      )
+    )
+  }, error = function(e) {
+    cat("Error in model fitting for", response_variable, ":", e$message, "\n")
+    return(NULL)
+  })
+  
+  # Return the model or NULL if fitting failed
+  if (!is.null(model)) {
+    cat("Model fitting completed for response variable:", response_variable, ".\n")
+    return(model)
+  } else {
+    return(NULL)
+  }
+}
+
+# Fit full models for each response variable
+full_model_results <- list()
+for (response in names(v_matrices)) {
+  cat("\nProcessing response variable:", response, "\n")
+  
+  # Subset the data for the current response variable
+  data_subset <- meta_data[meta_data$response_variable == response, ]
+  
+  # Retrieve the precomputed v_matrix
+  v_matrix <- v_matrices[[response]]
+  
+  # Define moderators
+  moderators <- c("tree_type", "crop_type", "age_system", "season", "soil_texture")
+  
+  # Fit the full model for the current response variable
+  model <- fit_full_model(data_subset, response, v_matrix, moderators)
+  
+  # Save the model result
+  full_model_results[[response]] <- model
+}
+
+##########################################################################
+# Model 2: Moderately Simplified Model
+# Simplifies random effects and removes interaction terms.
+##########################################################################
+
+# Define the function to fit simplified models for each response variable
+fit_simplified_model <- function(data_subset, response_variable, v_matrix, moderators) {
+  cat("\nFitting simplified model for response variable:", response_variable, "...\n")
+  
+  # Ensure all moderators are treated as factors
+  data_subset <- data_subset %>%
+    mutate(across(all_of(moderators), as.factor)) %>%
+    as.data.frame()
+  
+  # Define the moderator formula
+  moderator_formula <- as.formula(paste("yi ~", paste(moderators, collapse = " + ")))
+  
+  # Fit the model
+  model <- tryCatch({
+    rma.mv(
+      yi = yi,                           # Dependent variable: effect size
+      V = v_matrix,                      # Variance-covariance matrix for within-study variability
+      mods = moderator_formula,          # Moderator formula: relationship between the effect size and moderators
+      random = ~ 1 | exp_id,             # Simplified random effect: variability at the experiment level only
+      data = data_subset,                # Data used for model fitting
+      method = "REML",                   # REML instead of ML to estimate variance components more robustly.
+      control = list(
+        optimizer = "optim",             # Optimizer function to use for fitting
+        optim.method = "BFGS",           # Optimization algorithm
+        iter.max = 1000,                 # Maximum number of iterations allowed
+        rel.tol = 1e-8                   # Convergence tolerance for optimization
+      )
+    )
+  }, error = function(e) {
+    cat("Error in model fitting for", response_variable, ":", e$message, "\n")
+    return(NULL)
+  })
+  
+  # Return the model or NULL if fitting failed
+  if (!is.null(model)) {
+    cat("Model fitting completed for response variable:", response_variable, ".\n")
+    return(model)
+  } else {
+    return(NULL)
+  }
+}
+
+# Fit simplified models for each response variable
+simplified_model_results <- list()
+for (response in names(v_matrices)) {
+  cat("\nProcessing response variable:", response, "\n")
+  
+  # Subset the data for the current response variable
+  data_subset <- meta_data[meta_data$response_variable == response, ]
+  
+  # Retrieve the precomputed v_matrix
+  v_matrix <- v_matrices[[response]]
+  
+  # Define moderators
+  moderators <- c("tree_type", "crop_type", "age_system", "season", "soil_texture")
+  
+  # Fit the simplified model for the current response variable
+  model <- fit_simplified_model(data_subset, response, v_matrix, moderators)
+  
+  # Save the model result
+  simplified_model_results[[response]] <- model
+}
+
+##########################################################################
+# Model 3: Minimal Random Effects Model
+# Focuses on intercept-only model with minimal random effects.
+##########################################################################
+
+# Define the function to fit minimally reduced models for each response variable
+fit_minimal_model <- function(data_subset, response_variable, v_matrix) {
+  cat("\nFitting minimal model for response variable:", response_variable, "...\n")
+  
+  # Define the intercept-only formula
+  minimal_formula <- as.formula("yi ~ 1")
+  
+  # Fit the model
+  model <- tryCatch({
+    rma.mv(
+      yi = yi,                           # Dependent variable: effect size
+      V = v_matrix,                      # Variance-covariance matrix for within-study variability
+      mods = minimal_formula,            # Intercept-only model
+      random = ~ 1 | exp_id,             # Random effect: accounts for variability at the experiment level
+      data = data_subset,                # Data used for model fitting
+      method = "REML",                   # REML instead of ML to estimate variance components more robustly.
+      control = list(
+        optimizer = "optim",             # Optimizer function to use for fitting
+        optim.method = "BFGS",           # Optimization algorithm
+        iter.max = 1000,                 # Maximum number of iterations allowed
+        rel.tol = 1e-8                   # Convergence tolerance for optimization
+      )
+    )
+  }, error = function(e) {
+    cat("Error in model fitting for", response_variable, ":", e$message, "\n")
+    return(NULL)
+  })
+  
+  # Return the model or NULL if fitting failed
+  if (!is.null(model)) {
+    cat("Model fitting completed for response variable:", response_variable, ".\n")
+    return(model)
+  } else {
+    return(NULL)
+  }
+}
+
+# Fit minimal models for each response variable
+minimal_model_results <- list()
+for (response in names(v_matrices)) {
+  cat("\nProcessing response variable:", response, "\n")
+  
+  # Subset the data for the current response variable
+  data_subset <- meta_data[meta_data$response_variable == response, ]
+  
+  # Retrieve the precomputed v_matrix
+  v_matrix <- v_matrices[[response]]
+  
+  # Fit the minimal model for the current response variable
+  model <- fit_minimal_model(data_subset, response, v_matrix)
+  
+  # Save the model result
+  minimal_model_results[[response]] <- model
+}
+
+##########################################################################
+# Model 4: Fixed Effects Only Model
+# Removes random effects entirely and focuses solely on fixed effects.
+##########################################################################
+
+# Define the function to fit fixed effects only models for each response variable
+fit_fixed_effects_model <- function(data_subset, response_variable, v_matrix, moderators) {
+  cat("\nFitting fixed effects only model for response variable:", response_variable, "...\n")
+  
+  # Ensure all moderators are treated as factors
+  data_subset <- data_subset %>%
+    mutate(across(all_of(moderators), as.factor)) %>%
+    as.data.frame()
+  
+  # Define the moderator formula
+  moderator_formula <- as.formula(paste("yi ~", paste(moderators, collapse = " + ")))
+  
+  # Fit the model
+  model <- tryCatch({
+    rma.mv(
+      yi = yi,                           # Dependent variable: effect size
+      V = v_matrix,                      # Variance-covariance matrix for within-study variability
+      mods = moderator_formula,          # Moderator formula: relationship between the effect size and moderators
+      data = data_subset,                # Data used for model fitting
+      method = "REML",                   # REML instead of ML to estimate variance components more robustly.
+      control = list(
+        optimizer = "optim",             # Optimizer function to use for fitting
+        optim.method = "BFGS",           # Optimization algorithm
+        iter.max = 1000,                 # Maximum number of iterations allowed
+        rel.tol = 1e-8                   # Convergence tolerance for optimization
+      )
+    )
+  }, error = function(e) {
+    cat("Error in model fitting for", response_variable, ":", e$message, "\n")
+    return(NULL)
+  })
+  
+  # Return the model or NULL if fitting failed
+  if (!is.null(model)) {
+    cat("Model fitting completed for response variable:", response_variable, ".\n")
+    return(model)
+  } else {
+    return(NULL)
+  }
+}
+
+# Fit fixed effects only models for each response variable
+fixed_effects_model_results <- list()
+for (response in names(v_matrices)) {
+  cat("\nProcessing response variable:", response, "\n")
+  
+  # Subset the data for the current response variable
+  data_subset <- meta_data[meta_data$response_variable == response, ]
+  
+  # Retrieve the precomputed v_matrix
+  v_matrix <- v_matrices[[response]]
+  
+  # Define moderators
+  moderators <- c("tree_type", "crop_type", "age_system", "season", "soil_texture")
+  
+  # Fit the fixed effects only model for the current response variable
+  model <- fit_fixed_effects_model(data_subset, response, v_matrix, moderators)
+  
+  # Save the model result
+  fixed_effects_model_results[[response]] <- model
+}
+
+##########################################################################
+# Save All Fitted Models
+##########################################################################
+
+output_dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
+
+saveRDS(full_model_results, file = file.path(output_dir, "fitted_models_full.rds"))
+saveRDS(simplified_model_results, file = file.path(output_dir, "fitted_models_simplified.rds"))
+saveRDS(minimal_model_results, file = file.path(output_dir, "fitted_models_minimal.rds"))
+saveRDS(fixed_effects_model_results, file = file.path(output_dir, "fitted_models_fixed_effects.rds"))
+
+cat("\nAll models have been saved successfully!\n")
+
+##########################################################################
+# End time tracking
+end.time <- Sys.time()
+# Calculate time taken
+time.taken <- end.time - start.time
+cat("\nTotal time taken:", time.taken, "\n" )
+##########################################################################
+# Last go (02/12-2024)
+# Total time taken: 18.05626 secs
+
+# Processing response variable: Biodiversity 
+# Fitting full model for response variable: Biodiversity ...
+# Advarsel: 14 rows with NAs omitted from model fitting.Model fitting completed for response variable: Biodiversity .
+# Processing response variable: Greenhouse gas emission 
+# Fitting full model for response variable: Greenhouse gas emission ...
+# Error in model fitting for Greenhouse gas emission : contrasts can be applied only to factors with 2 or more levels 
+# Processing response variable: Product quality 
+# Fitting full model for response variable: Product quality ...
+# Model fitting completed for response variable: Product quality .
+# Processing response variable: Crop yield 
+# Fitting full model for response variable: Crop yield ...
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Model fitting completed for response variable: Crop yield .
+# Processing response variable: Pest and Disease 
+# Fitting full model for response variable: Pest and Disease ...
+# Advarsel: Redundant predictors dropped from the model.Model fitting completed for response variable: Pest and Disease .
+# Processing response variable: Soil quality 
+# Fitting full model for response variable: Soil quality ...
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Redundant predictors dropped from the model.Model fitting completed for response variable: Soil quality .
+# Processing response variable: Water quality 
+# Fitting full model for response variable: Water quality ...
+# Error in model fitting for Water quality : contrasts can be applied only to factors with 2 or more levels 
+# Processing response variable: Biodiversity 
+# 
+# Fitting simplified model for response variable: Biodiversity ...
+# Advarsel: 14 rows with NAs omitted from model fitting.Model fitting completed for response variable: Biodiversity .
+# Processing response variable: Greenhouse gas emission 
+# Fitting simplified model for response variable: Greenhouse gas emission ...
+# Error in model fitting for Greenhouse gas emission : contrasts can be applied only to factors with 2 or more levels 
+# Processing response variable: Product quality 
+# Fitting simplified model for response variable: Product quality ...
+# Model fitting completed for response variable: Product quality .
+# Processing response variable: Crop yield 
+# Fitting simplified model for response variable: Crop yield ...
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Model fitting completed for response variable: Crop yield .
+# Processing response variable: Pest and Disease 
+# Fitting simplified model for response variable: Pest and Disease ...
+# Advarsel: Redundant predictors dropped from the model.Model fitting completed for response variable: Pest and Disease .
+# Processing response variable: Soil quality 
+# Fitting simplified model for response variable: Soil quality ...
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Redundant predictors dropped from the model.Model fitting completed for response variable: Soil quality .
+# Processing response variable: Water quality 
+# Fitting simplified model for response variable: Water quality ...
+# Error in model fitting for Water quality : contrasts can be applied only to factors with 2 or more levels 
+# 
+# Processing response variable: Biodiversity 
+# Fitting minimal model for response variable: Biodiversity ...
+# Model fitting completed for response variable: Biodiversity .
+# Processing response variable: Greenhouse gas emission 
+# Fitting minimal model for response variable: Greenhouse gas emission ...
+# Model fitting completed for response variable: Greenhouse gas emission .
+# Processing response variable: Product quality 
+# Fitting minimal model for response variable: Product quality ...
+# Model fitting completed for response variable: Product quality .
+# Processing response variable: Crop yield 
+# Fitting minimal model for response variable: Crop yield ...
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Model fitting completed for response variable: Crop yield .
+# Processing response variable: Pest and Disease 
+# Fitting minimal model for response variable: Pest and Disease ...
+# Model fitting completed for response variable: Pest and Disease .
+# Processing response variable: Soil quality 
+# Fitting minimal model for response variable: Soil quality ...
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Model fitting completed for response variable: Soil quality .
+# Processing response variable: Water quality 
+# Fitting minimal model for response variable: Water quality ...
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Model fitting completed for response variable: Water quality .
+# 
+# Processing response variable: Biodiversity 
+# Fitting fixed effects only model for response variable: Biodiversity ...
+# Advarsel: 14 rows with NAs omitted from model fitting.Model fitting completed for response variable: Biodiversity .
+# Processing response variable: Greenhouse gas emission 
+# Fitting fixed effects only model for response variable: Greenhouse gas emission ...
+# Error in model fitting for Greenhouse gas emission : contrasts can be applied only to factors with 2 or more levels 
+# Processing response variable: Product quality 
+# Fitting fixed effects only model for response variable: Product quality ...
+# Model fitting completed for response variable: Product quality .
+# Processing response variable: Crop yield 
+# Fitting fixed effects only model for response variable: Crop yield ...
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Model fitting completed for response variable: Crop yield .
+# Processing response variable: Pest and Disease 
+# Fitting fixed effects only model for response variable: Pest and Disease ...
+# Advarsel: Redundant predictors dropped from the model.Model fitting completed for response variable: Pest and Disease .
+# Processing response variable: Soil quality 
+# Fitting fixed effects only model for response variable: Soil quality ...
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Redundant predictors dropped from the model.Model fitting completed for response variable: Soil quality .
+# Processing response variable: Water quality 
+# Fitting fixed effects only model for response variable: Water quality ...
+# Error in model fitting for Water quality : contrasts can be applied only to factors with 2 or more levels 
+# 
+# All models have been saved successfully!
+# 
+# Total time taken: 18.05626 
+```
+
+
+The results show varying success in fitting models across different response variables and levels of model complexity. For *biodiversity*, all models were fitted successfully, though there was a warning about some rows with missing data being omitted. This indicates that the data for this variable may be incomplete but still sufficient to run and compare models effectively. The fitted models for *biodiversity* can move forward to the evaluation phase without major concerns.
+
+For *greenhouse gas emissions*, only the minimal model was fitted successfully, with other models failing due to an error related to the levels of categorical variables. This suggests that some moderators do not have sufficient variability within this response variables dataset. Addressing this issue by preprocessing the data, such as removing unused factor levels, could enable the fitting of more complex models.
+
+The *product quality* response variable performed well across all model types, with no critical issues reported during fitting. This indicates that the data for this variable is robust and suitable for detailed comparisons across models.
+
+For *crop yield*, all models were fitted, but there were warnings about large variance ratios, which suggest potential instability in the results. This likely reflects heterogeneity in the dataset, and further diagnostics could clarify whether certain studies or data points are driving this variability.
+
+The *pest and disease* response variable also saw successful fitting across models, though there were instances of redundant predictors being dropped. This points to the value of simplified models in handling such issues efficiently. For *soil quality*, similar warnings about variance ratios and redundant predictors were observed, meaning these results also require further evaluation to ensure reliability.
+
+*Water quality*, like *greenhouse gas emissions*, presented challenges in fitting models beyond the minimal level. This again indicates the need to refine the dataset by addressing issues related to categorical variables with insufficient levels. Overall, these results highlight both strengths and areas needing refinement in the data, allowing for targeted improvements before moving forward with model comparisons and interpretations.
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+##########################################################################
+# Set up the parallel processing plan
+plan(multisession, workers = parallel::detectCores() - 1)
+##########################################################################
+# Start time tracking
+start.time <- Sys.time()
+
+#######################################################################################
+# Step 1: Check and enforce correct data types
+col_for_impute <- database_clean_sd |> 
+  as.data.frame() |> 
+  select(-geometry) |> 
+  select(
+    # Columns that need to be imputed
+    silvo_se, control_se, 
+    # Columns that are used by mice to impute values
+    tree_age, crop_type, tree_type, bioclim_sub_regions, experiment_year, alley_width, silvo_n, control_n,
+    # IDs that are used to back-link imputed values to the dataset
+    id_article, id_obs, treat_id, exp_id
+  ) |> 
+  mutate(
+    silvo_se = as.numeric(silvo_se),
+    control_se = as.numeric(control_se),
+    silvo_n = as.numeric(silvo_n),
+    control_n = as.numeric(control_n),
+    tree_age = as.numeric(tree_age),
+    crop_type = as.factor(crop_type),
+    tree_type = as.factor(tree_type),
+    bioclim_sub_regions = as.factor(bioclim_sub_regions),
+    alley_width = as.factor(alley_width),
+    id_article = as.numeric(id_article),
+    id_obs = as.numeric(id_obs),
+    treat_id = as.numeric(treat_id),
+    exp_id = as.numeric(exp_id)
+  )
+
+#######################################################################################
+# Step 2: Define the function for each imputation method
+impute_data <- function(data, method_name) {
+  if (method_name == "pmm") {
+    # Predictive Mean Matching
+    pred_matrix <- mice::make.predictorMatrix(data)
+    pred_matrix[, c("tree_age", "crop_type", "tree_type", "bioclim_sub_regions", "experiment_year", "alley_width", 
+                    "id_article", "id_obs", "treat_id", "exp_id")] <- 0
+
+    ##########################################################################
+    # Define imputation method for PMM
+    method <- c(
+      "silvo_se" = "pmm",         # Imputed using predictive mean matching
+      "control_se" = "pmm",       # Imputed using predictive mean matching
+      #"silvo_n" = "",            # Not imputed
+      #"control_n" = "",          # Not imputed
+      "tree_age" = "",           # Not imputed
+      "crop_type" = "",          # Not imputed
+      "tree_type" = "",          # Not imputed
+      "bioclim_sub_regions" = "",# Not imputed
+      "experiment_year" = "",    # Not imputed
+      "alley_width" = "",        # Not imputed
+      "id_article" = ""          # Not imputed
+      #"id_obs" = "",             # Not imputed
+      #"treat_id" = "",           # Not imputed
+      #"exp_id" = ""              # Not imputed
+    )
+    
+    # Perform imputation using mice
+    imputed_mids <- mice(
+      data,
+      m = 20,
+      maxit = 100,
+      method = method,
+      predictorMatrix = pred_matrix,
+      seed = 1234,
+      printFlag = FALSE
+    )
+    return(imputed_mids)
+    
+  } else if (method_name == "upper_quartile") {
+    ##########################################################################
+    # Upper Quartile Imputation for Variance
+    upper_quartile_variance <- data %>%
+      # The 75th percentile represents a value higher than the median, ensuring that the imputed variances 
+      # are not unrealistically small while 
+      # still grounded in observed data. This helps maintain a conservative weighting in the meta-analysis.
+      summarise(across(c(silvo_se, control_se), ~ quantile(.^2, 0.75, na.rm = TRUE))) %>%
+      pivot_longer(cols = everything(), names_to = "variable", values_to = "upper_quartile")
+
+    data <- data %>%
+      mutate(
+        silvo_se = ifelse(is.na(silvo_se), sqrt(upper_quartile_variance$upper_quartile[1]), silvo_se),
+        control_se = ifelse(is.na(control_se), sqrt(upper_quartile_variance$upper_quartile[2]), control_se)
+      )
+    return(data)
+    
+  } else if (method_name == "mean_imputation") {
+    data <- data %>%
+      mutate(
+        silvo_se = ifelse(is.na(silvo_se), mean(silvo_se, na.rm = TRUE), silvo_se),
+        control_se = ifelse(is.na(control_se), mean(control_se, na.rm = TRUE), control_se),
+        silvo_n = ifelse(is.na(silvo_n), mean(silvo_n, na.rm = TRUE), silvo_n),
+        control_n = ifelse(is.na(control_n), mean(control_n, na.rm = TRUE), control_n)
+      )
+    return(data)
+
+  } else if (method_name == "linear_imputation") {
+    ##########################################################################
+    # Linear Regression Imputation (norm.predict)
+    pred_matrix <- mice::make.predictorMatrix(data)
+    pred_matrix[, c("tree_age", "crop_type", "tree_type", "bioclim_sub_regions", "experiment_year", "alley_width", 
+                    "id_article", "id_obs", "treat_id", "exp_id")] <- 0
+
+    method <- c(
+      "silvo_se" = "norm.predict",   # Imputed using linear regression
+      "control_se" = "norm.predict", # Imputed using linear regression
+       #"silvo_n" = "",            # Not imputed
+      #"control_n" = "",          # Not imputed
+      "tree_age" = "",           # Not imputed
+      "crop_type" = "",          # Not imputed
+      "tree_type" = "",          # Not imputed
+      "bioclim_sub_regions" = "",# Not imputed
+      "experiment_year" = "",    # Not imputed
+      "alley_width" = "",        # Not imputed
+      "id_article" = ""          # Not imputed
+      #"id_obs" = "",             # Not imputed
+      #"treat_id" = "",           # Not imputed
+      #"exp_id" = ""              # Not imputed
+    )
+
+    imputed_mids <- mice(
+      data,
+      m = 20,
+      maxit = 100,
+      method = method,
+      predictorMatrix = pred_matrix,
+      seed = 1234,
+      printFlag = FALSE
+    )
+    return(imputed_mids)
+
+  } else {
+    stop("Invalid method name.")
+  }
+}
+
+#######################################################################################
+# Step 3: Apply each imputation method
+imputation_methods <- c("pmm", "upper_quartile", "mean_imputation", "linear_imputation")
+imputed_datasets <- list()
+
+# Separate storage for the raw mids objects
+imputed_mids_pmm <- NULL
+imputed_mids_linear <- NULL
+
+for (method_name in imputation_methods) {
+  cat("Applying", method_name, "imputation...\n")
+  if (method_name == "pmm") {
+    imputed_mids_pmm <- impute_data(col_for_impute, method_name)
+    imputed_datasets[[method_name]] <- mice::complete(imputed_mids_pmm)
+  } else if (method_name == "linear_imputation") {
+    imputed_mids_linear <- impute_data(col_for_impute, method_name)
+    imputed_datasets[[method_name]] <- mice::complete(imputed_mids_linear)
+  } else {
+    imputed_datasets[[method_name]] <- impute_data(col_for_impute, method_name)
+  }
+}
+
+##########################################################################
+# Step 4: Compare results
+for (method_name in imputation_methods) {
+  cat("\nSummary of Imputed Dataset -", method_name, ":\n")
+  print(summary(imputed_datasets[[method_name]]))
+}
+
+##########################################################################
+# End time tracking
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+cat("\nTotal time taken:", time.taken, "\n")
+
+##########################################################################
+# imputed_mids_pmm and imputed_mids_linear are the raw mids objects for PMM and linear regression respectively
+# imputed_datasets contains completed datasets for all methods
+
+##########################################################################
+# Last run (02/01-25)
+# Total time taken: 21.27449 
+```
+
+
+
+
+```{r}
+##########################################################################
+# Set up the parallel processing plan
+plan(multisession, workers = parallel::detectCores() - 1)
+##########################################################################
+# Start time tracking
+start.time <- Sys.time()
+
+#######################################################################################
+# Step 1: Check and enforce correct data types
+col_for_impute <- database_clean_sd |> 
+  as.data.frame() |> 
+  select(-geometry) |> 
+  select(
+    # Columns that need to be imputed
+    silvo_se, control_se, 
+    # Columns that are used by mice to impute values
+    tree_age, crop_type, tree_type, bioclim_sub_regions, experiment_year, alley_width, silvo_n, control_n,
+    # IDs that are used to back-link imputed values to the dataset
+    id_article, id_obs, treat_id, exp_id
+  ) |> 
+  mutate(
+    silvo_se = as.numeric(silvo_se),
+    control_se = as.numeric(control_se),
+    silvo_n = as.numeric(silvo_n),
+    control_n = as.numeric(control_n),
+    tree_age = as.numeric(tree_age),
+    crop_type = as.factor(crop_type),
+    tree_type = as.factor(tree_type),
+    bioclim_sub_regions = as.factor(bioclim_sub_regions),
+    alley_width = as.factor(alley_width),
+    id_article = as.numeric(id_article),
+    id_obs = as.numeric(id_obs),
+    treat_id = as.numeric(treat_id),
+    exp_id = as.numeric(exp_id)
+  ) |> 
+  # Removing column variables not used in the imputation
+  select(-c(silvo_n, control_n,
+            id_obs, treat_id, exp_id))
+
+#######################################################################################
+# Step 2: Define the function for each imputation method
+impute_data <- function(data, method_name) {
+  if (method_name == "pmm") {
+    # Predictive Mean Matching
+    pred_matrix <- mice::make.predictorMatrix(data)
+    # Exclude these columns from imputation: "id_obs", "treat_id", "exp_id"
+    pred_matrix[, c("tree_age", "crop_type", "tree_type", "bioclim_sub_regions", "experiment_year", "alley_width", "id_article")] <- 0 
+
+    ##########################################################################
+    # Define imputation method for PMM
+    method <- c(
+      "silvo_se" = "pmm",         # Imputed using predictive mean matching
+      "control_se" = "pmm",       # Imputed using predictive mean matching
+      #"silvo_n" = "",            # Not imputed
+      #"control_n" = "",          # Not imputed
+      "tree_age" = "",            # Not imputed
+      "crop_type" = "",           # Not imputed
+      "tree_type" = "",           # Not imputed
+      "bioclim_sub_regions" = "", # Not imputed
+      "experiment_year" = "",     # Not imputed
+      "alley_width" = "",         # Not imputed
+      "id_article" = ""           # Not imputed
+      #"id_obs" = "",             # Not imputed
+      #"treat_id" = "",           # Not imputed
+      #"exp_id" = ""              # Not imputed
+    )
+
+    # Perform imputation using mice
+    imputed_mids <- mice(
+      data,
+      m = 20,
+      maxit = 100,
+      method = method,
+      predictorMatrix = pred_matrix,
+      seed = 1234,
+      printFlag = FALSE
+    )
+    return(imputed_mids)
+
+  } else if (method_name == "upper_quartile") {
+    ##########################################################################
+    # Upper Quartile Imputation for Variance
+    upper_quartile_variance <- data %>%
+      summarise(across(c(silvo_se, control_se), ~ quantile(.^2, 0.75, na.rm = TRUE))) %>%
+      pivot_longer(cols = everything(), names_to = "variable", values_to = "upper_quartile")
+
+    data <- data %>%
+      mutate(
+        silvo_se = ifelse(is.na(silvo_se), sqrt(upper_quartile_variance$upper_quartile[1]), silvo_se),
+        control_se = ifelse(is.na(control_se), sqrt(upper_quartile_variance$upper_quartile[2]), control_se)
+      )
+    return(data)
+
+  } else if (method_name == "mean_imputation") {
+    data <- data %>%
+      mutate(
+        silvo_se = ifelse(is.na(silvo_se), mean(silvo_se, na.rm = TRUE), silvo_se),
+        control_se = ifelse(is.na(control_se), mean(control_se, na.rm = TRUE), control_se),
+        silvo_n = ifelse(is.na(silvo_n), mean(silvo_n, na.rm = TRUE), silvo_n),
+        control_n = ifelse(is.na(control_n), mean(control_n, na.rm = TRUE), control_n)
+      )
+    return(data)
+
+  } else if (method_name == "linear_imputation") {
+    ##########################################################################
+    # Linear Regression Imputation (norm.predict)
+    pred_matrix <- mice::make.predictorMatrix(data)
+     # Exclude these columns from imputation: "id_obs", "treat_id", "exp_id"
+    pred_matrix[, c("tree_age", "crop_type", "tree_type", "bioclim_sub_regions", "experiment_year", "alley_width", "id_article")] <- 0 
+
+    method <- c(
+      "silvo_se" = "norm.predict",   # Imputed using linear regression
+      "control_se" = "norm.predict", # Imputed using linear regression
+       #"silvo_n" = "",            # Not imputed
+      #"control_n" = "",          # Not imputed
+      "tree_age" = "",           # Not imputed
+      "crop_type" = "",          # Not imputed
+      "tree_type" = "",          # Not imputed
+      "bioclim_sub_regions" = "",# Not imputed
+      "experiment_year" = "",    # Not imputed
+      "alley_width" = "",        # Not imputed
+      "id_article" = ""          # Not imputed
+      #"id_obs" = "",             # Not imputed
+      #"treat_id" = "",           # Not imputed
+      #"exp_id" = ""              # Not imputed
+    )
+
+    imputed_mids <- mice(
+      data,
+      m = 20,
+      maxit = 100,
+      method = method,
+      predictorMatrix = pred_matrix,
+      seed = 1234,
+      printFlag = FALSE
+    )
+    return(imputed_mids)
+
+  } else {
+    stop("Invalid method name.")
+  }
+}
+
+#######################################################################################
+# Step 3: Apply each imputation method
+imputation_methods <- c("pmm", "upper_quartile", "mean_imputation", "linear_imputation")
+imputed_datasets <- list()
+
+# Separate storage for the raw mids objects
+imputed_mids_pmm <- NULL
+imputed_mids_linear <- NULL
+
+for (method_name in imputation_methods) {
+  cat("Applying", method_name, "imputation...\n")
+  if (method_name == "pmm") {
+    imputed_mids_pmm <- impute_data(col_for_impute, method_name)
+    imputed_datasets[[method_name]] <- mice::complete(imputed_mids_pmm)
+  } else if (method_name == "linear_imputation") {
+    imputed_mids_linear <- impute_data(col_for_impute, method_name)
+    imputed_datasets[[method_name]] <- mice::complete(imputed_mids_linear)
+  } else {
+    imputed_datasets[[method_name]] <- impute_data(col_for_impute, method_name)
+  }
+}
+
+##########################################################################
+# Step 4: Cap Imputed Values
+cap_values <- function(data, lower_quantile = 0.05, upper_quantile = 0.95) {
+  quantiles <- data |> summarise(
+    silvo_se_lower = quantile(silvo_se, lower_quantile, na.rm = TRUE),
+    silvo_se_upper = quantile(silvo_se, upper_quantile, na.rm = TRUE),
+    control_se_lower = quantile(control_se, lower_quantile, na.rm = TRUE),
+    control_se_upper = quantile(control_se, upper_quantile, na.rm = TRUE)
+  )
+
+  data <- data |> mutate(
+    silvo_se = pmin(pmax(silvo_se, quantiles$silvo_se_lower), quantiles$silvo_se_upper),
+    control_se = pmin(pmax(control_se, quantiles$control_se_lower), quantiles$control_se_upper)
+  )
+
+  return(data)
+}
+
+# Apply capping to each imputed dataset
+for (method_name in names(imputed_datasets)) {
+  cat("Capping values for", method_name, "dataset...\n")
+  imputed_datasets[[method_name]] <- cap_values(imputed_datasets[[method_name]])
+}
+
+##########################################################################
+# Step 5: Compare results
+for (method_name in imputation_methods) {
+  cat("\nSummary of Imputed and Capped Dataset -", method_name, ":\n")
+  print(summary(imputed_datasets[[method_name]]))
+}
+
+##########################################################################
+# End time tracking
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+cat("\nTotal time taken:", time.taken, "\n")
+
+##########################################################################
+# imputed_mids_pmm and imputed_mids_linear are the raw mids objects for PMM and linear regression respectively
+# imputed_datasets contains completed and capped datasets
+
+
+##########################################################################
+# Last run (02/01-25)
+```
+
+```{r}
+# Recreate the violin plot with better scaling
+ggplot() +
+  # Violin plot for bootstrapped data
+  geom_violin(data = bootstrapped_data, aes(y = response_variable, x = exp(bootstrapped_rr), fill = response_variable), 
+              alpha = 0.5, scale = "area") + # Use 'area' scaling for better proportional representation
+  # Overlay mean and confidence intervals
+  geom_point(data = summary_data, aes(y = response_variable, x = exp(WeightedMeanRR)), color = "black", size = 3) +
+  geom_errorbarh(data = summary_data, aes(y = response_variable, xmin = exp(LowerCI), xmax = exp(UpperCI)), 
+                height = 0.2, color = "black") +
+  # Add annotations for proportions and study counts
+  geom_text(data = summary_data, aes(
+    y = response_variable, x = 1.1, 
+    label = paste0("RR<1: ", round(RR_Less_1), "%\nRR>1: ", round(RR_Greater_1), "%\n[N=", Studies, ", NO=", Observations, "]")
+  ), size = 3, hjust = 0.5) +
+  # Apply custom colors
+  scale_fill_manual(values = custom_colors) +
+  # Customize plot
+  scale_x_continuous(trans = "log", breaks = scales::log_breaks(base = 10)) +
+  labs(
+    title = "Weighted Mean Response Ratio",
+    subtitle = "Agroforestry vs. Non-Agroforestry Effects by Response Variable",
+    x = "Response Ratio (Log Scale)",
+    y = "Response Variable"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    axis.text.y = element_text(size = 10),
+    legend.position = "none"
+  )
+
+```
+
+
+##########################################################################
+# Step 5: Cap Imputed Values
+cap_values <- function(data, lower_quantile = 0.05, upper_quantile = 0.95) {
+  quantiles <- data |> summarise(
+    silvo_se_lower = quantile(silvo_se, lower_quantile, na.rm = TRUE),
+    silvo_se_upper = quantile(silvo_se, upper_quantile, na.rm = TRUE),
+    control_se_lower = quantile(control_se, lower_quantile, na.rm = TRUE),
+    control_se_upper = quantile(control_se, upper_quantile, na.rm = TRUE)
+  )
+  
+  data <- data |> mutate(
+    silvo_se = pmin(pmax(silvo_se, quantiles$silvo_se_lower), quantiles$silvo_se_upper),
+    control_se = pmin(pmax(control_se, quantiles$control_se_lower), quantiles$control_se_upper)
+  )
+  
+  return(data)
+}
+
+# Apply capping to each imputed dataset
+for (method_name in names(imputed_datasets)) {
+  cat("Capping values for", method_name, "dataset...\n")
+  imputed_datasets[[method_name]] <- cap_values(imputed_datasets[[method_name]])
+}
+
+
+
+```{r}
+# Function to create pre- and post-capping datasets for visualization
+compare_capping <- function(original_data, capped_data, variable_name) {
+  bind_rows(
+    original_data |> select(!!sym(variable_name)) |> mutate(stage = "Original"),
+    capped_data |> select(!!sym(variable_name)) |> mutate(stage = "Capped")
+  )
+}
+
+# Visualize pre- and post-capping for a single variable
+visualize_capping <- function(data, variable_name) {
+  ggplot(data, aes(x = stage, y = !!sym(variable_name), fill = stage)) +
+    geom_boxplot(outlier.color = "red", alpha = 0.6) +
+    labs(
+      title = paste("Capping Effect on", variable_name),
+      x = "Stage",
+      y = variable_name
+    ) +
+    theme_minimal()
+}
+
+# Example for silvo_se and control_se
+for (method_name in names(imputed_datasets)) {
+  original_data <- col_for_impute
+  capped_data <- imputed_datasets[[method_name]]
+  
+  # Create comparison datasets
+  silvo_se_data <- compare_capping(original_data, capped_data, "silvo_se")
+  control_se_data <- compare_capping(original_data, capped_data, "control_se")
+  
+  # Plot silvo_se
+  cat("Visualizing capping for", method_name, "- silvo_se\n")
+  print(visualize_capping(silvo_se_data, "silvo_se"))
+  
+  # Plot control_se
+  cat("Visualizing capping for", method_name, "- control_se\n")
+  print(visualize_capping(control_se_data, "control_se"))
+}
+
+```
+```{r}
+# Function to identify capped observations
+
+
+```
+
+
+```{r}
+# Create a formatted table using `gt`
+comparison_gt <- prepared_data_gt %>%
+  # Reorder the columns in the data frame before passing to gt
+  select(
+    metric, category, original, 
+    linear_imputation,
+    linear_imputation_relative,
+    mean_imputation, 
+    mean_imputation_relative,
+    upper_quartile, 
+    upper_quartile_relative, 
+    bayesian,
+    bayesian_relative,
+    pmm, 
+    pmm_relative,  
+    pmm_best,  
+    pmm_best_relative,
+    rf,
+    rf_relative
+  ) |> 
+  # Set `metric` as row names
+  gt(rowname_col = "metric") %>%  
+  tab_header(
+    title = "Comparison of Imputation Methods Across Metrics",
+    subtitle = "Including Original Data and Relative Differences"
+  ) %>%
+  # Rename columns for clarity
+  cols_label(
+    original = "Original",
+    linear_imputation = "Linear Imputation",
+    linear_imputation_relative = "Linear Imputation Relative",
+    mean_imputation = "Mean Imputation",
+    mean_imputation_relative = "Mean Imputation Relative",
+    upper_quartile = "Upper Quartile",
+    upper_quartile_relative = "Upper Quartile Relative",
+    bayesian = "Bayesian",
+    bayesian_relative = "Bayesian Relative",
+    pmm = "PMM",
+    pmm_relative = "PMM Relative",
+    pmm_best = "PMM Best",
+    pmm_best_relative = "PMM Best Relative",
+    rf = "Random Forest",
+    rf_relative = "Random Forest Relative"
+  ) %>%
+  # Format numeric columns to two decimal places
+  fmt_number(
+    columns = c(pmm, upper_quartile, mean_imputation, pmm_best, original),
+    decimals = 2
+  ) %>%
+  fmt_number(
+    columns = ends_with("_relative"),  # Format relative difference columns
+    decimals = 3
+  ) %>%
+  # Replace 0 values in the relative columns with "NA"
+  fmt_missing(
+    columns = ends_with("_relative"),
+    missing_text = "NA"
+  ) %>%
+  # Add horizontal and vertical lines for clarity
+  tab_style(
+    style = list(
+      cell_fill(color = "#f9f9f9"),
+      cell_borders(sides = "all", color = "gray", weight = px(1))
+    ),
+    locations = cells_body()
+  ) %>%
+  # Adjust table options
+  tab_options(
+    table.font.size = "small",
+    table.border.top.color = "gray",
+    table.border.bottom.color = "gray",
+    column_labels.font.size = "medium",
+    row_group.font.size = "small"
+  ) %>%
+  # Add footnotes for explanation of relative differences
+  tab_footnote(
+    footnote = "Relative differences are calculated as |(imputed - original) / original|.",
+    locations = cells_column_labels(ends_with("_relative"))
+  )
+
+# Optionally, export the table
+output_folder <- here("DATA", "OUTPUT_FROM_R")
+gtsave(comparison_gt, file.path(output_folder, "comparison_table.html"))
+gtsave(comparison_gt, file.path(output_folder, "comparison_table.pdf"))
+
+# Display the table
+comparison_gt
+
+```
+
+
+
+```{r}
+custom_colors <- c(
+  "Biodiversity" = "#FF9999",
+  "Greenhouse gas emission" = "#66C266",
+  "Product quality" = "#FFC000",
+  "Crop yield" = "#FF9933",
+  "Pest and Disease" = "#33CCCC",
+  "Soil quality" = "#9966CC",
+  "Water quality" = "#9999FF"
+)
+
+# Step 1: Extract individual datasets for each response variable
+simplified_model_data_crop_yield <- simplified_model_results$`Crop yield`$data
+simplified_model_data_biodiversity <- simplified_model_results$Biodiversity$data
+simplified_model_data_product_quality <- simplified_model_results$`Product quality`$data
+simplified_model_data_soil_quality <- simplified_model_results$`Soil quality`$data
+simplified_model_data_water_quality <- simplified_model_results$`Water quality`$data
+
+# Combine all response variable datasets into one for the simplified model
+simplified_model_data <- do.call(
+  rbind,
+  list(
+    simplified_model_data_crop_yield,
+    simplified_model_data_biodiversity,
+    simplified_model_data_product_quality,
+    simplified_model_data_soil_quality,
+    simplified_model_data_water_quality
+  )
+)
+
+# Ensure the merged dataset is structured properly
+simplified_model_data <- as.data.frame(simplified_model_data)
+
+# Step 2: Repeat for the full model
+full_model_data_crop_yield <- full_model_results$`Crop yield`$data
+full_model_data_biodiversity <- full_model_results$Biodiversity$data
+full_model_data_product_quality <- full_model_results$`Product quality`$data
+full_model_data_soil_quality <- full_model_results$`Soil quality`$data
+full_model_data_water_quality <- full_model_results$`Water quality`$data
+
+# Combine all response variable datasets into one for the full model
+full_model_data <- do.call(
+  rbind,
+  list(
+    full_model_data_crop_yield,
+    full_model_data_biodiversity,
+    full_model_data_product_quality,
+    full_model_data_soil_quality,
+    full_model_data_water_quality
+  )
+)
+
+# Ensure the merged dataset is structured properly
+full_model_data <- as.data.frame(full_model_data)
+```
+```{r}
+
+# Check the structure of the final datasets
+str(simplified_model_data)
+str(full_model_data)
+
+
+
+# Refit the "simplified" model using ML
+simplified_ml <- rma.mv(
+  yi = yi,
+  V = simplified_model_data$vi,  # Replace with the correct variance structure
+  mods = ~ tree_type + crop_type + age_system + season + soil_texture,  # Simplified model moderators
+  random = ~ 1 | exp_id,          # Random effects structure
+  data = simplified_model_data,   # Dataset for simplified model
+  method = "ML"                   # Maximum Likelihood method
+)
+
+
+# Refit the "full" model using ML
+full_ml <- rma.mv(
+  yi = yi,
+  V = full_model_data$vi,         # Replace with the correct variance structure
+  mods = ~ tree_type * crop_type * age_system * season * soil_texture,  # Full model with interactions
+  random = ~ 1 | exp_id,          # Random effects structure
+  data = full_model_data,         # Dataset for full model
+  method = "ML"                   # Maximum Likelihood method
+)
+
+# Perform a likelihood ratio test to compare the models
+lrt <- anova(simplified_ml, full_ml)
+print(lrt)
+
+# Interpret the results
+if (lrt$pval < 0.05) {
+  cat("The full model significantly improves the fit compared to the simplified model (p =", lrt$pval, ").\n")
+} else {
+  cat("The simplified model is sufficient; the full model does not significantly improve the fit (p =", lrt$pval, ").\n")
+}
+
+```
+
+
+
+
+
+
+
+
+
+
+```{r}
+##########################################################################
+# Extract AIC Values for Each Response Variable (Handling NULLs)
+##########################################################################
+
+# Initialize a data frame to store AIC results
+aic_results <- data.frame(
+  Response = character(),
+  Null = numeric(),
+  Minimal = numeric(),
+  Fixed = numeric(),
+  Simplified = numeric(),
+  Full = numeric(),
+  BestModel = character(),
+  stringsAsFactors = FALSE
+)
+
+# Loop through each response variable
+for (response in names(model_results)) {
+  cat("\nExtracting AIC for response variable:", response, "\n")
+  
+  # Retrieve models for the current response variable
+  models <- model_results[[response]]
+  null <- models$null
+  minimal <- models$minimal
+  fixed <- models$fixed
+  simplified <- models$simplified
+  full <- models$full
+  
+  # Extract AIC values, replacing NULL with NA
+  aic_values <- c(
+    Null = if (!is.null(null)) null$aic else NA,
+    Minimal = if (!is.null(minimal)) minimal$aic else NA,
+    Fixed = if (!is.null(fixed)) fixed$aic else NA,
+    Simplified = if (!is.null(simplified)) simplified$aic else NA,
+    Full = if (!is.null(full)) full$aic else NA
+  )
+  
+  # Check if all AIC values are NA; skip this response variable if true
+  if (all(is.na(aic_values))) {
+    cat("All models are missing for response variable:", response, "\n")
+    next
+  }
+  
+  # Determine the best model based on the lowest AIC
+  best_model <- if (!all(is.na(aic_values))) {
+    names(aic_values)[which.min(aic_values)]
+  } else {
+    NA
+  }
+  
+  # Append results to the data frame
+  aic_results <- rbind(
+    aic_results,
+    data.frame(
+      Response = response,
+      Null = aic_values["Null"],
+      Minimal = aic_values["Minimal"],
+      Fixed = aic_values["Fixed"],
+      Simplified = aic_values["Simplified"],
+      Full = aic_values["Full"],
+      BestModel = best_model,
+      stringsAsFactors = FALSE
+    )
+  )
+}
+
+##########################################################################
+# Save AIC Results to File
+##########################################################################
+write.csv(aic_results, "aic_results.csv", row.names = FALSE)
+cat("AIC results saved to 'aic_results.csv'\n")
+
+##########################################################################
+# Print AIC Results
+##########################################################################
+print(aic_results)
+
+
+```
+
+
+
+
+
+```{r}
+# meta_analysis_model_comparisons |> str()
+# meta_analysis_model_comparisons$Biodiversity$LR_Full_vs_Fixed |> str()
+
+aic_results
+```
+
+
+
+
+
+
+
+
+
+
+```{r}
+# Check if LRT statistics are present in each response variable's model object
+lrt_presence <- data.frame(
+  Response = character(),
+  LRT_Statistic_Present = logical(),
+  LRT_pval_Present = logical(),
+  stringsAsFactors = FALSE
+)
+
+for (response in names(ml_comparison_results)) {
+  result <- ml_comparison_results[[response]]
+  
+  if (!is.null(result) && !is.null(result$lrt)) {
+    lrt_stat_present <- !is.null(result$lrt$statistic)
+    lrt_pval_present <- !is.null(result$lrt$pval)
+  } else {
+    lrt_stat_present <- FALSE
+    lrt_pval_present <- FALSE
+  }
+  
+  lrt_presence <- rbind(
+    lrt_presence,
+    data.frame(
+      Response = response,
+      LRT_Statistic_Present = lrt_stat_present,
+      LRT_pval_Present = lrt_pval_present,
+      stringsAsFactors = FALSE
+    )
+  )
+}
+
+# Print results
+print(lrt_presence)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+##########################################################################################################################################
+FOR INDIVIDUAL MODELS PER RESPONSE VARIABLE
+##########################################################################################################################################
+null = fit_null_model(data_subset, response),
+minimal = fit_minimal_model(data_subset, response, v_matrix),
+fixed = fit_fixed_effects_model(data_subset, response, v_matrix, moderators),
+simplified = fit_simplified_model(data_subset, response, v_matrix, moderators),
+full = fit_full_model(data_subset, response, v_matrix, moderators)
+
+
+
+```{r}
+##########################################################################################################################################
+# Compare Models for Individual Response Variables (Extract AIC Values)
+##########################################################################################################################################
+
+# Initialize a data frame to store AIC results
+aic_results <- data.frame(
+  Response = character(),
+  Null = numeric(),
+  Minimal = numeric(),
+  Fixed = numeric(),
+  Simplified = numeric(),
+  Full = numeric(),
+  BestModel = character(),
+  stringsAsFactors = FALSE
+)
+
+# Loop through each response variable to extract and compare AIC values
+for (response in names(model_results)) {
+  cat("\nProcessing response variable:", response, "\n")
+  
+  # Retrieve models for the current response variable
+  models <- model_results[[response]]
+  null_model <- models$null
+  minimal_model <- models$minimal
+  fixed_model <- models$fixed
+  simplified_model <- models$simplified
+  full_model <- models$full
+  
+  # Extract AIC values, replacing NULL with NA for missing models
+  aic_values <- c(
+    Null = if (!is.null(null_model)) null_model$aic else NA,
+    Minimal = if (!is.null(minimal_model)) minimal_model$aic else NA,
+    Fixed = if (!is.null(fixed_model)) fixed_model$aic else NA,
+    Simplified = if (!is.null(simplified_model)) simplified_model$aic else NA,
+    Full = if (!is.null(full_model)) full_model$aic else NA
+  )
+  
+  # Skip this response variable if all AIC values are missing
+  if (all(is.na(aic_values))) {
+    cat("All models are missing for response variable:", response, "\n")
+    next
+  }
+  
+  # Determine the best model based on the lowest AIC
+  best_model <- names(aic_values)[which.min(aic_values, na.rm = TRUE)]
+  
+  # Append the extracted AIC values and the best model to the results data frame
+  aic_results <- rbind(
+    aic_results,
+    data.frame(
+      Response = response,
+      Null = aic_values["Null"],
+      Minimal = aic_values["Minimal"],
+      Fixed = aic_values["Fixed"],
+      Simplified = aic_values["Simplified"],
+      Full = aic_values["Full"],
+      BestModel = best_model,
+      stringsAsFactors = FALSE
+    )
+  )
+}
+```
+
+
+```{r}
+##########################################################################
+# Systematic Comparison of Models for Each Response Variable
+##########################################################################
+
+# Extract model comparison data
+comparison_results <- lapply(names(meta_analysis_model_comparisons), function(response) {
+  models <- meta_analysis_model_comparisons[[response]]
+  
+  if (!is.null(models)) {
+    list(
+      Response = response,
+      AIC_Full = if (!is.null(models$AIC)) models$AIC["Full"] else NA,
+      AIC_Simplified = if (!is.null(models$AIC)) models$AIC["Simplified"] else NA,
+      AIC_Minimal = if (!is.null(models$AIC)) models$AIC["Minimal"] else NA,
+      AIC_Fixed = if (!is.null(models$AIC)) models$AIC["Fixed Effects Only"] else NA,
+      LRT_Full_vs_Simplified = if (!is.null(models$LR_Full_vs_Simplified)) models$LR_Full_vs_Simplified$pval else NA,
+      LRT_Full_vs_Minimal = if (!is.null(models$LR_Full_vs_Minimal)) models$LR_Full_vs_Minimal$pval else NA,
+      LRT_Full_vs_Fixed = if (!is.null(models$LR_Full_vs_Fixed)) models$LR_Full_vs_Fixed$pval else NA,
+      QE_Full = if (!is.null(models$Full_vs_Fixed_Details)) models$Full_vs_Fixed_Details$ResidualQEFull else NA,
+      QE_Fixed = if (!is.null(models$Full_vs_Fixed_Details)) models$Full_vs_Fixed_Details$ResidualQEReduced else NA
+    )
+  } else {
+    NULL
+  }
+})
+
+# Filter out NULL elements and convert to a data frame
+comparison_df <- do.call(rbind, lapply(comparison_results, function(x) {
+  if (!is.null(x)) {
+    data.frame(x, stringsAsFactors = FALSE)
+  }
+}))
+
+comparison_df |> str()
+```
+
+##########################################################################
+# Visualization of Model Comparisons
+##########################################################################
+
+
+```{r}
+# Plot AIC Comparison Across Models
+aic_plot <- ggplot(comparison_df, aes(x = Response)) +
+  geom_bar(aes(y = AIC_Full, fill = "Full Model"), stat = "identity", position = "dodge") +
+  geom_bar(aes(y = AIC_Simplified, fill = "Simplified Model"), stat = "identity", position = "dodge") +
+  geom_bar(aes(y = AIC_Minimal, fill = "Minimal Model"), stat = "identity", position = "dodge") +
+  geom_bar(aes(y = AIC_Fixed, fill = "Fixed Effects Only"), stat = "identity", position = "dodge") +
+  labs(title = "AIC Comparison Across Models", x = "Response Variable", y = "AIC") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+print(aic_plot)
+```
+```{r}
+# Plot Residual Variance (QE) Comparison
+qe_plot <- ggplot(comparison_df, aes(x = Response)) +
+  geom_point(aes(y = QE_Full, color = "Full Model"), size = 3) +
+  geom_point(aes(y = QE_Fixed, color = "Fixed Effects Only"), size = 3) +
+  labs(title = "Residual Variance (QE) Comparison", x = "Response Variable", y = "Residual Variance") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+print(qe_plot)
+```
+```{r}
+# Plot Likelihood Ratio Test (LRT) P-Values
+lrt_plot <- ggplot(comparison_df, aes(x = Response)) +
+  geom_point(aes(y = -log10(LRT_Full_vs_Simplified), color = "Full vs Simplified"), size = 3) +
+  geom_point(aes(y = -log10(LRT_Full_vs_Minimal), color = "Full vs Minimal"), size = 3) +
+  geom_point(aes(y = -log10(LRT_Full_vs_Fixed), color = "Full vs Fixed"), size = 3) +
+  geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "red") +
+  labs(title = "Likelihood Ratio Test P-Values (Log10 Scale)", x = "Response Variable", y = "-log10(P-Value)") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+lrt_plot
+```
+
+```{r}
+##########################################################################
+# Interpretation and Next Steps
+##########################################################################
+# - Use AIC and BIC values to identify the best model for each response variable.
+# - Compare QE values to assess residual variance.
+# - Analyze LRT p-values to determine significant differences between models.
+# - Select the simplest model that performs well based on these metrics.
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+lapply(names(full_model_results), function(response) {
+  message("Inspecting response variable: ", response)
+  full_model <- full_model_results[[response]]
+  simplified_model <- simplified_model_results[[response]]
+  minimal_model <- minimal_model_results[[response]]
+  fixed_model <- fixed_effects_model_results[[response]]
+  
+  message("Full model length: ", length(full_model$yi))
+  message("Simplified model length: ", length(simplified_model$yi))
+  message("Minimal model length: ", length(minimal_model$yi))
+  message("Fixed model length: ", length(fixed_model$yi))
+})
+```
+
+```{r}
+full_model <- full_model_results[[response]]
+simplified_model <- simplified_model_results[[response]]
+minimal_model <- minimal_model_results[[response]]
+fixed_model <- fixed_effects_model_results[[response]]
+
+# Run ANOVA
+simplified_anova <- anova(full_model, simplified_model)
+minimal_anova <- anova(full_model, minimal_model)
+fixed_anova <- anova(full_model, fixed_model)
+
+simplified_anova |> str()
+minimal_anova |> str()
+fixed_anova |> str()
+
+simplified_aic_full <- simplified_anova[[1]]
+simplified_aic_reduced <- simplified_anova[[2]]
+
+simplified_aic_full
+simplified_aic_reduced
+
+simplified_aic_comparison <- (simplified_aic_full - simplified_aic_reduced)
+simplified_aic_comparison_aic <- simplified_aic_comparison["AIC"]
+
+simplified_aic_comparison_aic
+
+# Visualize!
+```
+
+```{r}
+# Define a function to process ANOVA results and extract AIC differences
+process_anova <- function(full_model, other_model) {
+  anova_result <- anova(full_model, other_model)
+  
+  # Extract AIC values for full and reduced models
+  aic_full <- anova_result$fit.stats.f["AIC"]
+  aic_reduced <- anova_result$fit.stats.r["AIC"]
+  
+  # Compute the AIC difference
+  aic_diff <- aic_full - aic_reduced
+  
+  # Return the difference
+  return(aic_diff)
+}
+
+# Apply the function to all models
+simplified_aic_diff <- process_anova(full_model, simplified_model)
+minimal_aic_diff <- process_anova(full_model, minimal_model)
+fixed_aic_diff <- process_anova(full_model, fixed_model)
+
+# Print the results
+cat("Simplified AIC Difference:", simplified_aic_diff, "\n")
+cat("Minimal AIC Difference:", minimal_aic_diff, "\n")
+cat("Fixed AIC Difference:", fixed_aic_diff, "\n")
+```
+
+```{r}
+# Prepare data for visualization
+aic_data <- data.frame(
+  Model = c("Simplified", "Minimal", "Fixed"),
+  AIC_Difference = c(simplified_aic_diff, minimal_aic_diff, fixed_aic_diff)
+)
+
+# Create the bar plot
+ggplot(aic_data, aes(x = Model, y = AIC_Difference, fill = Model)) +
+  geom_bar(stat = "identity", width = 0.7) +
+  labs(
+    title = "AIC Differences Between Models",
+    x = "Model Comparison",
+    y = "AIC Difference"
+  ) +
+  scale_y_log10() +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+```
+
+
+The AIC differences reveal important insights about how well each model fits the data compared to the full model. 
+
+1. The **simplified model** has a small AIC difference of 3.69 compared to the full model. This indicates that while it simplifies the structure, it retains much of the explanatory power. The minimal reduction in fit suggests the simplified model could serve as a practical alternative, balancing complexity and accuracy.
+
+2. In contrast, the **minimal model** shows a significant AIC difference of -57.58. This indicates a noticeable loss in explanatory power relative to the full model. While the minimal model removes many complexities, it sacrifices too much accuracy, making it unsuitable for capturing the relationships in the data effectively.
+
+3. The **fixed-effects model** has the worst performance, with an AIC difference of -2792.28. This massive gap suggests that removing random effects entirely leads to a model that fails to account for essential variability in the data. The fixed-effects approach is overly simplistic and does not provide an adequate fit for the observed outcomes.
+
+In summary, the **simplified model** offers a strong balance between simplicity and performance, while the minimal and fixed-effects models fail to retain the necessary explanatory power. The simplified model could be recommended when prioritizing model parsimony, but the full model remains the best choice when accuracy is the primary goal. This analysis highlights the trade-offs between model complexity and goodness-of-fit, underscoring the importance of selecting the right level of simplification for the data.
+
+
+
+```{r}
+meta_data |> glimpse()
+```
+
+
+
+
+# Create a faceted bar plot
+heterogeneity_facet_plot <- ggplot(long_heterogeneity_data_adjusted, aes(x = ResponseVariable, y = HeterogeneityValue, fill = ModelType)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.8), color = "black", alpha = 0.7) +
+  scale_y_break(c(10000, 200000), scales = 0.5) +  # Add y-axis breaks
+  facet_wrap(~ HeterogeneityType, scales = "free_y", ncol = 1) +  # Facet by Heterogeneity Type
+  labs(
+    title = "Partitioned Heterogeneity Across Models (Faceted View with Adjustments)",
+    x = "Response Variable",
+    y = "Heterogeneity Value",
+    fill = "Model Type"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    plot.title = element_text(size = 14, face = "bold"),
+    strip.text = element_text(size = 12, face = "bold"),
+    axis.title = element_text(size = 12)
+  ) +
+  scale_fill_brewer(palette = "Set2")
+
+# Display the plot
+print(heterogeneity_facet_plot)
+
+
+```{r}
+# Create individual plots for each heterogeneity type
+
+################################################################################################################
+# Total Heterogeneity
+################################################################################################################
+total_plot <- ggplot(long_heterogeneity_data_adjusted %>% filter(HeterogeneityType == "TotalHeterogeneity"),
+                     aes(x = ResponseVariable, y = HeterogeneityValue, fill = ModelType)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.8), color = "black", alpha = 0.7) +
+  scale_y_break(c(8000, 200000), scales = 0.5) +  # Add y-axis breaks
+  labs(
+    title = "Total Heterogeneity",
+    x = "Response Variable",
+    y = "Heterogeneity Value"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    plot.title = element_text(size = 14, face = "bold"),
+    axis.title = element_text(size = 12),
+    legend.position = "none"  # Remove legend from this plot
+  ) +
+  scale_fill_brewer(palette = "Set2")
+
+################################################################################################################
+# Explained Heterogeneity
+################################################################################################################
+explained_plot <- ggplot(
+  long_heterogeneity_data_adjusted %>% filter(HeterogeneityType == "ExplainedHeterogeneity"),
+  aes(x = ResponseVariable, y = HeterogeneityValue, fill = ModelType)
+) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.8), color = "black", alpha = 0.7) +
+  scale_y_break(c(5000, 1000000), scales = 0.5) +  # Adjusted breakpoints to match data range
+  labs(
+    title = "Explained Heterogeneity",
+    x = "Response Variable",
+    y = "Heterogeneity Value"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    plot.title = element_text(size = 14, face = "bold"),
+    axis.title = element_text(size = 12),
+    legend.position = "none"  # Remove legend from this plot
+  ) +
+  scale_fill_brewer(palette = "Set2")
+
+################################################################################################################
+# Residual Heterogeneity
+################################################################################################################
+residual_plot <- ggplot(long_heterogeneity_data_adjusted %>% filter(HeterogeneityType == "ResidualHeterogeneity"),
+                        aes(x = ResponseVariable, y = HeterogeneityValue, fill = ModelType)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.8), color = "black", alpha = 0.7) +
+  scale_y_break(c(5000, 100000), scales = 0.5) +
+  labs(
+    title = "Residual Heterogeneity",
+    x = "Response Variable",
+    y = "Heterogeneity Value"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    plot.title = element_text(size = 14, face = "bold"),
+    axis.title = element_text(size = 12),
+    legend.position = "none"  # Remove legend from this plot
+  ) +
+  scale_fill_brewer(palette = "Set2")
+
+################################################################################################################
+# Combine the plots into a single layout with a shared legend
+################################################################################################################
+
+
+```
+
+
+```{r}
+# Grouped Bar Chart: Total, Explained, and Residual Heterogeneity
+heterogeneity_bar_plot <- ggplot(visualization_data, aes(x = ResponseVariable, fill = ModelType)) +
+  geom_bar(aes(y = TotalHeterogeneity), stat = "identity", position = position_dodge(width = 0.8), color = "black", alpha = 0.7) +
+  geom_bar(aes(y = ExplainedHeterogeneity), stat = "identity", position = position_dodge(width = 0.8), color = "black") +
+  labs(
+    title = "Total, Explained, and Residual Heterogeneity Across Models",
+    x = "Response Variable",
+    y = "Heterogeneity Value",
+    fill = "Model Type"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+heterogeneity_bar_plot
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#############
+# STEP 6
+##########################################################################################################################################
+PUBLICATION-READY PLOTS OF EFFECT SIZE IMPACTS ON RESPONSE VARIABLES OF TEMPERATE SAF FOR EACH SUBSET MODEL FITTING 
+##########################################################################################################################################
+
+Forest Plot: Visualizes effect sizes and confidence intervals for response variables.
+Ridge Plot: Shows the distribution of effect sizes for each response variable.
+Variance Plot: Compares variance components (Tau²) and heterogeneity (I²).
+Combined Plot: Combines the forest and ridge plots into a single figure for publication.
+
+
+
+
+
+
+
+
+
+
+```{r}
+# Load the saved models
+dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
+
+# Load models for all complexity levels
+null_model_results <- readRDS(file.path(dir, "fitted_models_null.rds"))
+minimal_model_results <- readRDS(file.path(dir, "fitted_models_minimal.rds"))
+fixed_effects_model_results <- readRDS(file.path(dir, "fitted_models_fixed_effects.rds"))
+simplified_model_results <- readRDS(file.path(dir, "fitted_models_simplified.rds"))
+full_model_results <- readRDS(file.path(dir, "fitted_models_full.rds"))
+
+simplified_model_results |> str()
+simplified_model_results |> glimpse()
+```
+
+```{r}
+# WORKING ON THE SIMPLIFIED MODEL
+mod_res <- simplified_model_results
+
+
+
+# Combine results from all response variables into a single data frame
+forest_plot_data <- bind_rows(
+  lapply(names(mod_res), function(response) {
+    model <- mod_res[[response]]
+    
+    if (!is.null(model) && !is.null(model$data)) {
+      n_effects <- length(model$yi)
+      n_studies <- nrow(model$data)
+      
+      # Ensure the lengths match or skip inconsistent data
+      if (n_effects == n_studies) {
+        data.frame(
+          Study = model$data$id_article,                 # Study IDs
+          EffectSize = model$yi,                        # Effect sizes
+          CI_Lower = model$yi - 1.96 * sqrt(model$vi),  # Lower CI
+          CI_Upper = model$yi + 1.96 * sqrt(model$vi),  # Upper CI
+          ResponseVariable = response                   # Response variable
+        )
+      } else {
+        warning(sprintf(
+          "Skipping response variable '%s': Mismatched lengths between model$yi (%d) and model$data (%d).",
+          response, n_effects, n_studies
+        ))
+        NULL
+      }
+    } else {
+      warning(sprintf("Skipping response variable '%s': Missing model or data.", response))
+      NULL
+    }
+  })
+)
+
+# Check the prepared data
+forest_plot_data |> glimpse()
+```
+
+```{r}
+# Prepare Aggregated Data
+aggregated_data <- forest_plot_data %>%
+  group_by(ResponseVariable) %>%
+  summarise(
+    overall_effect = mean(EffectSize, na.rm = TRUE),
+    lower_ci = mean(CI_Lower, na.rm = TRUE),
+    upper_ci = mean(CI_Upper, na.rm = TRUE),
+    num_observations = n(),
+    num_studies = n_distinct(Study), # Assuming 'Study' represents unique studies
+    size_category = case_when(
+      num_studies <= 2 ~ "1-2",
+      num_studies <= 4 ~ "3-4",
+      num_studies > 4 ~ "5+"
+    ),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    size_category = factor(size_category, levels = c("1-2", "3-4", "5+")),
+    response_rank = rank(overall_effect)
+  )
+
+aggregated_data |> glimpse()
+```
+
+```{r}
+# Define custom colors for response variables
+custom_colors <- c(
+  "Biodiversity" = "#1b9e77",
+  "Crop yield" = "#d95f02",
+  "Pest and Disease" = "#7570b3",
+  "Product quality" = "#e7298a",
+  "Soil quality" = "#66a61e",
+  "Water quality" = "#e6ab02"
+)
+
+# Create the forest plot with custom colors
+forest_plot <- aggregated_data |> 
+  ggplot(aes(x = overall_effect, y = reorder(ResponseVariable, response_rank))) +
+  # Add points for effect sizes
+  geom_point(aes(size = size_category, color = ResponseVariable)) +
+  # Add horizontal error bars for confidence intervals
+  geom_errorbarh(aes(xmin = lower_ci, xmax = upper_ci, color = ResponseVariable), height = 0.2) +
+  # Add vertical line at zero
+  geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
+  # Customize point size scale
+  scale_size_manual(
+    values = c("1-2" = 3, "3-4" = 5, "5+" = 7),
+    name = "Number of Studies"
+  ) +
+  # Customize color scale
+  scale_color_manual(
+    values = custom_colors,
+    name = "Response Variable"
+  ) +
+  # Customize plot labels and appearance
+  labs(
+    title = "Forest Plot of Response Variables with Custom Colors",
+    x = "Effect Size (Overall)",
+    y = "Response Variable",
+    size = "Number of Studies"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    axis.text.y = element_text(size = 10),
+    axis.text.x = element_text(size = 12),
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+    legend.position = "none"
+  )
+
+# Display the plot
+forest_plot
+```
+
+
+
+```{r}
+# Create the ridge plot with custom colors
+library(ggridges)
+ridge_plot <- forest_plot_data %>% 
+  ggplot(aes(x = EffectSize, y = ResponseVariable, fill = ResponseVariable)) +
+  geom_density_ridges(alpha = 0.7, scale = 0.8, rel_min_height = 0.02) +
+  scale_fill_manual(
+    values = custom_colors,
+    name = "Response Variable"
+  ) +
+  labs(
+    title = "Enhanced Ridge Plot of Effect Sizes Across Response Variables",
+    subtitle = "Distribution of effect sizes categorized by response variable",
+    x = "Effect Size Estimate, Ratio of Means (ROM)",
+    y = "Response Variable"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 12, hjust = 0.5),
+    axis.text = element_text(size = 12),
+    panel.grid.major = element_line(color = "gray", linetype = "dashed"),
+    legend.position = "none"
+  )
+
+# Display the plot
+ridge_plot
+```
+
+```{r}
+simplified_model_results
+```
+
+```{r}
+# Sample one observation per article per response variable
+sampled_data <- imp_dataset %>%
+  group_by(id_article, response_variable) %>%
+  slice_head(n = 1)
+
+sampled_data
+```
+```{r}
+# Boxplot of effect sizes by response variable (unique articles)
+boxplot_effec_size_response_variable <- sampled_data |> 
+  ggplot(aes(x = response_variable, 
+             y = yi, 
+             fill = response_variable)) +
+  geom_boxplot() +
+  coord_flip() +
+  labs(title = "Boxplot of Effect Sizes (yi) by Response Variable (Unique Articles)",
+       x = "Response Variable",
+       y = "Effect Size (yi)") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+boxplot_effec_size_response_variable
+```
+
+
+```{r}
+simplified_model_results |> str()
+```
+
+
+```{r}
+# Function to bootstrap effect sizes
+bootstrap_effect_sizes <- function(yi, vi, n_bootstrap = 1000) {
+  bootstrapped <- replicate(
+    n_bootstrap,
+    rnorm(length(yi), mean = yi, sd = sqrt(vi)),
+    simplify = TRUE
+  )
+  as.data.frame(t(bootstrapped)) %>% 
+    pivot_longer(cols = everything(), names_to = "id", values_to = "yi_boot")
+}
+
+# Combine all response variables
+bootstrapped_results <- purrr::map_df(
+  names(simplified_model_results), 
+  function(response_var) {
+    model <- simplified_model_results[[response_var]]
+    if (!is.null(model)) {
+      data.frame(
+        response_variable = response_var,
+        bootstrap_effect_sizes(
+          yi = model$yi,
+          vi = model$vi
+        )
+      )
+    }
+  }
+)
+
+# Summarize bootstrapped results
+summary_results <- bootstrapped_results %>%
+  group_by(response_variable) %>%
+  summarise(
+    mean = mean(yi_boot),
+    median = median(yi_boot),
+    lower_ci = quantile(yi_boot, 0.025),
+    upper_ci = quantile(yi_boot, 0.975)
+  )
+
+
+bootstrapped_results |> glimpse()
+
+
+# Plotting
+modelled_res_bootstrapped_plot <- bootstrapped_results |> 
+  ggplot(aes(x = response_variable, y = yi_boot, fill = response_variable)) +
+  geom_violin() +
+  stat_summary(fun = median, geom = "point", shape = 23, size = 2, color = "black") +
+  scale_y_log10() + # Apply log scale to the y-axis
+  theme_minimal() +
+  labs(
+    title = "Bootstrapped ROM Effect Sizes by Response Variable (Log Scale)",
+    x = "Response Variable",
+    y = "Effect Size (yi) - Log Scale"
+  ) +
+  theme(legend.position = "none")
+
+modelled_res_bootstrapped_plot
+
+```
+
+
+```{r}
+# Load the required library
+library(metafor)
+
+# Check data structure (already done in your example)
+# str(imp_dataset)
+
+# Define the meta-analysis model
+# Here, we assume 'yi' represents the effect size and 'vi' the variance of effect sizes.
+# Random effects model with robust variance estimation
+robust_model <- rma.mv(
+  yi = yi,                # Effect size measure (e.g., Log Response Ratio)
+  V = vi,                 # Variance of effect sizes
+  random = ~ 1 | exp_id,  # Random effects structure: exp_id
+  data = imp_dataset,     # Your dataset
+  method = "REML"         # Restricted Maximum Likelihood Estimation
+)
+
+# Display a summary of the model
+summary(robust_model)
+
+# Conduct tests for heterogeneity
+# Q-test for heterogeneity
+heterogeneity_test <- anova(robust_model)
+print(heterogeneity_test)
+
+# Visualize results: Forest plot
+forest(robust_model, 
+       slab = paste(imp_dataset$id_article, imp_dataset$response_variable), 
+       xlab = "Effect Size", 
+       header = "Study (Article) and Response Variable")
+
+# Test for publication bias (e.g., funnel plot asymmetry)
+# Funnel plot and publication bias
+funnel(robust_model) # Visual inspection for symmetry
+
+# Simplified regression model for publication bias
+simpler_model <- rma.uni(yi, 
+                         vi, 
+                         data = imp_dataset, 
+                         method = "REML")
+
+regtest(simpler_model, model = "lm") # Test for asymmetry in simpler model
+
+# Manual influence diagnostics
+residuals <- residuals(robust_model, type = "rstandard") # Standardized residuals
+leverage <- hatvalues(robust_model)                     # Leverage values
+plot(residuals, leverage, main = "Residuals vs Leverage", xlab = "Residuals", ylab = "Leverage")
+
+# Sensitivity analysis
+# Define criteria for exclusion (e.g., standardized residuals > 2)
+influential_points <- which(abs(residuals) > 2)
+sensitivity_model <- update(robust_model, subset = -influential_points)
+sensitivity_summary <- summary(sensitivity_model)
+print(sensitivity_summary)
+
+# Save outputs
+capture.output(summary(sensitivity_model), file = "sensitivity_analysis_summary.txt")
+
+# Leave-One-Out Analysis (Exclude one study at a time)
+id_articles <- unique(imp_dataset$id_article) # Get unique study IDs
+
+loo_results <- lapply(id_articles, function(article) {
+  temp_data <- subset(imp_dataset, id_article != article) # Exclude one study at a time
+  temp_model <- tryCatch(
+    rma.mv(
+      yi = yi,                # Effect size measure
+      V = vi,                 # Variance of effect sizes
+      random = ~ 1 | exp_id,  # Adjusted random effects structure
+      data = temp_data,       # Subset data excluding the study
+      method = "REML"
+    ),
+    error = function(e) NA
+  )
+  if (!inherits(temp_model, "try-error") && !is.na(temp_model$beta[1])) {
+    data.frame(Study = article, Beta = temp_model$beta[1], SE = temp_model$se[1], pval = temp_model$pval[1])
+  } else {
+    data.frame(Study = article, Beta = NA, SE = NA, pval = NA)
+  }
+})
+
+# Combine results into a single data frame
+loo_results_df <- do.call(rbind, loo_results)
+
+# Display LOO results
+loo_results_df
+
+loo_results_df |> glimpse()
+
+# Save Leave-One-Out results
+write.csv(loo_results_df, "leave_one_out_results_quick.csv", row.names = FALSE)
+
+# Visualize LOO results
+plot(loo_results_df$Study, loo_results_df$Beta, 
+     type = "b", pch = 19, 
+     main = "Leave-One-Out Analysis", 
+     xlab = "Excluded Study", 
+     ylab = "Effect Size", 
+     col = "blue")
+
+# Visualize LOO results as a forest plot
+forest(loo_results_df$Beta, 
+       ci.lb = loo_results_df$Beta - 1.96 * loo_results_df$SE, 
+       ci.ub = loo_results_df$Beta + 1.96 * loo_results_df$SE, 
+       slab = paste("Study", loo_results_df$Study), 
+       xlab = "Effect Size (Hedges's g)", 
+       main = "Leave-One-Out Analysis", 
+       refline = 0, 
+       header = c("Omitted Study", "Effect Size with 95% CI"))
+```
+```{r}
+imp_dataset |> glimpse()
+```
+
+
+```{r}
+# Use your dataset (`imp_dataset`) for meta-analysis
+# Meta-analysis using the `meta` package
+
+# Load the required library
+library(meta)
+
+# Calculate correlation data and add it to the dataset
+# Ensure both silvo and control groups are available
+imp_dataset$correlation <- with(imp_dataset, {
+  # Calculate correlation based on means and standard deviations
+  numerator <- (silvo_mean - control_mean)^2
+  denominator <- silvo_sd^2 + control_sd^2
+  correlation <- numerator / (numerator + denominator)
+  # Ensure correlation values are between -1 and 1
+  pmax(pmin(correlation, 1), -1)
+})
+
+# Meta-analysis using the `meta` package
+
+datcor <- metacor(
+  cor = correlation,               # Effect size correlation from calculated column
+  n = silvo_n + control_n,          # Total sample size: sum of silvo and control sample sizes
+  data = imp_dataset,               # Your dataset
+  studlab = paste(id_article),      # Study labels based on `id_article`
+  method.tau = "REML",             # Restricted Maximum Likelihood Estimation
+  comb.random = TRUE,               # Random-effects model
+  comb.fixed = FALSE,               # Do not combine fixed-effects
+  sm = "COR"                       # Effect size metric: Correlation
+)
+
+# Create forest plot using the `meta` package
+meta::forest(datcor, print.I2 = FALSE)
+
+# Display meta-analysis summary
+print(datcor)
+
+# Perform a leave-one-out analysis with `metafor`
+dat <- escalc(
+  measure = "ROM",               # Effect size metric: Ratio of Means
+  yi = silvo_mean / control_mean,  # Effect size: ratio of silvo to control means
+  vi = (silvo_sd / silvo_mean)^2 + (control_sd / control_mean)^2, # Variance: using delta method for ratios
+  data = imp_dataset,              # Your dataset
+  slab = paste(id_article, response_variable, sep = ", ")
+)
+
+
+res <- rma(yi, vi, data = dat)    # Random-effects meta-analysis
+inf <- influence(res)             # Influence diagnostics
+
+# Save Leave-One-Out results
+saveRDS(inf, "influence_diagnostics_quick.rds")
+
+print(inf)
+
+inf |> str()
+
+
+
+# Add slab column for influence diagnostics
+dat$slab <- paste(dat$id_article, dat$response_variable, sep = ", ")
+
+# Visualize Influence diagnostics 
+# Extract diagnostic metrics for plotting
+influence_data <- data.frame(
+  Study = dat$slab,
+  RStudent = inf$inf$rstudent,
+  CookD = inf$inf$cook.d,
+  Hat = inf$inf$hat
+)
+
+# Plot influence diagnostics
+influence_plot <- influence_data |> 
+  ggplot(aes(x = Study, y = RStudent)) +
+  geom_point(aes(size = CookD, color = Hat)) +
+  labs(
+    title = "Influence Diagnostics for Meta-Analysis",
+    x = "Study",
+    y = "Studentized Residuals",
+    size = "Cook's D",
+    color = "Hat Values"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+influence_plot
+```
+
+
+
+
+
+
+# Influence diagnostics
+inf_diag <- influence(robust_model)
+print(inf_diag)
+plot(inf_diag)
+
+# Save outputs to a file
+# Write model summary to a text file
+capture.output(summary(robust_model), file = "meta_analysis_summary.txt")
+
+# Optional: Sensitivity analysis
+# Exclude influential points and re-run the model if needed
+sensitivity_model <- update(robust_model, subset = !inf_diag$is.influential)
+sensitivity_summary <- summary(sensitivity_model)
+print(sensitivity_summary)
+
+# Save sensitivity analysis summary
+capture.output(sensitivity_summary, file = "sensitivity_analysis_summary.txt")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+####################################################################################################################################################
+# Fit and Evaluate All Models
+####################################################################################################################################################
+model_results <- list()
+for (response in names(v_matrices)) {
+  cat("\nProcessing response variable:", response, "\n")
+  
+  data_subset <- meta_data[meta_data$response_variable == response, ]
+  v_matrix <- v_matrices[[response]]
+  moderators <- c("tree_type", "crop_type", "age_system", "season", "soil_texture")
+  
+  model_results[[response]] <- list(
+    null = fit_null_model(data_subset, response),
+    minimal = fit_minimal_model(data_subset, response, v_matrix),
+    fixed = fit_fixed_effects_model(data_subset, response, v_matrix, moderators),
+    simplified = fit_simplified_model(data_subset, response, v_matrix, moderators),
+    full = fit_full_model(data_subset, response, v_matrix, moderators)
+  )
+}
+
+##########################################################################
+# Save All Fitted Models
+##########################################################################
+output_dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
+
+saveRDS(model_results, file = file.path(output_dir, "fitted_models_all.rds"))
+
+cat("\nAll models have been saved successfully!\n")
+
+##########################################################################
+# End time tracking
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+cat("\nTotal time taken:", time.taken, "\n")
+##########################################################################
+
+
+
+
+
+
+
+
+
+
+```{r}
+# Load the library
+library(orchaRd)
+```
+
+```{r}
+simplified_model_results |> str()
+
+# Inspect a sample model
+model <- simplified_model_results[["Biodiversity"]]
+if (!is.null(model)) {
+  print(class(model))      # Should return "rma.mv"
+  print(model)             # Summary of the model
+} else {
+  cat("Model for Biodiversity is NULL\n")
+}
+```
+```{r}
+# Generate orchard plots for each response variable
+# library(orchaRd)
+
+# Function to preprocess model results
+preprocess_models <- function(models_list) {
+  valid_models <- list()
+  
+  for (response in names(models_list)) {
+    model <- models_list[[response]]
+    if (!is.null(model) && inherits(model, "rma.mv")) {
+      tryCatch({
+        # Test mod_results function to ensure compatibility
+        processed_model <- orchaRd::mod_results(model, mod = "1", group = "exp_id")
+        valid_models[[response]] <- model
+      }, error = function(e) {
+        cat("Excluding model for response variable:", response, "- Error:", e$message, "\n")
+      })
+    } else {
+      cat("Excluding model for response variable:", response, "- Invalid or NULL model.\n")
+    }
+  }
+  
+  return(valid_models)
+}
+
+# Preprocess models
+simplified_model_results_clean <- preprocess_models(simplified_model_results)
+
+
+for (response in names(simplified_model_results_clean)) {
+  model <- simplified_model_results_clean[[response]]
+  if (!is.null(model) && inherits(model, "rma.mv")) {
+    cat("\nGenerating orchard plot for response variable:", response, "\n")
+    tryCatch({
+      # Process model results for orchard plotting
+      processed_model <- orchaRd::mod_results(
+        model,
+        mod = "1",             # Overall effect size or specific moderator
+        group = "exp_id"       # Grouping variable for random effects
+      )
+      
+      # Generate orchard plot
+      orchaRd::orchard_plot(
+        processed_model,
+        xlab = paste("Effect Size for", response),
+        group = "exp_id",      # Grouping variable
+        angle = 45             # Rotate labels for better readability
+      )
+    }, error = function(e) {
+      cat("Error generating orchard plot for", response, ":", e$message, "\n")
+    })
+  } else {
+    cat("Skipping response variable:", response, "- Invalid or NULL model.\n")
+  }
+}
+```
+
+```{r}
+# Specify the response variable you want to process
+response <- "Product quality"  # Replace with the response variable you want to plot
+
+# Check if the model exists and is valid
+if (!is.null(simplified_model_results_clean[[response]]) &&
+    inherits(simplified_model_results_clean[[response]], "rma.mv")) {
+  
+  # Retrieve the model
+  model <- simplified_model_results_clean[[response]]
+  
+  # Process the model for orchard plotting
+  processed_model <- tryCatch({
+    orchaRd::mod_results(
+      model,
+      mod = "1",             # Overall effect size or specific moderator
+      group = "exp_id"       # Grouping variable for random effects
+    )
+  }, error = function(e) {
+    cat("Error processing model for response variable:", response, "-", e$message, "\n")
+    return(NULL)
+  })
+  
+  # Check if the processed model is valid
+  if (!is.null(processed_model)) {
+    # Generate and display the orchard plot
+    cat("\nGenerating orchard plot for response variable:", response, "\n")
+    orchaRd::orchard_plot(
+      processed_model,
+      xlab = paste("Effect Size for", response),  # Label for the x-axis
+      group = "exp_id",                          # Grouping variable
+      angle = 45                                 # Rotate labels for better readability
+    )
+  } else {
+    cat("Unable to generate orchard plot for response variable:", response, "\n")
+  }
+} else {
+  cat("Model for response variable:", response, "is invalid or NULL.\n")
+}
+```
+
+```{r}
+# Filter or prepare the dataset if needed
+meta_data <- imp_dataset %>%
+  filter(!is.na(yi), !is.na(vi)) %>%   # Remove rows with missing effect size or variance
+  mutate(response_variable = as.factor(response_variable)) |>  # Ensure it's a factor
+  # Check and convert categorical moderators to factors
+  mutate(across(
+    c(tree_type, crop_type, age_system, season, soil_texture, no_tree_per_m, tree_height, alley_width),
+    as.factor
+  ))
+
+meta_data
+```
+```{r}
+# Prepare the dataset
+meta_data <- imp_dataset %>%
+  filter(!is.na(yi), !is.na(vi)) %>%   # Remove rows with missing effect size or variance
+  mutate(response_variable = as.factor(response_variable)) |>  # Ensure it's a factor
+  mutate(across(
+    c(tree_type, crop_type, age_system, season, soil_texture, no_tree_per_m, tree_height, alley_width),
+    as.factor
+  ))  # Convert categorical variables to factors
+
+# Create a list to store models
+models <- list()
+response_levels <- unique(meta_data$response_variable)
+
+for (response in response_levels) {
+  sub_data <- meta_data %>% filter(response_variable == response)
+  
+  # Skip subgroups with insufficient levels
+  if (any(sapply(sub_data[, c("tree_type", "crop_type", "age_system", "season", 
+                              "soil_texture", "no_tree_per_m", "tree_height", "alley_width")], 
+                 function(x) length(unique(x))) < 2)) {
+    cat("Skipping", response, "- insufficient levels in one or more moderators\n")
+    next
+  }
+  
+  # Fit the meta-analytic model
+  models[[response]] <- rma.mv(
+    yi = yi,
+    V = vi,
+    mods = ~ tree_type + crop_type,
+    random = ~ 1 | exp_id,  # Random effect for studies
+    data = sub_data
+  )
+}
+
+
+# Generate Orchard Plots
+for (response in names(models)) {
+  cat("Creating Orchard Plot for:", response, "\n")
+  
+  # Generate Orchard Plot
+  plot <- orchard_plot(
+    models[[response]],
+    xlab = "Effect Size (Hedges' g)",
+    group = "response_variable",
+    angle = 45
+  ) + ggplot2::ggtitle(paste("Orchard Plot for", response))
+  
+  # Print the plot
+  print(plot)
+}
+```
+
+```{r}
+##########################################################################
+# Set up the parallel processing plan
+plan(multisession, workers = parallel::detectCores() - 1)
+##########################################################################
+# Start time tracking
+start.time <- Sys.time()
+
+
+#######################################################################################
+# Step 1: Check and enforce correct data types
+#######################################################################################
+col_for_impute <- database_clean_sd |> 
+  as.data.frame() |> 
+  select(-geometry) |> 
+  select(
+    # Columns that need to be imputed
+    silvo_se, control_se, 
+    # Columns that are used by mice to impute values
+    tree_age, crop_type, tree_type, bioclim_sub_regions, experiment_year, alley_width, silvo_n, control_n,
+    # IDs that are used to back-link imputed values to the dataset
+    id_article, id_obs, treat_id, exp_id
+  ) |> 
+  mutate(
+    silvo_se = as.numeric(silvo_se),
+    control_se = as.numeric(control_se),
+    silvo_n = as.numeric(silvo_n),
+    control_n = as.numeric(control_n),
+    tree_age = as.numeric(tree_age),
+    crop_type = as.factor(crop_type),
+    tree_type = as.factor(tree_type),
+    bioclim_sub_regions = as.factor(bioclim_sub_regions),
+    alley_width = as.factor(alley_width),
+    id_article = as.numeric(id_article),
+    id_obs = as.numeric(id_obs),
+    treat_id = as.numeric(treat_id),
+    exp_id = as.numeric(exp_id)
+  )
+
+#######################################################################################
+# Step 2: Define the function for each imputation method
+#######################################################################################
+impute_data <- function(data, method_name) {
+  if (method_name == "pmm") {
+    #######################################################################################
+    # Predictive Mean Matching (pmm)
+    #######################################################################################
+    pred_matrix <- mice::make.predictorMatrix(data)
+    pred_matrix[, c("tree_age", "crop_type", "tree_type", "bioclim_sub_regions", "experiment_year", "alley_width", 
+                    "id_article", "id_obs", "treat_id", "exp_id")] <- 0 
+    
+    method <- c(
+      "silvo_se" = "pmm",   # Imputed using predictive mean matching
+      "control_se" = "pmm", # Imputed using predictive mean matching
+      "silvo_n" = "",            # Not imputed
+      "control_n" = "",          # Not imputed
+      "tree_age" = "",           # Not imputed
+      "crop_type" = "",          # Not imputed
+      "tree_type" = "",          # Not imputed
+      "bioclim_sub_regions" = "",# Not imputed
+      "experiment_year" = "",    # Not imputed
+      "alley_width" = "",        # Not imputed
+      "id_article" = "",          # Not imputed
+      "id_obs" = "",             # Not imputed
+      "treat_id" = "",           # Not imputed
+      "exp_id" = ""              # Not imputed
+    )
+    
+    imputed_mids <- mice(
+      data,
+      m = 20,
+      maxit = 100,
+      method = method,
+      predictorMatrix = pred_matrix,
+      seed = 1234,
+      printFlag = FALSE
+    )
+    return(imputed_mids)
+    
+  } else if (method_name == "upper_quartile") {
+    #######################################################################################
+    # Upper Quartile Imputation (uq)
+    #######################################################################################
+    upper_quartile_variance <- data %>%
+      summarise(across(c(silvo_se, control_se), ~ quantile(.^2, 0.75, na.rm = TRUE))) %>%
+      pivot_longer(cols = everything(), names_to = "variable", values_to = "upper_quartile")
+    
+    data <- data %>%
+      mutate(
+        silvo_se = ifelse(is.na(silvo_se), sqrt(upper_quartile_variance$upper_quartile[1]), silvo_se),
+        control_se = ifelse(is.na(control_se), sqrt(upper_quartile_variance$upper_quartile[2]), control_se)
+      )
+    return(data)
+    
+  } else if (method_name == "mean_imputation") {
+    #######################################################################################
+    # Mean Imputation (mean)
+    #######################################################################################
+    data <- data %>%
+      mutate(
+        silvo_se = ifelse(is.na(silvo_se), mean(silvo_se, na.rm = TRUE), silvo_se),
+        control_se = ifelse(is.na(control_se), mean(control_se, na.rm = TRUE), control_se),
+        silvo_n = ifelse(is.na(silvo_n), mean(silvo_n, na.rm = TRUE), silvo_n),
+        control_n = ifelse(is.na(control_n), mean(control_n, na.rm = TRUE), control_n)
+      )
+    return(data)
+    
+  } else if (method_name == "linear_imputation") {
+    #######################################################################################
+    # Linear Regression Imputation (lr)
+    #######################################################################################
+    data <- data %>%
+      mutate(
+        silvo_se = ifelse(is.na(silvo_se), predict(lm(silvo_se ~ control_se + tree_age + crop_type, data = data, na.action = na.exclude)), silvo_se),
+        control_se = ifelse(is.na(control_se), predict(lm(control_se ~ silvo_se + tree_age + crop_type, data = data, na.action = na.exclude)), control_se)
+      )
+    return(data)
+    
+  } else if (method_name == "rf") {
+    #######################################################################################
+    # Random Forest Imputation (rf)
+    #######################################################################################
+    pred_matrix <- mice::make.predictorMatrix(data)
+    pred_matrix[, c("tree_age", "crop_type", "tree_type", "bioclim_sub_regions", "experiment_year", "alley_width", 
+                    "id_article", "id_obs", "treat_id", "exp_id")] <- 0 
+    
+    method <- c(
+      "silvo_se" = "rf",   # Imputed using random forest
+      "control_se" = "rf",   # Imputed using random forest
+      "silvo_n" = "",            # Not imputed
+      "control_n" = "",          # Not imputed
+      "tree_age" = "",           # Not imputed
+      "crop_type" = "",          # Not imputed
+      "tree_type" = "",          # Not imputed
+      "bioclim_sub_regions" = "",# Not imputed
+      "experiment_year" = "",    # Not imputed
+      "alley_width" = "",        # Not imputed
+      "id_article" = "",          # Not imputed
+      "id_obs" = "",             # Not imputed
+      "treat_id" = "",           # Not imputed
+      "exp_id" = ""              # Not imputed
+    )
+    
+    imputed_mids <- mice(
+      data,
+      m = 20,
+      maxit = 100,
+      method = method,
+      predictorMatrix = pred_matrix,
+      seed = 1234,
+      printFlag = FALSE
+    )
+    return(imputed_mids)
+    
+  } else if (method_name == "bayesian") {
+    #######################################################################################
+    # Bayesian Imputation (by)
+    #######################################################################################
+    pred_matrix <- mice::make.predictorMatrix(data)
+    pred_matrix[, c("tree_age", "crop_type", "tree_type", "bioclim_sub_regions", "experiment_year", "alley_width", 
+                    "id_article", "id_obs", "treat_id", "exp_id")] <- 0 
+    
+    method <- c(
+      "silvo_se" = "norm.nob",   # Imputed using Bayesian regression
+      "control_se" = "norm.nob",   # Imputed using Bayesian regression
+      "silvo_n" = "",            # Not imputed
+      "control_n" = "",          # Not imputed
+      "tree_age" = "",           # Not imputed
+      "crop_type" = "",          # Not imputed
+      "tree_type" = "",          # Not imputed
+      "bioclim_sub_regions" = "",# Not imputed
+      "experiment_year" = "",    # Not imputed
+      "alley_width" = "",        # Not imputed
+      "id_article" = "",          # Not imputed
+      "id_obs" = "",             # Not imputed
+      "treat_id" = "",           # Not imputed
+      "exp_id" = ""              # Not imputed
+    )
+    
+    imputed_mids <- mice(
+      data,
+      m = 20,
+      maxit = 100,
+      method = method,
+      predictorMatrix = pred_matrix,
+      seed = 1234,
+      printFlag = FALSE
+    )
+    return(imputed_mids)
+    
+  } else {
+    stop("Invalid method name.")
+  }
+}
+
+#######################################################################################
+# Step 3: Apply each imputation method
+#######################################################################################
+imputation_methods <- c("pmm", "upper_quartile", "mean_imputation", "linear_imputation", "rf", "bayesian")
+imputed_datasets <- list()
+
+# Iterate through imputation methods
+for (method_name in imputation_methods) {
+  cat("Applying", method_name, "imputation...\n")
+  
+  tryCatch({
+    if (method_name %in% c("pmm", "rf", "bayesian")) {
+      imputed_mids <- impute_data(col_for_impute, method_name)
+      
+      # Save mids objects for diagnostics
+      if (method_name == "pmm") imputed_datasets[["pmm"]] <- mice::complete(imputed_mids)
+      if (method_name == "rf") imputed_datasets[["rf"]] <- mice::complete(imputed_mids)
+      if (method_name == "bayesian") imputed_datasets[["bayesian"]] <- mice::complete(imputed_mids)
+    } else {
+      # Direct dataset modification for other methods
+      imputed_datasets[[method_name]] <- impute_data(col_for_impute, method_name)
+    }
+  }, error = function(e) {
+    cat("Error applying", method_name, "imputation:", e$message, "\n")
+  })
+}
+
+
+#######################################################################################
+# Step 4: Compare Results
+#######################################################################################
+# Summary of results
+for (method_name in imputation_methods) {
+  cat("\nSummary of Imputed Dataset -", method_name, ":\n")
+  if (!is.null(imputed_datasets[[method_name]])) {
+    print(summary(imputed_datasets[[method_name]]))
+  } else {
+    cat("No data available for", method_name, "\n")
+  }
+}
+
+
+##########################################################################
+# End time tracking
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+cat("\nTotal time taken:", time.taken, "\n")
+
+##########################################################################
+# imputed_mids_pmm and imputed_mids_linear are the raw mids objects for PMM and linear regression respectively
+# imputed_datasets contains completed and capped datasets
+
+
+##########################################################################
+# Last run (04/01-25)
+# Total time taken: 18.98046 secs
+
+# Last run (05/01-25)
+# Total time taken: 2.224936 mins 
+
+# Last run (11/01-25)
+# Total time taken: 2.632763 
+```
+
+
+
+
+```{r}
+##########################################################################
+# Set up the parallel processing plan
+plan(multisession, workers = parallel::detectCores() - 1)
+##########################################################################
+# Start time tracking
+start.time <- Sys.time()
+
+#######################################################################################
+# Step 1: Check and enforce correct data types
+#######################################################################################
+col_for_impute <- database_clean_sd |> 
+  as.data.frame() |> 
+  select(-geometry) |> 
+  select(
+    # Columns that need to be imputed
+    silvo_se, control_se, 
+    # Columns that are used by mice to impute values
+    tree_age, crop_type, tree_type, bioclim_sub_regions, experiment_year, alley_width, silvo_n, control_n,
+    # IDs that are used to back-link imputed values to the dataset
+    id_article, id_obs, treat_id, exp_id
+  ) |> 
+  mutate(
+    silvo_se = as.numeric(silvo_se),
+    control_se = as.numeric(control_se),
+    silvo_n = as.numeric(silvo_n),
+    control_n = as.numeric(control_n),
+    tree_age = as.numeric(tree_age),
+    crop_type = as.factor(crop_type),
+    tree_type = as.factor(tree_type),
+    bioclim_sub_regions = as.factor(bioclim_sub_regions),
+    alley_width = as.factor(alley_width),
+    id_article = as.numeric(id_article),
+    id_obs = as.numeric(id_obs),
+    treat_id = as.numeric(treat_id),
+    exp_id = as.numeric(exp_id)
+  )
+
+#######################################################################################
+# Step 2: Define the function for each imputation method
+#######################################################################################
+impute_data <- function(data, method_name) {
+  if (method_name == "pmm") {
+    #######################################################################################
+    # Predictive Mean Matching (pmm)
+    #######################################################################################
+    pred_matrix <- mice::make.predictorMatrix(data)
+    pred_matrix[, c("tree_age", "crop_type", "tree_type", "bioclim_sub_regions", "experiment_year", "alley_width", 
+                    "id_article", "id_obs", "treat_id", "exp_id")] <- 0 
+    
+    method <- c(
+      "silvo_se" = "pmm",   # Imputed using predictive mean matching
+      "control_se" = "pmm", # Imputed using predictive mean matching
+      "silvo_n" = "",            # Not imputed
+      "control_n" = "",          # Not imputed
+      "tree_age" = "",           # Not imputed
+      "crop_type" = "",          # Not imputed
+      "tree_type" = "",          # Not imputed
+      "bioclim_sub_regions" = "",# Not imputed
+      "experiment_year" = "",    # Not imputed
+      "alley_width" = "",        # Not imputed
+      "id_article" = "",          # Not imputed
+      "id_obs" = "",             # Not imputed
+      "treat_id" = "",           # Not imputed
+      "exp_id" = ""              # Not imputed
+    )
+    
+    imputed_mids <- mice(
+      data,
+      m = 20,
+      maxit = 100,
+      method = method,
+      predictorMatrix = pred_matrix,
+      seed = 1234,
+      printFlag = FALSE
+    )
+    return(imputed_mids)
+    
+  } else if (method_name == "upper_quartile") {
+    #######################################################################################
+    # Upper Quartile Imputation (uq)
+    #######################################################################################
+    upper_quartile_variance <- data %>%
+      summarise(across(c(silvo_se, control_se), ~ quantile(.^2, 0.75, na.rm = TRUE))) %>%
+      pivot_longer(cols = everything(), names_to = "variable", values_to = "upper_quartile")
+    
+    data <- data %>%
+      mutate(
+        silvo_se = ifelse(is.na(silvo_se), sqrt(upper_quartile_variance$upper_quartile[1]), silvo_se),
+        control_se = ifelse(is.na(control_se), sqrt(upper_quartile_variance$upper_quartile[2]), control_se)
+      )
+    return(data)
+    
+  } else if (method_name == "mean_imputation") {
+    #######################################################################################
+    # Mean Imputation (mean)
+    #######################################################################################
+    data <- data %>%
+      mutate(
+        silvo_se = ifelse(is.na(silvo_se), mean(silvo_se, na.rm = TRUE), silvo_se),
+        control_se = ifelse(is.na(control_se), mean(control_se, na.rm = TRUE), control_se),
+        silvo_n = ifelse(is.na(silvo_n), mean(silvo_n, na.rm = TRUE), silvo_n),
+        control_n = ifelse(is.na(control_n), mean(control_n, na.rm = TRUE), control_n)
+      )
+    return(data)
+    
+  } else if (method_name == "linear_imputation") {
+    #######################################################################################
+    # Linear Regression Imputation (lr)
+    #######################################################################################
+    pred_matrix <- mice::make.predictorMatrix(data)
+    pred_matrix[, c("tree_age", "crop_type", "tree_type", "bioclim_sub_regions", "experiment_year", "alley_width", 
+                    "id_article", "id_obs", "treat_id", "exp_id")] <- 0 
+    
+    method <- c(
+      "silvo_se" = "norm.nob",   # Imputed using linear regression
+      "control_se" = "norm.nob",   # Imputed using linear regression
+      "silvo_n" = "",            # Not imputed
+      "control_n" = "",          # Not imputed
+      "tree_age" = "",           # Not imputed
+      "crop_type" = "",          # Not imputed
+      "tree_type" = "",          # Not imputed
+      "bioclim_sub_regions" = "",# Not imputed
+      "experiment_year" = "",    # Not imputed
+      "alley_width" = "",        # Not imputed
+      "id_article" = "",          # Not imputed
+      "id_obs" = "",             # Not imputed
+      "treat_id" = "",           # Not imputed
+      "exp_id" = ""              # Not imputed
+    )
+    
+    imputed_mids <- mice(
+      data,
+      m = 20,
+      maxit = 100,
+      method = method,
+      predictorMatrix = pred_matrix,
+      seed = 1234,
+      printFlag = FALSE
+    )
+    return(imputed_mids)
+    
+  } else if (method_name == "rf") {
+    #######################################################################################
+    # Random Forest Imputation (rf)
+    #######################################################################################
+    pred_matrix <- mice::make.predictorMatrix(data)
+    pred_matrix[, c("tree_age", "crop_type", "tree_type", "bioclim_sub_regions", "experiment_year", "alley_width", 
+                    "id_article", "id_obs", "treat_id", "exp_id")] <- 0 
+    
+    method <- c(
+      "silvo_se" = "rf",   # Imputed using random forest
+      "control_se" = "rf",   # Imputed using random forest
+      "silvo_n" = "",            # Not imputed
+      "control_n" = "",          # Not imputed
+      "tree_age" = "",           # Not imputed
+      "crop_type" = "",          # Not imputed
+      "tree_type" = "",          # Not imputed
+      "bioclim_sub_regions" = "",# Not imputed
+      "experiment_year" = "",    # Not imputed
+      "alley_width" = "",        # Not imputed
+      "id_article" = "",          # Not imputed
+      "id_obs" = "",             # Not imputed
+      "treat_id" = "",           # Not imputed
+      "exp_id" = ""              # Not imputed
+    )
+    
+    imputed_mids <- mice(
+      data,
+      m = 20,
+      maxit = 100,
+      method = method,
+      predictorMatrix = pred_matrix,
+      seed = 1234,
+      printFlag = FALSE
+    )
+    return(imputed_mids)
+    
+  } else if (method_name == "bayesian") {
+    #######################################################################################
+    # Bayesian Imputation (by)
+    #######################################################################################
+    pred_matrix <- mice::make.predictorMatrix(data)
+    pred_matrix[, c("tree_age", "crop_type", "tree_type", "bioclim_sub_regions", "experiment_year", "alley_width", 
+                    "id_article", "id_obs", "treat_id", "exp_id")] <- 0 
+    
+    method <- c(
+      "silvo_se" = "norm.nob",   # Imputed using Bayesian regression
+      "control_se" = "norm.nob",   # Imputed using Bayesian regression
+      "silvo_n" = "",            # Not imputed
+      "control_n" = "",          # Not imputed
+      "tree_age" = "",           # Not imputed
+      "crop_type" = "",          # Not imputed
+      "tree_type" = "",          # Not imputed
+      "bioclim_sub_regions" = "",# Not imputed
+      "experiment_year" = "",    # Not imputed
+      "alley_width" = "",        # Not imputed
+      "id_article" = "",          # Not imputed
+      "id_obs" = "",             # Not imputed
+      "treat_id" = "",           # Not imputed
+      "exp_id" = ""              # Not imputed
+    )
+    
+    imputed_mids <- mice(
+      data,
+      m = 20,
+      maxit = 100,
+      method = method,
+      predictorMatrix = pred_matrix,
+      seed = 1234,
+      printFlag = FALSE
+    )
+    return(imputed_mids)
+    
+  } else {
+    stop("Invalid method name.")
+  }
+}
+
+#######################################################################################
+# Step 3: Apply each imputation method
+#######################################################################################
+imputation_methods <- c("pmm", "upper_quartile", "mean_imputation", "linear_imputation", "rf", "bayesian")
+imputed_datasets <- list()
+
+# Separate storage for raw mids objects
+imputed_mids_pmm <- NULL
+imputed_mids_rf <- NULL
+imputed_mids_bayesian <- NULL
+imputed_mids_linear <- NULL
+
+# Iterate through imputation methods
+for (method_name in imputation_methods) {
+  cat("Applying", method_name, "imputation...\n")
+  
+  tryCatch({
+    if (method_name %in% c("pmm", "rf", "bayesian")) {
+      imputed_mids <- impute_data(col_for_impute, method_name)
+      
+      # Save mids objects for diagnostics
+      if (method_name == "pmm") imputed_mids_pmm <- imputed_mids
+      if (method_name == "rf") imputed_mids_rf <- imputed_mids
+      if (method_name == "bayesian") imputed_mids_bayesian <- imputed_mids
+      if (method_name == "linear_imputation") imputed_mids_linear <- imputed_mids
+      
+      # Store completed dataset
+      imputed_datasets[[method_name]] <- mice::complete(imputed_mids)
+    } else {
+      # Direct dataset modification for other methods
+      imputed_datasets[[method_name]] <- impute_data(col_for_impute, method_name)
+    }
+  }, error = function(e) {
+    cat("Error applying", method_name, "imputation:", e$message, "\n")
+  })
+}
+
+# Summary of results
+for (method_name in imputation_methods) {
+  cat("\nSummary of Imputed Dataset -", method_name, ":\n")
+  if (!is.null(imputed_datasets[[method_name]])) {
+    print(summary(imputed_datasets[[method_name]]))
+  } else {
+    cat("No data available for", method_name, "\n")
+  }
+}
+
+#######################################################################################
+# Step 4: Compare Results
+#######################################################################################
+for (method_name in imputation_methods) {
+  cat("\nSummary of Imputed Dataset -", method_name, ":\n")
+  print(summary(imputed_datasets[[method_name]]))
+}
+
+##########################################################################
+# End time tracking
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+cat("\nTotal time taken:", time.taken, "\n")
+
+##########################################################################
+# imputed_mids_pmm and imputed_mids_linear are the raw mids objects for PMM and linear regression respectively
+# imputed_datasets contains completed and capped datasets
+
+
+##########################################################################
+# Last run (04/01-25)
+# Total time taken: 18.98046 secs
+
+# Last run (05/01-25)
+# Total time taken: 2.224936 mins 
+
+# Last run (11/01-25)
+# Total time taken: 3.70053 mins
+imputed_mids_linear
+```
+
+
+```{r}
+# Define thresholds for high and non-high variance
+high_variance_threshold <- stats::quantile(imp_data_rom$vi, 0.95, na.rm = TRUE)
+low_variance_threshold <- stats::quantile(imp_data_rom$vi, 0.05, na.rm = TRUE)
+
+# Create separate datasets
+high_variance_data <- imp_data_rom %>%
+  filter(vi > high_variance_threshold | vi < low_variance_threshold)
+
+non_high_variance_data <- imp_data_rom %>%
+  filter(!(vi > high_variance_threshold | vi < low_variance_threshold))
+
+# Plot for high variance
+high_variance_plot <- ggplot(high_variance_data, aes(x = id_article, y = vi, fill = response_variable)) +
+  geom_boxplot(outlier.color = "red", alpha = 0.7) +
+  labs(title = "High Variance Observations", x = "Article ID", y = "Variance (vi)") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  # Remove legend for better visualization
+  theme(legend.position = "none")
+
+# Plot for non-high variance
+non_high_variance_plot <- ggplot(non_high_variance_data, aes(x = id_article, y = vi, fill = response_variable)) +
+  geom_boxplot(outlier.color = "blue", alpha = 0.7) +
+  labs(title = "Non-High Variance Observations", x = "Article ID", y = "Variance (vi)") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Combine plots side by side
+combined_plot <- high_variance_plot + non_high_variance_plot + 
+  plot_layout(ncol = 2)
+
+# Display the combined plot
+print(combined_plot)
+```
+
+```{r}
+# Aggregate data by id_article
+aggregated_high_variance <- high_variance_data %>%
+  group_by(id_article, response_variable) %>%
+  summarize(
+    mean_vi = mean(vi, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+aggregated_non_high_variance <- non_high_variance_data %>%
+  group_by(id_article, response_variable) %>%
+  summarize(
+    mean_vi = mean(vi, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# Plot for high variance
+high_variance_plot <- ggplot(aggregated_high_variance, aes(x = as.factor(id_article), y = mean_vi, fill = response_variable)) +
+  geom_bar(stat = "identity", position = "dodge", alpha = 0.8) +
+  labs(title = "High Variance Observations (Aggregated by Article)", x = "Article ID", y = "Mean Variance (vi)") +
+  theme_minimal(base_size = 16) +
+  theme(
+    plot.title = element_text(size = 18, face = "bold"),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "right"
+  )
+
+# Plot for non-high variance
+non_high_variance_plot <- ggplot(aggregated_non_high_variance, aes(x = as.factor(id_article), y = mean_vi, fill = response_variable)) +
+  geom_bar(stat = "identity", position = "dodge", alpha = 0.8) +
+  labs(title = "Non-High Variance Observations (Aggregated by Article)", x = "Article ID", y = "Mean Variance (vi)") +
+  theme_minimal(base_size = 16) +
+  theme(
+    plot.title = element_text(size = 18, face = "bold"),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "right"
+  )
+
+# Combine plots side by side
+combined_plot <- high_variance_plot + non_high_variance_plot +
+  plot_layout(ncol = 2) & # Combine plots with patchwork
+  theme(
+    plot.margin = margin(10, 10, 10, 10),
+    legend.title = element_text(size = 14),
+    legend.text = element_text(size = 12)
+  )
+
+# Display the combined plot
+print(combined_plot)
+```
+
+
+```{r}
+# Define thresholds for high and non-high variance
+high_variance_threshold <- stats::quantile(imp_data_rom$vi, 0.95, na.rm = TRUE)
+low_variance_threshold <- stats::quantile(imp_data_rom$vi, 0.05, na.rm = TRUE)
+
+# Create separate datasets
+high_variance_data <- imp_data_rom %>%
+  filter(vi > high_variance_threshold | vi < low_variance_threshold)
+
+non_high_variance_data <- imp_data_rom %>%
+  filter(!(vi > high_variance_threshold | vi < low_variance_threshold))
+
+# Plot for high variance
+high_variance_plot <- ggplot(high_variance_data, aes(x = as.factor(id_obs), y = vi, fill = response_variable)) +
+  geom_boxplot(outlier.color = "red", alpha = 0.7, outlier.size = 2) +
+  geom_text_repel(
+    aes(label = id_article), size = 3, color = "black", max.overlaps = Inf, show.legend = FALSE
+  ) + # Add article labels only for high variance points
+  labs(title = "High Variance Observations", x = "Observation ID", y = "Variance (vi)") +
+  theme_minimal(base_size = 16) +
+  theme(
+    plot.title = element_text(size = 18, face = "bold"),
+    axis.text.x = element_text(angle = 90, hjust = 1), # Rotate x-axis labels for better visibility
+    legend.position = "none"
+  )
+
+# Plot for non-high variance
+non_high_variance_plot <- ggplot(non_high_variance_data, aes(x = as.factor(id_obs), y = vi, fill = response_variable)) +
+  geom_boxplot(outlier.color = "blue", alpha = 0.7, outlier.size = 1.5) +
+  labs(title = "Non-High Variance Observations", x = "Observation ID", y = "Variance (vi)") +
+  theme_minimal(base_size = 16) +
+  theme(
+    plot.title = element_text(size = 18, face = "bold"),
+    axis.text.x = element_text(angle = 90, hjust = 1), # Rotate x-axis labels for better visibility
+    legend.position = "right"
+  )
+
+# Combine plots side by side
+combined_plot <- high_variance_plot + non_high_variance_plot +
+  plot_layout(ncol = 2) & # Combine plots with patchwork
+  theme(
+    plot.margin = margin(10, 10, 10, 10),
+    legend.title = element_text(size = 14),
+    legend.text = element_text(size = 12)
+  )
+
+# Display the combined plot
+print(combined_plot)
+```
+
+
+```{r}
+# Define thresholds for high and non-high variance
+high_variance_threshold <- stats::quantile(imp_data_rom$vi, 0.95, na.rm = TRUE)
+low_variance_threshold <- stats::quantile(imp_data_rom$vi, 0.05, na.rm = TRUE)
+
+# Create separate datasets
+high_variance_data <- imp_data_rom %>%
+  filter(vi > high_variance_threshold | vi < low_variance_threshold)
+
+non_high_variance_data <- imp_data_rom %>%
+  filter(!(vi > high_variance_threshold | vi < low_variance_threshold))
+
+
+# Aggregate data at the article level
+high_variance_aggregated <- high_variance_data %>%
+  group_by(id_article, response_variable) %>%
+  summarise(
+    vi_median = median(vi, na.rm = TRUE),
+    vi_iqr = IQR(vi, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+non_high_variance_aggregated <- non_high_variance_data %>%
+  group_by(id_article, response_variable) %>%
+  summarise(
+    vi_median = median(vi, na.rm = TRUE),
+    vi_iqr = IQR(vi, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# Plot for high variance
+high_variance_plot <- ggplot(high_variance_aggregated, aes(x = as.factor(id_article), y = vi_median, fill = response_variable)) +
+  geom_col(position = "dodge", alpha = 0.8) +
+  labs(title = "High Variance Observations (Aggregated)", x = "Article ID", y = "Median Variance (vi)") +
+  scale_fill_viridis_d(option = "C", direction = -1) +
+  theme_minimal(base_size = 16) +
+  theme(
+    plot.title = element_text(size = 18, face = "bold"),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "top",
+    legend.title = element_text(size = 14, face = "bold"),
+    legend.text = element_text(size = 12)
+  )
+
+# Plot for non-high variance
+non_high_variance_plot <- ggplot(non_high_variance_aggregated, aes(x = as.factor(id_article), y = vi_median, fill = response_variable)) +
+  geom_col(position = "dodge", alpha = 0.8) +
+  labs(title = "Non-High Variance Observations (Aggregated)", x = "Article ID", y = "Median Variance (vi)") +
+  scale_fill_viridis_d(option = "C", direction = -1) +
+  theme_minimal(base_size = 16) +
+  theme(
+    plot.title = element_text(size = 18, face = "bold"),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "top",
+    legend.title = element_text(size = 14, face = "bold"),
+    legend.text = element_text(size = 12)
+  )
+
+# Combine plots side by side
+combined_plot <- high_variance_plot + non_high_variance_plot +
+  plot_layout(ncol = 2) &
+  theme(
+    plot.margin = margin(10, 10, 10, 10)
+  )
+
+# Display the combined plot
+print(combined_plot)
+```
+
+```{r}
+# High variance plot for individual observations
+high_variance_plot <- ggplot(high_variance_data, aes(x = as.factor(id_article), y = vi, color = response_variable)) +
+  geom_point(size = 3, alpha = 0.7) +
+  geom_text_repel(aes(label = id_obs), size = 3, max.overlaps = 10) + # Add labels for observation IDs
+  labs(
+    title = "High Variance Observations (Individual)",
+    x = "Article ID",
+    y = "Variance (vi)",
+    color = "Response Variable"
+  ) +
+  scale_color_viridis_d(option = "C", direction = -1) +
+  theme_minimal(base_size = 16) +
+  theme(
+    plot.title = element_text(size = 18, face = "bold"),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "top",
+    legend.title = element_text(size = 14, face = "bold"),
+    legend.text = element_text(size = 12)
+  )
+
+# Non-high variance plot with aggregated boxplots
+non_high_variance_plot <- ggplot(non_high_variance_data, aes(x = as.factor(id_article), y = vi, fill = response_variable)) +
+  geom_boxplot(outlier.color = "blue", alpha = 0.7) +
+  labs(
+    title = "Non-High Variance Observations (Boxplots)",
+    x = "Article ID",
+    y = "Variance (vi)",
+    fill = "Response Variable"
+  ) +
+  scale_fill_viridis_d(option = "C", direction = -1) +
+  theme_minimal(base_size = 16) +
+  theme(
+    plot.title = element_text(size = 18, face = "bold"),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "top",
+    legend.title = element_text(size = 14, face = "bold"),
+    legend.text = element_text(size = 12)
+  )
+
+# Combine the two plots
+combined_plot <- high_variance_plot + non_high_variance_plot +
+  plot_layout(ncol = 2) &
+  theme(
+    plot.margin = margin(10, 10, 10, 10)
+  )
+
+# Display the combined plot
+print(combined_plot)
+
+```
+```{r}
+# High variance plot for individual observations with jitter and pseudo-log scale
+high_variance_plot <- ggplot(high_variance_data, aes(x = as.factor(id_article), y = vi, color = response_variable)) +
+  geom_point(position = position_jitter(width = 0.2, height = 0), size = 3, alpha = 0.7) +
+  geom_text_repel(
+    aes(label = id_obs),
+    position = position_jitter(width = 0.2, height = 0),
+    size = 3,
+    max.overlaps = Inf # Allow more overlaps to ensure all high variance points are labeled
+  ) +
+  labs(
+    title = "High Variance Observations (Individual, Jittered)",
+    x = "Article ID",
+    y = "Variance (vi)",
+    color = "Response Variable"
+  ) +
+  scale_color_viridis_d(option = "C", direction = -1) +
+  scale_y_continuous(
+    trans = pseudo_log_trans(sigma = 0.1),
+    breaks = c(0, 0.1, 1, 10, 30),
+    labels = c("0", "0.1", "1", "10", "30")
+  ) +
+  theme_minimal(base_size = 16) +
+  theme(
+    plot.title = element_text(size = 18, face = "bold"),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "top",
+    legend.title = element_text(size = 14, face = "bold"),
+    legend.text = element_text(size = 12)
+  )
+
+# Non-high variance plot with aggregated boxplots and pseudo-log scale
+non_high_variance_plot <- ggplot(non_high_variance_data, aes(x = as.factor(id_article), y = vi, fill = response_variable)) +
+  geom_boxplot(outlier.color = "blue", alpha = 0.7) +
+  labs(
+    title = "Non-High Variance Observations (Boxplots, Pseudo-Log)",
+    x = "Article ID",
+    y = "Variance (vi)",
+    fill = "Response Variable"
+  ) +
+  scale_fill_viridis_d(option = "C", direction = -1) +
+  scale_y_continuous(
+    trans = pseudo_log_trans(sigma = 0.1),
+    breaks = c(0, 0.1, 1, 10, 30),
+    labels = c("0", "0.1", "1", "10", "30")
+  ) +
+  theme_minimal(base_size = 16) +
+  theme(
+    plot.title = element_text(size = 18, face = "bold"),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "top",
+    legend.title = element_text(size = 14, face = "bold"),
+    legend.text = element_text(size = 12)
+  )
+
+# Combine the two plots
+combined_plot <- high_variance_plot + non_high_variance_plot +
+  plot_layout(ncol = 2) &
+  theme(
+    plot.margin = margin(10, 10, 10, 10)
+  )
+
+# Display the combined plot
+print(combined_plot)
+```
+
+# Modify the high-variance plot to increase label size
+high_variance_plot <- high_variance_data %>%
+  ggplot(aes(x = id_article, y = vi, color = response_variable)) +
+  geom_jitter(width = 0.2, height = 0.2, alpha = 0.8, size = 3) +  # Jitter for points
+  geom_text_repel(
+    aes(label = id_obs),
+    size = 10,                  # Increase label text size
+    max.overlaps = Inf,         # Ensure all labels are shown
+    box.padding = 0.5,          # Adjust padding around labels
+    point.padding = 0.3
+  ) +
+  scale_y_continuous(
+    trans = pseudo_log_trans(sigma = 0.1),
+    breaks = c(0.01, 0.1, 1, 10, 30),
+    labels = c("0.01", "0.1", "1", "10", "30")
+  ) +
+  labs(
+    title = "High Variance Observations (Individual, Jittered)",
+    x = "Article ID",
+    y = "Variance (vi) [pseudo-log transformed]"
+  ) +
+  scale_color_manual(values = global_palette) +
+  theme_minimal(base_size = 50) +
+  theme(
+    plot.title = element_text(size = 150, face = "bold", hjust = 0.5),
+    axis.title = element_text(size = 100, face = "bold"),
+    axis.text = element_text(size = 70),
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 70),
+    legend.text = element_text(size = 60),
+    legend.title = element_text(size = 70, face = "bold"),
+    legend.key.size = unit(2, "cm"),
+    legend.position = "top"
+  )
+
+# Combine updated plots
+combined_plot <- high_variance_plot + non_high_variance_plot + 
+  plot_layout(ncol = 2)
+
+# Save the updated plot
+ggsave(
+  filename = file.path(output_dir, "combined_plot_with_large_labels.png"),
+  plot = combined_plot,
+  width = 28, height = 16, dpi = 600,
+  bg = "white"
+)
+
+
+
+
+##########################################################################################################################################
+FITTING MODELS (SUB-GROUP) FOR EACH RESPONSE VARIABLE USING PRECOMPUTED V_MATRICES
+##########################################################################################################################################
+
+
+Protocol with Four Models Fit Meta-Analysis
+
+```{r}
+##########################################################################
+# Set up the parallel processing plan
+plan(multisession, workers = parallel::detectCores() - 1)
+##########################################################################
+# Start time tracking
+start.time <- Sys.time()
+##########################################################################
+# Protocol to Fit and Save Five Suggested Models for Meta-Analysis
+
+##########################################################################
+# Model 1: Null Model (Intercept-Only, No Random Effects)
+##########################################################################
+fit_null_model <- function(data_subset, response_variable) {
+  cat("\nFitting null model for response variable:", response_variable, "...\n")
+  
+  model <- tryCatch({
+    rma.mv(
+      yi = yi,                           # Dependent variable: effect size
+      V = diag(data_subset$vi),          # Variance matrix: diagonal from vi
+      mods = ~ 1,                        # Intercept-only model
+      data = data_subset,                # Data used for model fitting
+      method = "REML",                   # Restricted Maximum Likelihood estimation
+      control = list(
+        optimizer = "optim",             # Optimizer function
+        optim.method = "BFGS",           # Optimization algorithm
+        iter.max = 1000,                 # Maximum iterations
+        rel.tol = 1e-8                   # Convergence tolerance
+      )
+    )
+  }, error = function(e) {
+    cat("Error in null model fitting for", response_variable, ":", e$message, "\n")
+    return(NULL)
+  })
+  
+  if (!is.null(model)) {
+    cat("Null model fitting completed for response variable:", response_variable, ".\n")
+    return(model)
+  } else {
+    return(NULL)
+  }
+}
+
+##########################################################################
+# Model 2: Minimal Random Effects Model (Intercept-Only)
+##########################################################################
+fit_minimal_model <- function(data_subset, response_variable, v_matrix) {
+  cat("\nFitting minimal model for response variable:", response_variable, "...\n")
+  
+  model <- tryCatch({
+    rma.mv(
+      yi = yi,                           # Dependent variable: effect size
+      V = v_matrix,                      # Variance-covariance matrix
+      mods = ~ 1,                        # Intercept-only model
+      random = ~ 1 | exp_id,             # Random effect at the experiment level
+      data = data_subset,                # Data used for model fitting
+      method = "REML",                   # Restricted Maximum Likelihood estimation
+      control = list(
+        optimizer = "optim",             # Optimizer function
+        optim.method = "BFGS",           # Optimization algorithm
+        iter.max = 1000,                 # Maximum iterations
+        rel.tol = 1e-8                   # Convergence tolerance
+      )
+    )
+  }, error = function(e) {
+    cat("Error in minimal model fitting for", response_variable, ":", e$message, "\n")
+    return(NULL)
+  })
+  
+  if (!is.null(model)) {
+    cat("Minimal model fitting completed for response variable:", response_variable, ".\n")
+    return(model)
+  } else {
+    return(NULL)
+  }
+}
+
+##########################################################################
+# Model 3: Fixed Effects Only Model (With Moderators)
+##########################################################################
+fit_fixed_effects_model <- function(data_subset, response_variable, v_matrix, moderators) {
+  cat("\nFitting fixed effects model for response variable:", response_variable, "...\n")
+  
+  data_subset <- data_subset %>% mutate(across(all_of(moderators), as.factor)) %>% as.data.frame()
+  moderator_formula <- as.formula(paste("yi ~", paste(moderators, collapse = " + ")))
+  
+  model <- tryCatch({
+    rma.mv(
+      yi = yi,
+      V = v_matrix,
+      mods = moderator_formula,
+      data = data_subset,
+      method = "REML",
+      control = list(
+        optimizer = "optim",
+        optim.method = "BFGS",
+        iter.max = 1000,
+        rel.tol = 1e-8
+      )
+    )
+  }, error = function(e) {
+    cat("Error in fixed effects model fitting for", response_variable, ":", e$message, "\n")
+    return(NULL)
+  })
+  
+  if (!is.null(model)) {
+    cat("Fixed effects model fitting completed for response variable:", response_variable, ".\n")
+    return(model)
+  } else {
+    return(NULL)
+  }
+}
+
+##########################################################################
+# Model 4: Moderately Simplified Model
+##########################################################################
+fit_simplified_model <- function(data_subset, response_variable, v_matrix, moderators) {
+  cat("\nFitting simplified model for response variable:", response_variable, "...\n")
+  
+  data_subset <- data_subset %>% mutate(across(all_of(moderators), as.factor)) %>% as.data.frame()
+  moderator_formula <- as.formula(paste("yi ~", paste(moderators, collapse = " + ")))
+  
+  model <- tryCatch({
+    rma.mv(
+      yi = yi,
+      V = v_matrix,
+      mods = moderator_formula,
+      random = ~ 1 | exp_id,
+      data = data_subset,
+      method = "REML",
+      control = list(
+        optimizer = "optim",
+        optim.method = "BFGS",
+        iter.max = 1000,
+        rel.tol = 1e-8
+      )
+    )
+  }, error = function(e) {
+    cat("Error in simplified model fitting for", response_variable, ":", e$message, "\n")
+    return(NULL)
+  })
+  
+  if (!is.null(model)) {
+    cat("Simplified model fitting completed for response variable:", response_variable, ".\n")
+    return(model)
+  } else {
+    return(NULL)
+  }
+}
+
+##########################################################################
+# Model 5: Comprehensive (Full) Model
+##########################################################################
+fit_full_model <- function(data_subset, response_variable, v_matrix, moderators) {
+  cat("\nFitting full model for response variable:", response_variable, "...\n")
+  
+  data_subset <- data_subset %>% mutate(across(all_of(moderators), as.factor)) %>% as.data.frame()
+  moderator_formula <- as.formula(paste("yi ~", paste(moderators, collapse = " + ")))
+  
+  model <- tryCatch({
+    rma.mv(
+      yi = yi,
+      V = v_matrix,
+      mods = moderator_formula,
+      random = list(
+        ~ 1 | id_article/response_variable, 
+        ~ 1 | exp_id
+      ),
+      data = data_subset,
+      method = "REML",
+      control = list(
+        optimizer = "optim",
+        optim.method = "BFGS",
+        iter.max = 1000,
+        rel.tol = 1e-8
+      )
+    )
+  }, error = function(e) {
+    cat("Error in full model fitting for", response_variable, ":", e$message, "\n")
+    return(NULL)
+  })
+  
+  if (!is.null(model)) {
+    cat("Full model fitting completed for response variable:", response_variable, ".\n")
+    return(model)
+  } else {
+    return(NULL)
+  }
+}
+
+####################################################################################################################################################
+# Fit and Evaluate All Models
+####################################################################################################################################################
+model_results <- list()
+for (response in names(v_matrices)) {
+  cat("\nProcessing response variable:", response, "\n")
+  
+  data_subset <- meta_data[meta_data$response_variable == response, ]
+  v_matrix <- v_matrices[[response]]
+  moderators <- c("tree_type", "crop_type", "age_system", "season", "soil_texture")
+  
+  model_results[[response]] <- list(
+    null = fit_null_model(data_subset, response),
+    minimal = fit_minimal_model(data_subset, response, v_matrix),
+    fixed = fit_fixed_effects_model(data_subset, response, v_matrix, moderators),
+    simplified = fit_simplified_model(data_subset, response, v_matrix, moderators),
+    full = fit_full_model(data_subset, response, v_matrix, moderators)
+  )
+}
+
+##########################################################################
+# Save All Fitted Models In One File
+##########################################################################
+output_dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
+
+saveRDS(model_results, file = file.path(output_dir, "fitted_models_all.rds"))
+
+cat("\nAll models have been saved successfully in a single file!\n")
+
+##########################################################################
+# Save All Fitted Models In Seperate Files
+##########################################################################
+output_dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
+
+saveRDS(lapply(model_results, `[[`, "null"), file = file.path(output_dir, "fitted_models_null.rds"))
+saveRDS(lapply(model_results, `[[`, "minimal"), file = file.path(output_dir, "fitted_models_minimal.rds"))
+saveRDS(lapply(model_results, `[[`, "fixed"), file = file.path(output_dir, "fitted_models_fixed_effects.rds"))
+saveRDS(lapply(model_results, `[[`, "simplified"), file = file.path(output_dir, "fitted_models_simplified.rds"))
+saveRDS(lapply(model_results, `[[`, "full"), file = file.path(output_dir, "fitted_models_full.rds"))
+
+cat("\nAll models have been saved successfully in seperate files!\n")
+
+##########################################################################
+# End time tracking
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+cat("\nTotal time taken:", time.taken, "\n")
+##########################################################################
+# Last go (04/12-2024)
+# Total time taken: 13.93442 secs
+# Processing response variable: Biodiversity 
+# Fitting null model for response variable: Biodiversity ...
+# Null model fitting completed for response variable: Biodiversity .
+# Fitting minimal model for response variable: Biodiversity ...
+# Minimal model fitting completed for response variable: Biodiversity .
+# Fitting fixed effects model for response variable: Biodiversity ...
+# Advarsel: 14 rows with NAs omitted from model fitting.Fixed effects model fitting completed for response variable: Biodiversity .
+# Fitting simplified model for response variable: Biodiversity ...
+# Advarsel: 14 rows with NAs omitted from model fitting.Simplified model fitting completed for response variable: Biodiversity .
+# Fitting full model for response variable: Biodiversity ...
+# Advarsel: 14 rows with NAs omitted from model fitting.Full model fitting completed for response variable: Biodiversity .
+# Processing response variable: Greenhouse gas emission 
+# Fitting null model for response variable: Greenhouse gas emission ...
+# Null model fitting completed for response variable: Greenhouse gas emission .
+# Fitting minimal model for response variable: Greenhouse gas emission ...
+# Minimal model fitting completed for response variable: Greenhouse gas emission .
+# Fitting fixed effects model for response variable: Greenhouse gas emission ...
+# Error in fixed effects model fitting for Greenhouse gas emission : contrasts can be applied only to factors with 2 or more levels 
+# Fitting simplified model for response variable: Greenhouse gas emission ...
+# Error in simplified model fitting for Greenhouse gas emission : contrasts can be applied only to factors with 2 or more levels 
+# Fitting full model for response variable: Greenhouse gas emission ...
+# Error in full model fitting for Greenhouse gas emission : contrasts can be applied only to factors with 2 or more levels 
+# Processing response variable: Product quality 
+# Fitting null model for response variable: Product quality ...
+# Null model fitting completed for response variable: Product quality .
+# Fitting minimal model for response variable: Product quality ...
+# Minimal model fitting completed for response variable: Product quality .
+# Fitting fixed effects model for response variable: Product quality ...
+# Fixed effects model fitting completed for response variable: Product quality .
+# Fitting simplified model for response variable: Product quality ...
+# Simplified model fitting completed for response variable: Product quality .
+# Fitting full model for response variable: Product quality ...
+# Full model fitting completed for response variable: Product quality .
+# Processing response variable: Crop yield 
+# Fitting null model for response variable: Crop yield ...
+# Null model fitting completed for response variable: Crop yield .
+# Fitting minimal model for response variable: Crop yield ...
+# Minimal model fitting completed for response variable: Crop yield .
+# Fitting fixed effects model for response variable: Crop yield ...
+# Fixed effects model fitting completed for response variable: Crop yield .
+# Fitting simplified model for response variable: Crop yield ...
+# Simplified model fitting completed for response variable: Crop yield .
+# Fitting full model for response variable: Crop yield ...
+# Full model fitting completed for response variable: Crop yield .
+# Processing response variable: Pest and Disease 
+# Fitting null model for response variable: Pest and Disease ...
+# Null model fitting completed for response variable: Pest and Disease .
+# Fitting minimal model for response variable: Pest and Disease ...
+# Minimal model fitting completed for response variable: Pest and Disease .
+# Fitting fixed effects model for response variable: Pest and Disease ...
+# Advarsel: Redundant predictors dropped from the model.Fixed effects model fitting completed for response variable: Pest and Disease .
+# Fitting simplified model for response variable: Pest and Disease ...
+# Advarsel: Redundant predictors dropped from the model.Simplified model fitting completed for response variable: Pest and Disease .
+# Fitting full model for response variable: Pest and Disease ...
+# Advarsel: Redundant predictors dropped from the model.Full model fitting completed for response variable: Pest and Disease .
+# Processing response variable: Soil quality 
+# Fitting null model for response variable: Soil quality ...
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Null model fitting completed for response variable: Soil quality .
+# Fitting minimal model for response variable: Soil quality ...
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Minimal model fitting completed for response variable: Soil quality .
+# Fitting fixed effects model for response variable: Soil quality ...
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Redundant predictors dropped from the model.Fixed effects model fitting completed for response variable: Soil quality .
+# Fitting simplified model for response variable: Soil quality ...
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Redundant predictors dropped from the model.Simplified model fitting completed for response variable: Soil quality .
+# Fitting full model for response variable: Soil quality ...
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Redundant predictors dropped from the model.Full model fitting completed for response variable: Soil quality .
+# Processing response variable: Water quality 
+# Fitting null model for response variable: Water quality ...
+# Null model fitting completed for response variable: Water quality .
+# Fitting minimal model for response variable: Water quality ...
+# Minimal model fitting completed for response variable: Water quality .
+# Fitting fixed effects model for response variable: Water quality ...
+# Error in fixed effects model fitting for Water quality : contrasts can be applied only to factors with 2 or more levels 
+# Fitting simplified model for response variable: Water quality ...
+# Error in simplified model fitting for Water quality : contrasts can be applied only to factors with 2 or more levels 
+# Fitting full model for response variable: Water quality ...
+# Error in full model fitting for Water quality : contrasts can be applied only to factors with 2 or more levels 
+# All models have been saved successfully!
+# Total time taken: 13.93442 secs
+
+# Last go (04/12-2024)
+# Total time taken: 22.32941 secs
+# Processing response variable: Biodiversity 
+# Fitting null model for response variable: Biodiversity ...
+# Null model fitting completed for response variable: Biodiversity .
+# Fitting minimal model for response variable: Biodiversity ...
+# Minimal model fitting completed for response variable: Biodiversity .
+# Fitting fixed effects model for response variable: Biodiversity ...
+# Advarsel: 14 rows with NAs omitted from model fitting.Fixed effects model fitting completed for response variable: Biodiversity .
+# Fitting simplified model for response variable: Biodiversity ...
+# Advarsel: 14 rows with NAs omitted from model fitting.Simplified model fitting completed for response variable: Biodiversity .
+# Fitting full model for response variable: Biodiversity ...
+# Advarsel: 14 rows with NAs omitted from model fitting.Full model fitting completed for response variable: Biodiversity .
+# Processing response variable: Greenhouse gas emission 
+# Fitting null model for response variable: Greenhouse gas emission ...
+# Null model fitting completed for response variable: Greenhouse gas emission .
+# Fitting minimal model for response variable: Greenhouse gas emission ...
+# Minimal model fitting completed for response variable: Greenhouse gas emission .
+# Fitting fixed effects model for response variable: Greenhouse gas emission ...
+# Error in fixed effects model fitting for Greenhouse gas emission : contrasts can be applied only to factors with 2 or more levels 
+# Fitting simplified model for response variable: Greenhouse gas emission ...
+# Error in simplified model fitting for Greenhouse gas emission : contrasts can be applied only to factors with 2 or more levels 
+# Fitting full model for response variable: Greenhouse gas emission ...
+# Error in full model fitting for Greenhouse gas emission : contrasts can be applied only to factors with 2 or more levels 
+# Processing response variable: Product quality 
+# Fitting null model for response variable: Product quality ...
+# Null model fitting completed for response variable: Product quality .
+# Fitting minimal model for response variable: Product quality ...
+# Minimal model fitting completed for response variable: Product quality .
+# Fitting fixed effects model for response variable: Product quality ...
+# Fixed effects model fitting completed for response variable: Product quality .
+# Fitting simplified model for response variable: Product quality ...
+# Simplified model fitting completed for response variable: Product quality .
+# Fitting full model for response variable: Product quality ...
+# Full model fitting completed for response variable: Product quality .
+# Processing response variable: Crop yield 
+# Fitting null model for response variable: Crop yield ...
+# Null model fitting completed for response variable: Crop yield .
+# Fitting minimal model for response variable: Crop yield ...
+# Minimal model fitting completed for response variable: Crop yield .
+# Fitting fixed effects model for response variable: Crop yield ...
+# Fixed effects model fitting completed for response variable: Crop yield .
+# Fitting simplified model for response variable: Crop yield ...
+# Simplified model fitting completed for response variable: Crop yield .
+# Fitting full model for response variable: Crop yield ...
+# Full model fitting completed for response variable: Crop yield .
+# Processing response variable: Pest and Disease 
+# Fitting null model for response variable: Pest and Disease ...
+# Null model fitting completed for response variable: Pest and Disease .
+# Fitting minimal model for response variable: Pest and Disease ...
+# Minimal model fitting completed for response variable: Pest and Disease .
+# Fitting fixed effects model for response variable: Pest and Disease ...
+# Advarsel: Redundant predictors dropped from the model.Fixed effects model fitting completed for response variable: Pest and Disease .
+# Fitting simplified model for response variable: Pest and Disease ...
+# Advarsel: Redundant predictors dropped from the model.Simplified model fitting completed for response variable: Pest and Disease .
+# Fitting full model for response variable: Pest and Disease ...
+# Advarsel: Redundant predictors dropped from the model.Full model fitting completed for response variable: Pest and Disease .
+# Processing response variable: Soil quality 
+# Fitting null model for response variable: Soil quality ...
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Null model fitting completed for response variable: Soil quality .
+# Fitting minimal model for response variable: Soil quality ...
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Minimal model fitting completed for response variable: Soil quality .
+# Fitting fixed effects model for response variable: Soil quality ...
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Redundant predictors dropped from the model.Fixed effects model fitting completed for response variable: Soil quality .
+# Fitting simplified model for response variable: Soil quality ...
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Redundant predictors dropped from the model.Simplified model fitting completed for response variable: Soil quality .
+# Fitting full model for response variable: Soil quality ...
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Redundant predictors dropped from the model.Full model fitting completed for response variable: Soil quality .
+# Processing response variable: Water quality 
+# Fitting null model for response variable: Water quality ...
+# Null model fitting completed for response variable: Water quality .
+# Fitting minimal model for response variable: Water quality ...
+# Minimal model fitting completed for response variable: Water quality .
+# Fitting fixed effects model for response variable: Water quality ...
+# Error in fixed effects model fitting for Water quality : contrasts can be applied only to factors with 2 or more levels 
+# Fitting simplified model for response variable: Water quality ...
+# Error in simplified model fitting for Water quality : contrasts can be applied only to factors with 2 or more levels 
+# Fitting full model for response variable: Water quality ...
+# Error in full model fitting for Water quality : contrasts can be applied only to factors with 2 or more levels 
+# All models have been saved successfully in a single file!
+# All models have been saved successfully in seperate files!
+# Total time taken: 22.32941 secs
+
+# Last go (05/12-2024)
+# Processing response variable: Biodiversity 
+# Fitting null model for response variable: Biodiversity ...
+# Null model fitting completed for response variable: Biodiversity .
+# Fitting minimal model for response variable: Biodiversity ...
+# Minimal model fitting completed for response variable: Biodiversity .
+# Fitting fixed effects model for response variable: Biodiversity ...
+# Advarsel: 14 rows with NAs omitted from model fitting.Advarsel: Redundant predictors dropped from the model.Fixed effects model fitting completed for response variable: Biodiversity .
+# Fitting simplified model for response variable: Biodiversity ...
+# Advarsel: 14 rows with NAs omitted from model fitting.Advarsel: Redundant predictors dropped from the model.Simplified model fitting completed for response variable: Biodiversity .
+# Fitting full model for response variable: Biodiversity ...
+# Advarsel: 14 rows with NAs omitted from model fitting.Advarsel: Redundant predictors dropped from the model.Full model fitting completed for response variable: Biodiversity .
+# Processing response variable: Greenhouse gas emission 
+# Fitting null model for response variable: Greenhouse gas emission ...
+# Null model fitting completed for response variable: Greenhouse gas emission .
+# Fitting minimal model for response variable: Greenhouse gas emission ...
+# Minimal model fitting completed for response variable: Greenhouse gas emission .
+# Fitting fixed effects model for response variable: Greenhouse gas emission ...
+# Advarsel: Redundant predictors dropped from the model.Fixed effects model fitting completed for response variable: Greenhouse gas emission .
+# Fitting simplified model for response variable: Greenhouse gas emission ...
+# Advarsel: Redundant predictors dropped from the model.Simplified model fitting completed for response variable: Greenhouse gas emission .
+# Fitting full model for response variable: Greenhouse gas emission ...
+# Advarsel: Redundant predictors dropped from the model.Full model fitting completed for response variable: Greenhouse gas emission .
+# Processing response variable: Product quality 
+# Fitting null model for response variable: Product quality ...
+# Null model fitting completed for response variable: Product quality .
+# Fitting minimal model for response variable: Product quality ...
+# Minimal model fitting completed for response variable: Product quality .
+# Fitting fixed effects model for response variable: Product quality ...
+# Advarsel: Redundant predictors dropped from the model.Fixed effects model fitting completed for response variable: Product quality .
+# Fitting simplified model for response variable: Product quality ...
+# Advarsel: Redundant predictors dropped from the model.Simplified model fitting completed for response variable: Product quality .
+# Fitting full model for response variable: Product quality ...
+# Advarsel: Redundant predictors dropped from the model.Full model fitting completed for response variable: Product quality .
+# Processing response variable: Crop yield 
+# Fitting null model for response variable: Crop yield ...
+# Null model fitting completed for response variable: Crop yield .
+# Fitting minimal model for response variable: Crop yield ...
+# Minimal model fitting completed for response variable: Crop yield .
+# Fitting fixed effects model for response variable: Crop yield ...
+# Fixed effects model fitting completed for response variable: Crop yield .
+# Fitting simplified model for response variable: Crop yield ...
+# Simplified model fitting completed for response variable: Crop yield .
+# Fitting full model for response variable: Crop yield ...
+# Full model fitting completed for response variable: Crop yield .
+# Processing response variable: Pest and Disease 
+# Fitting null model for response variable: Pest and Disease ...
+# Null model fitting completed for response variable: Pest and Disease .
+# Fitting minimal model for response variable: Pest and Disease ...
+# Minimal model fitting completed for response variable: Pest and Disease .
+# Fitting fixed effects model for response variable: Pest and Disease ...
+# Advarsel: Redundant predictors dropped from the model.Fixed effects model fitting completed for response variable: Pest and Disease .
+# Fitting simplified model for response variable: Pest and Disease ...
+# Advarsel: Redundant predictors dropped from the model.Simplified model fitting completed for response variable: Pest and Disease .
+# Fitting full model for response variable: Pest and Disease ...
+# Advarsel: Redundant predictors dropped from the model.Full model fitting completed for response variable: Pest and Disease .
+# Processing response variable: Soil quality 
+# Fitting null model for response variable: Soil quality ...
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Null model fitting completed for response variable: Soil quality .
+# Fitting minimal model for response variable: Soil quality ...
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Minimal model fitting completed for response variable: Soil quality .
+# Fitting fixed effects model for response variable: Soil quality ...
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Redundant predictors dropped from the model.Fixed effects model fitting completed for response variable: Soil quality .
+# Fitting simplified model for response variable: Soil quality ...
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Redundant predictors dropped from the model.Simplified model fitting completed for response variable: Soil quality .
+# Fitting full model for response variable: Soil quality ...
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Redundant predictors dropped from the model.Full model fitting completed for response variable: Soil quality .
+# Processing response variable: Water quality 
+# Fitting null model for response variable: Water quality ...
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Null model fitting completed for response variable: Water quality .
+# Fitting minimal model for response variable: Water quality ...
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Minimal model fitting completed for response variable: Water quality .
+# Fitting fixed effects model for response variable: Water quality ...
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Redundant predictors dropped from the model.Fixed effects model fitting completed for response variable: Water quality .
+# Fitting simplified model for response variable: Water quality ...
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Redundant predictors dropped from the model.Simplified model fitting completed for response variable: Water quality
+# Fitting full model for response variable: Water quality ...
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Redundant predictors dropped from the model.Advarsel: Single-level factor(s) found in 'random' argument. Corresponding 'sigma2' value(s) fixed to 0.Full model fitting completed for response variable: Water quality .
+# All models have been saved successfully in a single file!
+# All models have been saved successfully in seperate files!
+# Total time taken: 19.25503 
+
+# Last go (12/01-2025)
+# Processing response variable: Biodiversity 
+# Fitting null model for response variable: Biodiversity ...
+# Null model fitting completed for response variable: Biodiversity .
+# Fitting minimal model for response variable: Biodiversity ...
+# Minimal model fitting completed for response variable: Biodiversity .
+# Fitting fixed effects model for response variable: Biodiversity ...
+# Advarsel: 14 rows with NAs omitted from model fitting.Advarsel: Redundant predictors dropped from the model.Fixed effects model fitting completed for response variable: Biodiversity .
+# Fitting simplified model for response variable: Biodiversity ...
+# Advarsel: 14 rows with NAs omitted from model fitting.Advarsel: Redundant predictors dropped from the model.Simplified model fitting completed for response variable: Biodiversity .
+# Fitting full model for response variable: Biodiversity ...
+# Advarsel: 14 rows with NAs omitted from model fitting.Advarsel: Redundant predictors dropped from the model.Full model fitting completed for response variable: Biodiversity .
+# Processing response variable: Greenhouse gas emission 
+# Fitting null model for response variable: Greenhouse gas emission ...
+# Null model fitting completed for response variable: Greenhouse gas emission .
+# Fitting minimal model for response variable: Greenhouse gas emission ...
+# Minimal model fitting completed for response variable: Greenhouse gas emission .
+# Fitting fixed effects model for response variable: Greenhouse gas emission ...
+# Advarsel: Redundant predictors dropped from the model.Fixed effects model fitting completed for response variable: Greenhouse gas emission .
+# Fitting simplified model for response variable: Greenhouse gas emission ...
+# Advarsel: Redundant predictors dropped from the model.Simplified model fitting completed for response variable: Greenhouse gas emission .
+# Fitting full model for response variable: Greenhouse gas emission ...
+# Advarsel: Redundant predictors dropped from the model.Full model fitting completed for response variable: Greenhouse gas emission .
+# Processing response variable: Product quality 
+# Fitting null model for response variable: Product quality ...
+# Null model fitting completed for response variable: Product quality .
+# Fitting minimal model for response variable: Product quality ...
+# Minimal model fitting completed for response variable: Product quality .
+# Fitting fixed effects model for response variable: Product quality ...
+# Advarsel: Redundant predictors dropped from the model.Fixed effects model fitting completed for response variable: Product quality .
+# Fitting simplified model for response variable: Product quality ...
+# Advarsel: Redundant predictors dropped from the model.Simplified model fitting completed for response variable: Product quality .
+# Fitting full model for response variable: Product quality ...
+# Advarsel: Redundant predictors dropped from the model.Full model fitting completed for response variable: Product quality .
+# Processing response variable: Crop yield 
+# Fitting null model for response variable: Crop yield ...
+# Null model fitting completed for response variable: Crop yield .
+# Fitting minimal model for response variable: Crop yield ...
+# Minimal model fitting completed for response variable: Crop yield .
+# Fitting fixed effects model for response variable: Crop yield ...
+# Fixed effects model fitting completed for response variable: Crop yield .
+# Fitting simplified model for response variable: Crop yield ...
+# Simplified model fitting completed for response variable: Crop yield .
+# Fitting full model for response variable: Crop yield ...
+# Full model fitting completed for response variable: Crop yield .
+# Processing response variable: Pest and Disease 
+# Fitting null model for response variable: Pest and Disease ...
+# Null model fitting completed for response variable: Pest and Disease .
+# Fitting minimal model for response variable: Pest and Disease ...
+# Minimal model fitting completed for response variable: Pest and Disease .
+# Fitting fixed effects model for response variable: Pest and Disease ...
+# Advarsel: Redundant predictors dropped from the model.Fixed effects model fitting completed for response variable: Pest and Disease .
+# Fitting simplified model for response variable: Pest and Disease ...
+# Advarsel: Redundant predictors dropped from the model.Simplified model fitting completed for response variable: Pest and Disease .
+# Fitting full model for response variable: Pest and Disease ...
+# Advarsel: Redundant predictors dropped from the model.Full model fitting completed for response variable: Pest and Disease .
+# Processing response variable: Soil quality 
+# Fitting null model for response variable: Soil quality ...
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Null model fitting completed for response variable: Soil quality .
+# Fitting minimal model for response variable: Soil quality ...
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Minimal model fitting completed for response variable: Soil quality .
+# Fitting fixed effects model for response variable: Soil quality ...
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Redundant predictors dropped from the model.Fixed effects model fitting completed for response variable: Soil quality .
+# Fitting simplified model for response variable: Soil quality ...
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Redundant predictors dropped from the model.Simplified model fitting completed for response variable: Soil quality .
+# Fitting full model for response variable: Soil quality ...
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Redundant predictors dropped from the model.Full model fitting completed for response variable: Soil quality .
+# Processing response variable: Water quality 
+# Fitting null model for response variable: Water quality ...
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Null model fitting completed for response variable: Water quality .
+# Fitting minimal model for response variable: Water quality ...
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Minimal model fitting completed for response variable: Water quality .
+# Fitting fixed effects model for response variable: Water quality ...
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Redundant predictors dropped from the model.Fixed effects model fitting completed for response variable: Water quality .
+# Fitting simplified model for response variable: Water quality ...
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Redundant predictors dropped from the model.Simplified model fitting completed for response variable: Water quality .
+# Fitting full model for response variable: Water quality ...
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Redundant predictors dropped from the model.Advarsel: Single-level factor(s) found in 'random' argument. Corresponding 'sigma2' value(s) fixed to 0.Full model fitting completed for response variable: Water quality .
+# All models have been saved successfully in a single file!
+# All models have been saved successfully in seperate files!
+# Total time taken: 19.71101 
+```
+
+
+
+```{r}
+ggplot(fit_stats_results, aes(x = Response, y = AIC, fill = Model)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_point(
+    data = best_models, 
+    aes(x = Response, y = AIC, color = Model), 
+    size = 5, shape = 18
+  ) +
+  facet_wrap(~ Model, scales = "free_y", nrow = 2) +
+  theme_minimal(base_size = 14) +
+  labs(
+    title = "Best Performing Models by AIC",
+    x = "Response Variable",
+    y = "AIC Value"
+  )
 ```

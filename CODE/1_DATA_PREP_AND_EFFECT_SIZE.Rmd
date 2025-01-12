@@ -85,49 +85,69 @@ suppressWarnings({
 
   # Load multiple add-on packages using pacman::p_load for efficiency
   pacman::p_load(
+    ###################################################################################################################
     # Data Manipulation / Transformation
-    tidyverse,        # Comprehensive collection of R packages for data science
-    readr,            # Read and write csv 
-    dlookr,           # Diagnose, explore, and transform data with dlookr
-    skimr,            # Provides easy summary statistics about variables in data frames, tibbles, data tables and vectors
-    janitor,          # For cleaning and renaming data columns
-    readxl,           # To read Excel files
-    vroom,            # Fast reading of large datasets from local disk
-    missForest,       # Random Forest method for imputing missing data
-    mice,             # For dealing with missing data by creating multiple imputations for multivariate missing data
-    missRanger,       # Fast missing value imputation by chained random forest
-    conflicted,       # An alternative conflict resolution strategy
-    future,           # Parallel processing
-    future.apply,     # Parallel processing
+    tidyverse,        # Comprehensive collection of R packages for data science (data wrangling, visualization, etc.)
+    readr,            # For fast reading and writing of CSV files
+    dlookr,           # Diagnose, explore, and transform data efficiently
+    skimr,            # Summary statistics for data frames, tibbles, and vectors
+    janitor,          # Cleaning and renaming data columns for tidy data
+    readxl,           # Reading Excel files
+    vroom,            # High-performance reading of large datasets
+    missForest,       # Random forest imputation for missing data
+    mice,             # Multiple imputation for multivariate missing data
+    missRanger,       # Chained random forest imputation for large datasets
+    conflicted,       # Resolves conflicts in function names across packages
+    future,           # Enables parallel processing for faster computation
+    future.apply,     # Apply functions in parallel over lists or arrays
     ###################################################################################################################
     # Data Visualization
-    ggplot2,          # Data visualization package (part of tidyverse)
-    patchwork,        # ggplot2 API for sequentially building up a plot
-    RColorBrewer,
-    gt,               # gt Tables
+    ggplot2,          # Data visualization (part of tidyverse)
+    patchwork,        # Combine and arrange ggplots in complex layouts
+    RColorBrewer,     # Color palettes for visualizations
+    gt,               # Generate stylish publication-ready tables
+    corrplot,         # Correlation matrix visualization
+    scales,           # Generate pseudo-log scale plots and other scaling options
+    forcats,          # For working with and reordering factors
     ###################################################################################################################
-    # Spatial Data
-    tidygeocoder,     # Unified interface for performing both forward and reverse geocoding queries
-    raster,           # For spatial data analysis, especially BioClim variables from WorldClim
-    sp,               # For spatial data classes and methods
-    sf,               # For simple features in R, handling vector data
-    rnaturalearth,    # For world map data
-    rnaturalearthdata, 
+    # Spatial Data Analysis
+    tidygeocoder,     # Unified geocoding interface for forward and reverse geocoding
+    raster,           # Handle raster data and analyze spatial layers
+    sp,               # Provides spatial data classes and methods
+    sf,               # Simple feature handling for vector data
+    rnaturalearth,    # Access world map data for visualization
+    rnaturalearthdata, # Supporting data for rnaturalearth
     ###################################################################################################################
     # Meta-Analysis
-    metafor,          # For conducting meta-analysis, effect sizes, and response ratios
-    clubSandwich,     # Cluster-robust variance estimators for ordinary and weighted least squares linear regression models
-    philentropy,      # Computing divergence matrix or divergence value based on the Jensen-Shannon Divergence
+    metafor,          # Conduct meta-analyses and calculate effect sizes
+    clubSandwich,     # Cluster-robust variance estimators for linear regression
+    philentropy,      # Compute Jensen-Shannon Divergence and other divergence measures
     ###################################################################################################################
     # Exploratory Data Analysis (EDA)
-    DataExplorer,     # For exploratory data analysis
-    SmartEDA,         # For smart exploratory data analysis
-    inspectdf,
+    DataExplorer,     # Streamline exploratory data analysis
+    SmartEDA,         # Automated exploratory data analysis
+    inspectdf,        # Inspect data frames for structure and quality
+    naniar,           # Explore and visualize missing data patterns
+    VIM,              # Visualize and impute missing values
+    corrplot,         # Visualize correlations between variables
+    ###################################################################################################################
+    # Machine Learning and Modeling (Tidymodels Framework)
+    tidymodels,       # Unified framework for machine learning and modeling
+    vip,              # Visualize variable importance from models
+    caret,            # Train machine learning models with cross-validation
+    randomForest,     # Train random forest models and evaluate variable importance
+    recipes,          # Preprocessing data for machine learning
+    ranger,           # High-performance random forests
+    yardstick,        # Metrics for model performance evaluation
+    tune,             # Hyperparameter tuning for machine learning models
+    rsample,          # Generate resamples and cross-validation folds
+    workflows,        # Combine recipes and models into workflows
+    parsnip,          # Define machine learning models
     ###################################################################################################################
     # Project Management and Code Styling
-    here,             # Easy file referencing using the top-level directory of a file project
-    styler            # For code formatting and styling
-  )
+    here,             # Easy and robust file referencing
+    styler            # Automatically format and style R code
+)
   
   # If encountering issues with raster::getData(), consider using geodata::worldclim_global() from the geodata package
 })
@@ -145,6 +165,8 @@ conflict_prefer("extract", "raster")
 conflict_prefer("col_factor", "scales")
 conflict_prefer("geocode", "tidygeocoder")
 conflict_prefer("chisq.test", "stats")
+conflict_prefer("step", "stats")
+conflict_prefer("margin", "ggplot2")
 ```
 ```{r}
 # Set a global theme and color scale
@@ -402,6 +424,9 @@ database_clean_dummy <- database_dummy |>
   ) 
 ```
 
+```{r}
+database_clean
+```
 
 ####################################
 GEOSPATIAL PREPROCESSING
@@ -1043,17 +1068,6 @@ database_clean_sd <- database_clean |>
   )
 ```
 
-```{r, eval=FALSE}
-# Calculate standard deviations from standard errors and sample sizes
-database_clean_sd_dummy <- database_clean_dummy |>
-  mutate(
-    # Calculate standard deviation for silvo group
-    silvo_sd = silvo_se * sqrt(silvo_n),
-    
-    # Calculate standard deviation for control group
-    control_sd = control_se * sqrt(control_n)
-  )
-```
 
 Checking for missing data in control_sd and silvo_sd
 
@@ -1211,7 +1225,7 @@ missingness_by_moderators
 # Visualize missingness with a heatmap
 heatmap_missingness <- database_clean_sd_missingness %>%
   select(control_sd, silvo_sd, response_variable, all_of(moderators)) %>%
-  gg_miss_upset()
+  naniar::gg_miss_upset()
 
 heatmap_missingness
 ```
@@ -1353,7 +1367,7 @@ md.pattern(database_clean_sd_df)
 
 # Heatmap of missing data
 
-aggr_plot <- aggr(database_clean_sd_df, col = c('navyblue', 'red'), numbers = TRUE, sortVars = TRUE, 
+aggr_plot <- VIM::aggr(database_clean_sd_df, col = c('navyblue', 'red'), numbers = TRUE, sortVars = TRUE, 
                   labels = names(database_clean_sd_df), cex.axis = .7, gap = 3, ylab = c("Missingness", "Pattern"))
 aggr_plot
 ```
@@ -1383,6 +1397,15 @@ test_data_cleaned_sd_test <- test_data_cleaned %>%
     missing_control_sd = as.numeric(is.na(control_sd)),
     missing_silvo_sd = as.numeric(is.na(silvo_sd))
   )
+# Check levels of categorical variables
+levels(test_data_cleaned_sd_test$tree_type)
+levels(test_data_cleaned_sd_test$crop_type)
+levels(test_data_cleaned_sd_test$age_system)
+levels(test_data_cleaned_sd_test$season)
+levels(test_data_cleaned_sd_test$soil_texture)
+levels(test_data_cleaned_sd_test$no_tree_per_m)
+levels(test_data_cleaned_sd_test$alley_width)
+
 
 # Test 1: Logistic regression using specified moderators
 missing_control_model_1 <- glm(
@@ -1424,47 +1447,15 @@ summary(missing_silvo_model_2)
 
 ```
 
-### Missingness Assessment Interpretation:
-
-For both `control_sd` and `silvo_sd`, the patterns of missing data appear to depend on several observed factors (`Moderators`) as well as the type of response variable (`response_variable`):
-
-1. **Key Factors Associated with Missingness**:
-   - **Tree Type and Crop Type**: These categories are significantly associated with whether data is missing. This means that certain types of trees or crops are more likely to have missing values for `control_sd` and `silvo_sd`.
-   - **Season and Soil Texture**: Missing data is more common in certain seasons and specific soil textures, suggesting these conditions might make it harder to collect or report standard deviation data.
-   - **Tree Age**: Older trees tend to have fewer missing values, perhaps because experiments on mature trees are more stable or complete.
-   - **Tree Height**: Taller trees are linked to higher missingness, possibly because they are part of more complex or harder-to-measure systems.
-
-2. **Response Variable Type**:
-   - The type of response variable (e.g., biodiversity, crop yield) is also a strong predictor of missingness. This could mean that some variables are inherently harder to measure accurately, or researchers focus less on reporting standard deviations for specific types of responses.
-
----
-
-### Why Do Categorical Variables Like `Tree Type` and `Crop Type` Have Significant Associations with Missingness?
-
-Categorical variables can influence missingness if the categories represent different conditions or contexts where data collection might vary. For example:
-
-- **Tree Type**: Different types of trees might be studied in varying experimental setups. For instance:
-  - Fruit trees might be in highly controlled settings with fewer missing values.
-  - Timber trees in diverse, large-scale environments might have more missing data due to logistical challenges.
-
-- **Crop Type**: Similarly, certain crops might be associated with specific research focuses or reporting standards:
-  - Cereals might be studied in detail with less missingness because of their importance.
-  - Specialty crops like herbs might have more missing values due to less emphasis on certain measurements.
-
-The "positive association" means that when a particular category (e.g., a specific tree or crop type) is present, the odds of missing data increase compared to a baseline category.
-
----
-
-### Next Steps:
-
-Since missingness is likely **Missing at Random (MAR)** (dependent on observed factors like tree type, crop type, etc.), we can proceed with **multiple imputation**:
-
-1. Use the significant predictors (`tree_type`, `crop_type`, `season`, etc.) as covariates in an imputation model.
-2. Test different imputation methods, like predictive mean matching or linear or Bayesian regression, to see which works best.
-3. Validate the imputed data by checking its consistency with known trends or patterns in your data and assess on AIC and BIC.
 
 
-Elucidate Associations of Tree Type and Crop Type with Missingness
+The updated analysis confirms that missingness in both `control_sd` and `silvo_sd` is systematically linked to specific observed variables, reinforcing that the missing data are not random. Tree type, crop type, season, soil texture, tree age, and tree height significantly influence missingness patterns. For example, "timber" tree types exhibit notably lower missingness rates, while "fruit/nut & other" tree types are associated with higher levels of missing data, likely due to variations in experimental settings or measurement challenges. Similarly, cereal crops consistently display lower missingness, likely reflecting standardized data collection protocols, whereas tuber/root crops show disproportionately higher missingness, potentially due to logistical or methodological complexities in these systems.
+
+Environmental factors such as season and soil texture further contribute to missingness. Difficult soil textures like clay or extreme seasonal conditions may hinder measurement and reporting. Additionally, tree age inversely correlates with missingness, as older systems often reflect greater experimental stability and completeness. Conversely, taller trees are associated with increased missingness, likely stemming from challenges in measuring or monitoring these systems. Complex response variables, such as biodiversity or greenhouse gas emissions, are also more prone to missing data due to their indirect and multifaceted nature.
+
+These findings underscore that missingness follows a "Missing at Random" (MAR) pattern, where it is conditional on observed variables. This justifies the use of multiple imputation techniques that incorporate these predictors—tree type, crop type, environmental conditions, and response variables—into the imputation process. By accounting for these systematic relationships, imputation models can reduce bias while maintaining the data's structural integrity. The results highlight the critical role of understanding missingness mechanisms to ensure robust imputation and support reliable downstream analyses, particularly in diverse experimental contexts where missingness is inherently variable.
+
+
 
 ```{r}
 # Step 1: Summarize Missingness by Tree Type and Crop Type
@@ -1541,16 +1532,26 @@ logit_silvo <- glm(missing_silvo_sd ~ tree_type + crop_type, data = test_data_cl
 logit_silvo
 ```
 
+The statistical tests confirm strong associations between missingness in both `control_sd` and `silvo_sd` and the observed variables `tree_type` and `crop_type`. The chi-square tests reveal highly significant relationships for both tree type and crop type, with p-values well below 0.05. Specifically, the chi-square statistic for tree type is extremely high (X² = 76.96, p < 2.2e-16), indicating a strong dependency between tree type and missingness in both `control_sd` and `silvo_sd`. Similarly, crop type shows a significant association, though weaker (X² = 9.10, p = 0.01058).
+
+The logistic regression models further substantiate these findings. Both tree type and crop type have positive coefficients in predicting missingness for `control_sd` and `silvo_sd`, indicating that certain tree and crop types increase the likelihood of missing data. The intercept reflects a baseline low probability of missingness, but the inclusion of tree type and crop type increases this probability, as suggested by the positive coefficients (tree type: 0.083, crop type: 0.389). The models also demonstrate good fit, with reduced residual deviance compared to null deviance, and an AIC value of 999.6 for both models.
+
+These results underscore the systematic nature of missingness, linked to specific experimental conditions represented by tree and crop types. This confirms that missingness is not random but likely "Missing at Random" (MAR), as it depends on observable factors. The findings justify the use of these predictors in imputation models to accurately address and correct for the missing data while preserving the underlying patterns.
+
+The results of the missingness analysis reveal systematic dependencies between missing data in `control_sd` and `silvo_sd` and observed variables such as `tree_type` and `crop_type`. This suggests that missingness is "Missing at Random" (MAR), meaning it is influenced by known factors within the dataset. These findings have significant implications for the setup of the final meta-regression analysis. First, variables like `tree_type` and `crop_type` must be included as moderators in the model to account for variability linked to experimental conditions. Their inclusion ensures that the analysis properly reflects the relationships in the data and reduces bias in effect size estimates.
+
+Addressing missing data is essential, and imputation methods such as the upper quartile approach or predictive mean matching are suitable for handling MAR scenarios. These methods preserve the dataset’s structure by leveraging observed predictors to estimate plausible values. Given the systematic associations identified, it is also critical to test for heterogeneity across studies by incorporating random effects or interaction terms into the model, ensuring that variability is accurately captured.
+
+Additionally, sensitivity analyses are necessary to evaluate the impact of imputation methods on the results. Comparing models based on imputed and non-imputed datasets will help validate the robustness of findings. The inclusion of tree and crop type as moderators may influence relationships with other variables, warranting the exploration of interactions and effect modifications. Finally, diagnostic tests for publication bias and model performance must be incorporated to ensure the validity and reliability of the results. In summary, the systematic nature of missingness underscores the need for careful model specification, robust handling of missing data, and comprehensive diagnostic evaluations to produce sound and interpretable conclusions in the meta-regression analysis.
+
+
 ```{r}
-database_clean_sd_df |> glimpse()
-```
-```{r}
-# Aggregate missingness percentages by tree_type and crop_type
-missingness_distribution <- database_clean_sd_df %>%
+# Correctly aggregate missingness percentages by tree_type and crop_type
+missingness_distribution_corrected <- database_clean_sd_df %>%
   group_by(tree_type, crop_type) %>%
   summarise(
-    missing_control_sd = mean(missing_control_sd, na.rm = TRUE) * 100,
-    missing_silvo_sd = mean(missing_silvo_sd, na.rm = TRUE) * 100,
+    missing_control_sd = sum(missing_control_sd, na.rm = TRUE) / n() * 100,
+    missing_silvo_sd = sum(missing_silvo_sd, na.rm = TRUE) / n() * 100,
     .groups = "drop"
   ) %>%
   pivot_longer(
@@ -1559,8 +1560,8 @@ missingness_distribution <- database_clean_sd_df %>%
     values_to = "Percent_Missing"
   )
 
-# Plot missingness distribution for tree_type
-missingness_tree_plot <- ggplot(missingness_distribution, aes(x = tree_type, y = Percent_Missing, fill = Variable)) +
+# Re-generate plots with corrected aggregation
+missingness_tree_plot_corrected <- ggplot(missingness_distribution_corrected, aes(x = tree_type, y = Percent_Missing, fill = Variable)) +
   geom_bar(stat = "identity", position = position_dodge()) +
   labs(
     title = "Missingness Distribution by Tree Type",
@@ -1571,8 +1572,7 @@ missingness_tree_plot <- ggplot(missingness_distribution, aes(x = tree_type, y =
   theme_minimal() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
-# Plot missingness distribution for crop_type
-missingness_crop_plot <- ggplot(missingness_distribution, aes(x = crop_type, y = Percent_Missing, fill = Variable)) +
+missingness_crop_plot_corrected <- ggplot(missingness_distribution_corrected, aes(x = crop_type, y = Percent_Missing, fill = Variable)) +
   geom_bar(stat = "identity", position = position_dodge()) +
   labs(
     title = "Missingness Distribution by Crop Type",
@@ -1583,12 +1583,29 @@ missingness_crop_plot <- ggplot(missingness_distribution, aes(x = crop_type, y =
   theme_minimal() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
-# Print the plots
-print(missingness_tree_plot)
-print(missingness_crop_plot)
+# Print the corrected plots
+print(missingness_tree_plot_corrected)
+print(missingness_crop_plot_corrected)
 ```
 
-The visualizations demonstrate the percentage of missing values in `control_sd` and `silvo_sd` across levels of tree type and crop type. For tree type, there is no missingness for the category "fruit/nut & other," while "biomass" and "timber" have consistent missingness rates of around 40% for both variables. This suggests that the missingness for tree type is category-specific and potentially influenced by the characteristics or measurement challenges associated with "biomass" and "timber." For crop type, cereals show a much lower percentage of missingness (approximately 20%) compared to legumes and tuber/root crops, where missingness rates exceed 40-50%. This indicates that crop type has a more pronounced impact on missingness, with cereals potentially benefiting from more standardized measurement protocols or fewer data collection challenges. The absence of missing data in "fruit/nut & other" tree types highlights the importance of considering specific categories when addressing missing data. These patterns suggest that imputation strategies should account for crop type as a key predictor, while also recognizing the absence of missingness in certain tree type categories, such as "fruit/nut & other," which do not require imputation. Further statistical analysis could validate these observations and refine imputation models.
+
+
+The updated visualizations highlight the percentage of missing values in `control_sd` and `silvo_sd` across tree type and crop type categories. For tree type, missingness patterns reveal that "fruit/nut & other" exhibits the highest proportion of missing values, exceeding 60% for both variables. In contrast, "biomass" shows moderate missingness, with rates around 40%, while "timber" has the lowest missingness, approximately 20%. These findings indicate that missingness is strongly dependent on tree type, with "fruit/nut & other" particularly affected, possibly due to measurement challenges or variability in experimental setups.
+
+Similarly, crop type exhibits a pronounced influence on missingness rates. Cereal crops demonstrate minimal missingness, with percentages below 20%, suggesting standardized or easier measurement practices for this crop type. In contrast, legumes exhibit moderate missingness, averaging 30-40%, while tuber/root crops face the highest rates, exceeding 60% for both variables. This substantial variability underscores that specific crop types, like tuber/root crops, may present greater challenges in data collection or experimental consistency.
+
+These patterns reinforce the importance of tailoring imputation strategies to account for category-specific influences. For example, tree type and crop type should be included as key predictors in imputation models to address the observed disparities. Additionally, the significantly higher missingness in "fruit/nut & other" tree types and tuber/root crops indicates that these categories warrant particular attention to mitigate biases introduced by missing data. Further validation through statistical testing can refine these insights and guide the application of targeted imputation techniques to preserve data integrity across diverse categories.
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1605,8 +1622,13 @@ Perform imputation on  silvo_se, control_se using
 "mice" (Multivariate Imputation by Chained Equations), 
 Upper Quartile, 
 Mean Imputation,
+Bayesian
 Linear regression imputation (norm.predict)
 
+
+```{r}
+database_clean_sd |> glimpse()
+```
 
 
 ```{r}
@@ -1619,6 +1641,7 @@ start.time <- Sys.time()
 
 #######################################################################################
 # Step 1: Check and enforce correct data types
+#######################################################################################
 col_for_impute <- database_clean_sd |> 
   as.data.frame() |> 
   select(-geometry) |> 
@@ -1648,18 +1671,55 @@ col_for_impute <- database_clean_sd |>
 
 #######################################################################################
 # Step 2: Define the function for each imputation method
+#######################################################################################
 impute_data <- function(data, method_name) {
-  if (method_name == "pmm") {
-    # Predictive Mean Matching
+  if (method_name == "mean_imputation") {
+    #######################################################################################
+    # Mean Imputation (mean)
+    #######################################################################################
+    data <- data %>%
+      mutate(
+        silvo_se = ifelse(is.na(silvo_se), mean(silvo_se, na.rm = TRUE), silvo_se),
+        control_se = ifelse(is.na(control_se), mean(control_se, na.rm = TRUE), control_se),
+        silvo_n = ifelse(is.na(silvo_n), mean(silvo_n, na.rm = TRUE), silvo_n),
+        control_n = ifelse(is.na(control_n), mean(control_n, na.rm = TRUE), control_n)
+      )
+    return(data)
+
+  } else if (method_name == "upper_quartile") {
+    #######################################################################################
+    # Upper Quartile Imputation (uq)
+    #######################################################################################
+    upper_quartile_variance <- data %>%
+      summarise(across(c(silvo_se, control_se), ~ quantile(.^2, 0.75, na.rm = TRUE))) %>%
+      pivot_longer(cols = everything(), names_to = "variable", values_to = "upper_quartile")
+
+    data <- data %>%
+      mutate(
+        silvo_se = ifelse(is.na(silvo_se), sqrt(upper_quartile_variance$upper_quartile[1]), silvo_se),
+        control_se = ifelse(is.na(control_se), sqrt(upper_quartile_variance$upper_quartile[2]), control_se)
+      )
+    return(data)
+
+  } else if (method_name == "linear_imputation") {
+    #######################################################################################
+    # Linear Regression Imputation (lr)
+    #######################################################################################
+    data <- data %>%
+      mutate(
+        crop_type = as.numeric(as.factor(crop_type)),
+        tree_type = as.numeric(as.factor(tree_type)),
+        bioclim_sub_regions = as.numeric(as.factor(bioclim_sub_regions)),
+        alley_width = as.numeric(as.factor(alley_width))
+      )
+
     pred_matrix <- mice::make.predictorMatrix(data)
     pred_matrix[, c("tree_age", "crop_type", "tree_type", "bioclim_sub_regions", "experiment_year", "alley_width", 
-                    "id_article", "id_obs", "treat_id", "exp_id")] <- 0
+                    "id_article", "id_obs", "treat_id", "exp_id")] <- 0 
 
-    ##########################################################################
-    # Define imputation method for PMM
     method <- c(
-      "silvo_se" = "pmm",
-      "control_se" = "pmm",
+      "silvo_se" = "norm.predict",   # Imputed using linear regression
+      "control_se" = "norm.predict",   # Imputed using linear regression
       "silvo_n" = "",            # Not imputed
       "control_n" = "",          # Not imputed
       "tree_age" = "",           # Not imputed
@@ -1668,13 +1728,12 @@ impute_data <- function(data, method_name) {
       "bioclim_sub_regions" = "",# Not imputed
       "experiment_year" = "",    # Not imputed
       "alley_width" = "",        # Not imputed
-      "id_article" = "",         # Not imputed
+      "id_article" = "",          # Not imputed
       "id_obs" = "",             # Not imputed
       "treat_id" = "",           # Not imputed
       "exp_id" = ""              # Not imputed
     )
-    
-    # Perform imputation using mice
+
     imputed_mids <- mice(
       data,
       m = 20,
@@ -1685,44 +1744,24 @@ impute_data <- function(data, method_name) {
       printFlag = FALSE
     )
     return(imputed_mids)
-    
-  } else if (method_name == "upper_quartile") {
-    ##########################################################################
-    # Upper Quartile Imputation for Variance
-    upper_quartile_variance <- data %>%
-      # The 75th percentile represents a value higher than the median, ensuring that the imputed variances 
-      # are not unrealistically small while 
-      # still grounded in observed data. This helps maintain a conservative weighting in the meta-analysis.
-      summarise(across(c(silvo_se, control_se), ~ quantile(.^2, 0.75, na.rm = TRUE))) %>%
-      pivot_longer(cols = everything(), names_to = "variable", values_to = "upper_quartile")
 
+  } else if (method_name == "bayesian") {
+    #######################################################################################
+    # Bayesian Imputation (by)
+    #######################################################################################
     data <- data %>%
       mutate(
-        silvo_se = ifelse(is.na(silvo_se), sqrt(upper_quartile_variance$upper_quartile[1]), silvo_se),
-        control_se = ifelse(is.na(control_se), sqrt(upper_quartile_variance$upper_quartile[2]), control_se)
+        silvo_se = ifelse(silvo_se < 0, 0, silvo_se),
+        control_se = ifelse(control_se < 0, 0, control_se)
       )
-    return(data)
-    
-  } else if (method_name == "mean_imputation") {
-    data <- data %>%
-      mutate(
-        silvo_se = ifelse(is.na(silvo_se), mean(silvo_se, na.rm = TRUE), silvo_se),
-        control_se = ifelse(is.na(control_se), mean(control_se, na.rm = TRUE), control_se),
-        silvo_n = ifelse(is.na(silvo_n), mean(silvo_n, na.rm = TRUE), silvo_n),
-        control_n = ifelse(is.na(control_n), mean(control_n, na.rm = TRUE), control_n)
-      )
-    return(data)
 
-  } else if (method_name == "linear_imputation") {
-    ##########################################################################
-    # Linear Regression Imputation (norm.predict)
     pred_matrix <- mice::make.predictorMatrix(data)
     pred_matrix[, c("tree_age", "crop_type", "tree_type", "bioclim_sub_regions", "experiment_year", "alley_width", 
-                    "id_article", "id_obs", "treat_id", "exp_id")] <- 0
+                    "id_article", "id_obs", "treat_id", "exp_id")] <- 0 
 
     method <- c(
-      "silvo_se" = "norm.predict",
-      "control_se" = "norm.predict",
+      "silvo_se" = "norm.nob",   # Imputed using Bayesian regression
+      "control_se" = "norm.nob",   # Imputed using Bayesian regression
       "silvo_n" = "",            # Not imputed
       "control_n" = "",          # Not imputed
       "tree_age" = "",           # Not imputed
@@ -1731,7 +1770,79 @@ impute_data <- function(data, method_name) {
       "bioclim_sub_regions" = "",# Not imputed
       "experiment_year" = "",    # Not imputed
       "alley_width" = "",        # Not imputed
-      "id_article" = "",         # Not imputed
+      "id_article" = "",          # Not imputed
+      "id_obs" = "",             # Not imputed
+      "treat_id" = "",           # Not imputed
+      "exp_id" = ""              # Not imputed
+    )
+
+    imputed_mids <- mice(
+      data,
+      m = 20,
+      maxit = 100,
+      method = method,
+      predictorMatrix = pred_matrix,
+      seed = 1234,
+      printFlag = FALSE
+    )
+    return(imputed_mids)
+
+  } else if (method_name == "pmm") {
+    #######################################################################################
+    # Predictive Mean Matching (pmm)
+    #######################################################################################
+    pred_matrix <- mice::make.predictorMatrix(data)
+    pred_matrix[, c("tree_age", "crop_type", "tree_type", "bioclim_sub_regions", "experiment_year", "alley_width", 
+                    "id_article", "id_obs", "treat_id", "exp_id")] <- 0 
+
+    method <- c(
+      "silvo_se" = "pmm",   # Imputed using predictive mean matching
+      "control_se" = "pmm", # Imputed using predictive mean matching
+      "silvo_n" = "",            # Not imputed
+      "control_n" = "",          # Not imputed
+      "tree_age" = "",           # Not imputed
+      "crop_type" = "",          # Not imputed
+      "tree_type" = "",          # Not imputed
+      "bioclim_sub_regions" = "",# Not imputed
+      "experiment_year" = "",    # Not imputed
+      "alley_width" = "",        # Not imputed
+      "id_article" = "",          # Not imputed
+      "id_obs" = "",             # Not imputed
+      "treat_id" = "",           # Not imputed
+      "exp_id" = ""              # Not imputed
+    )
+
+    imputed_mids <- mice(
+      data,
+      m = 20,
+      maxit = 100,
+      method = method,
+      predictorMatrix = pred_matrix,
+      seed = 1234,
+      printFlag = FALSE
+    )
+    return(imputed_mids)
+
+  } else if (method_name == "rf") {
+    #######################################################################################
+    # Random Forest Imputation (rf)
+    #######################################################################################
+    pred_matrix <- mice::make.predictorMatrix(data)
+    pred_matrix[, c("tree_age", "crop_type", "tree_type", "bioclim_sub_regions", "experiment_year", "alley_width", 
+                    "id_article", "id_obs", "treat_id", "exp_id")] <- 0 
+
+    method <- c(
+      "silvo_se" = "rf",   # Imputed using random forest
+      "control_se" = "rf",   # Imputed using random forest
+      "silvo_n" = "",            # Not imputed
+      "control_n" = "",          # Not imputed
+      "tree_age" = "",           # Not imputed
+      "crop_type" = "",          # Not imputed
+      "tree_type" = "",          # Not imputed
+      "bioclim_sub_regions" = "",# Not imputed
+      "experiment_year" = "",    # Not imputed
+      "alley_width" = "",        # Not imputed
+      "id_article" = "",          # Not imputed
       "id_obs" = "",             # Not imputed
       "treat_id" = "",           # Not imputed
       "exp_id" = ""              # Not imputed
@@ -1755,28 +1866,54 @@ impute_data <- function(data, method_name) {
 
 #######################################################################################
 # Step 3: Apply each imputation method
-imputation_methods <- c("pmm", "upper_quartile", "mean_imputation", "linear_imputation")
+#######################################################################################
+imputation_methods <- c("mean_imputation", "upper_quartile", "linear_imputation", "bayesian", "pmm", "rf")
 imputed_datasets <- list()
 
-# Separate storage for the raw mids objects
+# Separate storage for raw mids objects
 imputed_mids_pmm <- NULL
+imputed_mids_rf <- NULL
+imputed_mids_bayesian <- NULL
 imputed_mids_linear <- NULL
 
+# Iterate through imputation methods
 for (method_name in imputation_methods) {
   cat("Applying", method_name, "imputation...\n")
-  if (method_name == "pmm") {
-    imputed_mids_pmm <- impute_data(col_for_impute, method_name)
-    imputed_datasets[[method_name]] <- mice::complete(imputed_mids_pmm)
-  } else if (method_name == "linear_imputation") {
-    imputed_mids_linear <- impute_data(col_for_impute, method_name)
-    imputed_datasets[[method_name]] <- mice::complete(imputed_mids_linear)
+  
+  tryCatch({
+    if (method_name %in% c("pmm", "rf", "bayesian", "linear_imputation")) {
+      imputed_mids <- impute_data(col_for_impute, method_name)
+      
+      # Save mids objects for diagnostics
+      if (method_name == "pmm") imputed_mids_pmm <- imputed_mids
+      if (method_name == "rf") imputed_mids_rf <- imputed_mids
+      if (method_name == "bayesian") imputed_mids_bayesian <- imputed_mids
+      if (method_name == "linear_imputation") imputed_mids_linear <- imputed_mids
+      
+      # Store completed dataset
+      imputed_datasets[[method_name]] <- mice::complete(imputed_mids)
+    } else {
+      # Direct dataset modification for other methods
+      imputed_datasets[[method_name]] <- impute_data(col_for_impute, method_name)
+    }
+  }, error = function(e) {
+    cat("Error applying", method_name, "imputation:", e$message, "\n")
+  })
+}
+
+# Summary of results
+for (method_name in imputation_methods) {
+  cat("\nSummary of Imputed Dataset -", method_name, ":\n")
+  if (!is.null(imputed_datasets[[method_name]])) {
+    print(summary(imputed_datasets[[method_name]]))
   } else {
-    imputed_datasets[[method_name]] <- impute_data(col_for_impute, method_name)
+    cat("No data available for", method_name, "\n")
   }
 }
 
-##########################################################################
-# Step 4: Compare results
+#######################################################################################
+# Step 4: Compare Results
+#######################################################################################
 for (method_name in imputation_methods) {
   cat("\nSummary of Imputed Dataset -", method_name, ":\n")
   print(summary(imputed_datasets[[method_name]]))
@@ -1790,22 +1927,94 @@ cat("\nTotal time taken:", time.taken, "\n")
 
 ##########################################################################
 # imputed_mids_pmm and imputed_mids_linear are the raw mids objects for PMM and linear regression respectively
-# imputed_datasets contains completed datasets for all methods
+# imputed_datasets contains completed and capped datasets
+
 
 ##########################################################################
-# Last run (02/01-25)
-# Total time taken: 21.27449 
+# Last run (04/01-25)
+# Total time taken: 18.98046 secs
+
+# Last run (05/01-25)
+# Total time taken: 2.224936 mins 
+
+# Last run (11/01-25)
+# Total time taken: 3.70053 mins
 ```
+
+```{r}
+#######################################################################################
+# Step 5: Extract Fitted Data and Prepare for Visualization
+#######################################################################################
+
+# Ensure consistent data types across datasets
+consistent_col_types <- function(data) {
+  data %>%
+    mutate(
+      crop_type = as.factor(crop_type),
+      tree_type = as.factor(tree_type),
+      bioclim_sub_regions = as.factor(bioclim_sub_regions),
+      alley_width = as.factor(alley_width)
+    )
+}
+
+# Apply the function to ensure consistency
+col_for_impute <- consistent_col_types(col_for_impute)
+
+for (method_name in names(imputed_datasets)) {
+  imputed_datasets[[method_name]] <- consistent_col_types(imputed_datasets[[method_name]])
+}
+
+# Combine original and imputed datasets into one
+visualization_data <- col_for_impute %>%
+  mutate(source = "Original") %>%
+  bind_rows(
+    imputed_datasets[["linear_imputation"]] %>% mutate(source = "Linear Imputation"),
+    imputed_datasets[["pmm"]] %>% mutate(source = "PMM"),
+    imputed_datasets[["rf"]] %>% mutate(source = "Random Forest"),
+    imputed_datasets[["bayesian"]] %>% mutate(source = "Bayesian"),
+    imputed_datasets[["upper_quartile"]] %>% mutate(source = "Upper Quartile"),
+    imputed_datasets[["mean_imputation"]] %>% mutate(source = "Mean Imputation")
+  )
+
+# Visualize imputed values against original
+library(ggplot2)
+
+# Scatterplot for silvo_se
+ggplot(visualization_data, aes(x = source, y = silvo_se, color = source)) +
+  geom_jitter(width = 0.2, alpha = 0.7) +
+  theme_minimal() +
+  labs(
+    title = "Comparison of Imputed Values for silvo_se",
+    x = "Data Source",
+    y = "silvo_se"
+  )
+
+# Scatterplot for control_se
+ggplot(visualization_data, aes(x = source, y = control_se, color = source)) +
+  geom_jitter(width = 0.2, alpha = 0.7) +
+  theme_minimal() +
+  labs(
+    title = "Comparison of Imputed Values for control_se",
+    x = "Data Source",
+    y = "control_se"
+  )
+
+```
+
 
 ```{r}
 # Check the summary of imputed dataset list
 imputed_datasets |> str()
 ```
+
+
+
 ```{r}
 # Evaluate the imputed datasets
 # Check convergence diagnostics
 plot(imputed_mids_pmm)
 ```
+
 
 
 ```{r}
@@ -1879,6 +2088,8 @@ imputed_summaries_df <- imputed_summaries_df %>%
       mice::complete(imputed_mids_pmm, as.numeric(imputation))$control_se[is.na(col_for_impute$control_se)]
     )
   )
+
+imputed_summaries_df
 ```
 ```{r}
 # Step 3: Choose the Best Imputation
@@ -1899,9 +2110,18 @@ chosen_imputation_number <- as.integer(chosen_imputation$imputation)
 imputed_col_data <- mice::complete(imputed_mids_pmm, chosen_imputation_number)
 imputed_datasets$pmm_best <- imputed_col_data
 
-imputed_datasets$pmm_best
+imputed_datasets$pmm_best 
 ```
-
+```{r}
+# imputation_plot_data_all |> str()
+# # Check if "linear" is included as a method
+# unique(imputation_plot_data_all$method)
+# 
+# imputation_plot_data_all %>%
+#     filter(method == "linear_imputation") %>%
+#     filter(type == "Imputed")
+# count()
+```
 
 ##########################################################################################################################################
 Visually examine the imputed values
@@ -1936,56 +2156,132 @@ for (variable in c("silvo_se", "control_se")) {
   }
 }
 
+###############################################################################
 # Combine all data into one frame
 imputation_plot_data_all <- bind_rows(combined_plot_data)
 
-imputation_plot_data_all
-
+###############################################################################
 # Remove linear imputation for better visualization
 imputation_plot_data_no_linear <- 
   imputation_plot_data_all |> 
   filter(method != "linear_imputation")
 ```
 
+
+
 ```{r}
-# Plot densities for all methods and variables
-plot_imputation_data_all <- 
-  imputation_plot_data_all |> 
-  ggplot(aes(x = value, fill = type)) +
-  geom_density(alpha = 0.5) +
-  facet_grid(variable ~ method) +
-  labs(
-    title = "Density Comparison: Original vs. Imputed Values",
-    x = "Value",
-    y = "Density"
-  ) +
-  theme_minimal() +
-  scale_fill_viridis_d(option = "D", begin = 0.2, end = 0.8) +  # Discrete color scale 
-   scale_x_log10() + # Apply log10 scale to x-axis
-  theme(strip.text = element_text(size = 10, face = "bold"))
+# Generic function to generate density plots
+generate_density_plot <- function(data, title_suffix, scale_type = "linear") {
+  plot <- ggplot(data, aes(x = value, fill = type)) +
+    geom_density(alpha = 0.5) +
+    facet_grid(variable ~ method) +
+    labs(
+      title = paste("Density Comparison:", title_suffix),
+      x = ifelse(scale_type == "linear", "Value", "Value (Pseudo-Log Scale)"),
+      y = "Density"
+    ) +
+    theme_minimal() +
+    scale_fill_viridis_d(option = "D", begin = 0.2, end = 0.8) +
+    theme(strip.text = element_text(size = 10, face = "bold"))
+  
+  if (scale_type == "pseudo_log") {
+    plot <- plot + scale_x_continuous(trans = pseudo_log_trans(sigma = 0.1)) + scale_y_continuous(trans = pseudo_log_trans(sigma = 0.1))
+  }
+  
+  return(plot)
+}
 
-plot_imputation_data_all
+# Generate plots
+
+plot_imputation_data_all_linear <- generate_density_plot(
+  data = imputation_plot_data_all, 
+  title_suffix = "Original vs. Imputed Values (Linear Scale)",
+  scale_type = "linear"
+)
+
+plot_imputation_data_all_pseudo <- generate_density_plot(
+  data = imputation_plot_data_all, 
+  title_suffix = "Original vs. Imputed Values (Pseudo-Log Scale)",
+  scale_type = "pseudo_log"
+)
+
+plot_imputation_data_no_linear_linear <- generate_density_plot(
+  data = imputation_plot_data_no_linear, 
+  title_suffix = "Excluding Linear Imputation (Linear Scale)",
+  scale_type = "linear"
+)
+
+plot_imputation_data_no_linear_pseudo <- generate_density_plot(
+  data = imputation_plot_data_no_linear, 
+  title_suffix = "Excluding Linear Imputation (Pseudo-Log Scale)",
+  scale_type = "pseudo_log"
+)
+
+# Print
+plot_imputation_data_all_pseudo 
+plot_imputation_data_all_linear 
+plot_imputation_data_no_linear_linear 
+plot_imputation_data_no_linear_pseudo 
+```
+
+Save the plots
+```{r}
+# Define the output folder path
+output_dir <- here::here("DATA", "OUTPUT_FROM_R", "FIGURES")
+
+# Ensure the directory exists
+if (!dir.exists(output_dir)) {
+  dir.create(output_dir, recursive = TRUE)
+}
+
+# Increase base text size and adjust all styling for the plots
+theme_custom <- theme_minimal(base_size = 30) + 
+  theme(
+    plot.title = element_text(size = 80),        # Increase title size
+    axis.text = element_text(size = 30),        # Increase axis text size
+    axis.title = element_text(size = 50),       # Increase axis title size
+    legend.position = "top",                    # Place legend at the top
+    legend.title = element_blank(),             # Remove legend title
+    legend.text = element_text(size = 60),      # Increase legend text size
+    strip.text = element_text(size = 50),       # Increase facet text size
+    axis.text.x = element_text(angle = 45, hjust = 1) # Rotate x-axis text
+  )
+
+# Apply theme modifications to each plot
+plot_imputation_data_all_pseudo <- plot_imputation_data_all_pseudo + theme_custom
+plot_imputation_data_all_linear <- plot_imputation_data_all_linear + theme_custom
+plot_imputation_data_no_linear_linear <- plot_imputation_data_no_linear_linear + theme_custom
+plot_imputation_data_no_linear_pseudo <- plot_imputation_data_no_linear_pseudo + theme_custom
 
 
-# Plot densities for all methods and variables without linear imputation
-plot_imputation_data_no_linear <- 
-  imputation_plot_data_no_linear |> 
-  ggplot(aes(x = value, fill = type)) +
-  geom_density(alpha = 0.5) +
-  facet_grid(variable ~ method) +
-  labs(
-    title = "Density Comparison: Original vs. Imputed Values (Excluding Linear Imputation)",
-    x = "Value",
-    y = "Density"
-  ) +
-  theme_minimal() +
-   scale_fill_viridis_d(option = "D", begin = 0.2, end = 0.8) +  # Discrete color scale 
-   scale_x_log10() + # Apply log10 scale to x-axis
-  theme(strip.text = element_text(size = 10, face = "bold"))
+# Save the plots
+ggsave(
+  filename = file.path(output_dir, "plot_imputation_data_all_linear.png"),
+  plot = plot_imputation_data_all_linear,
+  width = 14, height = 6, dpi = 600,
+  bg = "white"
+)
 
+ggsave(
+  filename = file.path(output_dir, "plot_imputation_data_all_pseudo.png"),
+  plot = plot_imputation_data_all_pseudo,
+  width = 14, height = 6, dpi = 600,
+  bg = "white"
+)
 
-plot_imputation_data_all
-plot_imputation_data_no_linear
+ggsave(
+  filename = file.path(output_dir, "plot_imputation_data_no_linear_linear.png"),
+  plot = plot_imputation_data_no_linear_linear,
+  width = 14, height = 6, dpi = 600,
+  bg = "white"
+)
+
+ggsave(
+  filename = file.path(output_dir, "plot_imputation_data_no_linear_pseudo.png"),
+  plot = plot_imputation_data_no_linear_pseudo,
+  width = 14, height = 6, dpi = 600,
+  bg = "white"
+)
 ```
 
 
@@ -1998,11 +2294,39 @@ More quantitative statistical assessment
 ##########################################################################################################################################
 
 ```{r}
+# imputed_datasets |> str()
+```
+
+```{r}
+# Variable importance from a random forest model
+
+# Remove rows with missing values
+rf_data <- na.omit(imputed_datasets$rf)  
+
+# Exclude specific variables as predictors
+rf_model <- randomForest(silvo_se ~ . - control_se - control_n - silvo_n - id_obs - treat_id - exp_id,
+                         data = rf_data)
+
+# View variable importance
+importance(rf_model)
+
+# Plot variable importance
+varImpPlot(rf_model)
+```
+
+
+```{r}
 # a. Descriptive Statistics
 # Calculate and compare mean, standard deviation, and range for key variables (e.g., silvo_se, control_se).
 
+# a. Descriptive Statistics
 # Calculate descriptive statistics for each imputation method
 compare_stats <- lapply(imputed_datasets, function(data) {
+  # Check if data is of class 'mids', and extract the completed data
+  if (inherits(data, "mids")) {
+    data <- mice::complete(data)
+  }
+  
   data %>%
     summarise(
       mean_silvo_se = mean(silvo_se, na.rm = TRUE),
@@ -2015,12 +2339,19 @@ compare_stats <- lapply(imputed_datasets, function(data) {
 }) %>%
   bind_rows(.id = "method")
 
+# View results
+print(compare_stats)
+
+
 
 # b. Variance Explained
-# Assess variance consistency across imputations, as it may indicate reliability.
-
 # Calculate variance for silvo_se and control_se
 compare_variance <- lapply(imputed_datasets, function(data) {
+  # Check if data is of class 'mids', and extract the completed data
+  if (inherits(data, "mids")) {
+    data <- mice::complete(data)
+  }
+  
   data %>%
     summarise(
       var_silvo_se = var(silvo_se, na.rm = TRUE),
@@ -2029,33 +2360,56 @@ compare_variance <- lapply(imputed_datasets, function(data) {
 }) %>%
   bind_rows(.id = "method")
 
+# View results
+print(compare_variance)
+
 
 
 
 # Calculate Jensen-Shannon divergence for each method - The Jensen-Shannon Divergence (JSD) is a statistical measure of similarity (or dissimilarity) between two 
 # probability distributions. It quantifies how different one probability distribution is from another and is widely used in information theory, machine learning, 
 # and statistics.
-# Adjust the code to calculate JSD using philentropy
+library(philentropy)
+
+# Function to calculate JSD safely
+calculate_jsd <- function(observed, imputed) {
+  if (length(imputed) > 1 && length(observed) > 1) {
+    observed_density <- density(observed)$y
+    imputed_density <- density(imputed)$y
+    
+    # Normalize to probabilities
+    observed_density <- observed_density / sum(observed_density)
+    imputed_density <- imputed_density / sum(imputed_density)
+    
+    # Calculate JSD
+    return(JSD(rbind(observed_density, imputed_density)))
+  } else {
+    return(NA) # Return NA if densities cannot be calculated
+  }
+}
+
+# Calculate JSD for each method
 compare_jsd <- lapply(imputed_datasets, function(data) {
-  observed_silvo <- density(col_for_impute$silvo_se[!is.na(col_for_impute$silvo_se)])$y
-  imputed_silvo <- density(data$silvo_se[is.na(col_for_impute$silvo_se)])$y
+  if (inherits(data, "mids")) {
+    data <- mice::complete(data) # Handle mids objects
+  }
   
-  observed_control <- density(col_for_impute$control_se[!is.na(col_for_impute$control_se)])$y
-  imputed_control <- density(data$control_se[is.na(col_for_impute$control_se)])$y
+  # Filter numeric columns for density calculation
+  observed_silvo <- col_for_impute$silvo_se[!is.na(col_for_impute$silvo_se)]
+  imputed_silvo <- data$silvo_se[is.na(col_for_impute$silvo_se)]
   
-  # Ensure probabilities sum to 1 before calculating divergence
-  observed_silvo <- observed_silvo / sum(observed_silvo)
-  imputed_silvo <- imputed_silvo / sum(imputed_silvo)
-  
-  observed_control <- observed_control / sum(observed_control)
-  imputed_control <- imputed_control / sum(imputed_control)
+  observed_control <- col_for_impute$control_se[!is.na(col_for_impute$control_se)]
+  imputed_control <- data$control_se[is.na(col_for_impute$control_se)]
   
   list(
-    jsd_silvo = JSD(rbind(observed_silvo, imputed_silvo)),
-    jsd_control = JSD(rbind(observed_control, imputed_control))
+    jsd_silvo = calculate_jsd(observed_silvo, imputed_silvo),
+    jsd_control = calculate_jsd(observed_control, imputed_control)
   )
 }) %>%
   bind_rows(.id = "method")
+
+# View results
+print(compare_jsd)
 
 
 # Add an identifier column to each data frame and convert them to long format
@@ -2080,14 +2434,14 @@ combined_metrics
 
 ```{r}
 # Ensure `database_clean_sd` is converted to a plain data frame and the `geometry` column is removed
-database_clean_sd <- database_clean_sd %>%
-  as.data.frame() %>%
+database_clean_sd_df <- database_clean_sd %>%
+  as.data.frame() |> 
   select(-geometry)
 
 # Recalculate the metrics for the original dataset
 original_metrics <- list(
   # Descriptive statistics
-  descriptive_stats = database_clean_sd %>%
+  descriptive_stats = database_clean_sd_df %>%
     summarise(
       mean_silvo_se = mean(silvo_se, na.rm = TRUE),
       sd_silvo_se = sd(silvo_se, na.rm = TRUE),
@@ -2099,7 +2453,7 @@ original_metrics <- list(
     mutate(method = "original"),
   
   # Variance comparison
-  variance = database_clean_sd %>%
+  variance = database_clean_sd_df %>%
     summarise(
       var_silvo_se = var(silvo_se, na.rm = TRUE),
       var_control_se = var(control_se, na.rm = TRUE)
@@ -2160,7 +2514,8 @@ prepared_data_gt |> glimpse()
 
 ```{r}
 # Create the updated plot
-ggplot(combined_metrics_with_original, aes(x = method, y = value, fill = method)) +
+combined_metrics_comparison_with_original <- combined_metrics_with_original |> 
+  ggplot(aes(x = method, y = value, fill = method)) +
   geom_bar(stat = "identity", position = position_dodge(), alpha = 0.8) +
   facet_wrap(~ category + metric, scales = "free_y", ncol = 3) +
   labs(
@@ -2177,89 +2532,32 @@ ggplot(combined_metrics_with_original, aes(x = method, y = value, fill = method)
     legend.position = "top"
   ) +
   scale_fill_viridis_d(option = "D", begin = 0.2, end = 0.8)  # Discrete color scale
+
+
+
+combined_metrics_comparison_with_original
 ```
 
+Save the comparison diagnostics bar chart
 ```{r}
-# Create a formatted table using `gt`
-comparison_gt <- prepared_data_gt %>%
-  # Reorder the columns in the data frame before passing to gt
-  select(
-    metric, category, original, 
-    linear_imputation,
-    linear_imputation_relative,
-    mean_imputation, 
-    mean_imputation_relative,
-    upper_quartile, 
-    upper_quartile_relative, 
-    pmm, 
-    pmm_relative,  
-    pmm_best,  
-    pmm_best_relative, 
-         ) |> 
-  # Set `metric` as row names
-  gt(rowname_col = "metric") %>%  
-  tab_header(
-    title = "Comparison of Imputation Methods Across Metrics",
-    subtitle = "Including Original Data and Relative Differences"
-  ) %>%
-  # Rename columns for clarity
-  cols_label(
-    original = "Original",
-    linear_imputation = "Linear Imputation",
-    linear_imputation_relative = "Linear Imputation Relative",
-    upper_quartile = "Upper Quartile",
-    upper_quartile_relative = "Upper Quartile Relative",
-    mean_imputation = "Mean Imputation",
-    mean_imputation_relative = "Mean Imputation Relative",
-    pmm = "PMM",
-    pmm_relative = "PMM Relative",    
-    pmm_best = "PMM Best",
-    pmm_best_relative = "PMM Best Relative"
-  ) %>%
-  # Format numeric columns to two decimal places
-  fmt_number(
-    columns = c(pmm, upper_quartile, mean_imputation, pmm_best, original),
-    decimals = 2
-  ) %>%
-  fmt_number(
-    columns = ends_with("_relative"),  # Format relative difference columns
-    decimals = 3
-  ) %>%
-  # Replace 0 values in the relative columns with "NA"
-  fmt_missing(
-    columns = ends_with("_relative"),
-    missing_text = "NA"
-  ) %>%
-  # Add horizontal and vertical lines for clarity
-  tab_style(
-    style = list(
-      cell_fill(color = "#f9f9f9"),
-      cell_borders(sides = "all", color = "gray", weight = px(1))
-    ),
-    locations = cells_body()
-  ) %>%
-  # Adjust table options
-  tab_options(
-    table.font.size = "small",
-    table.border.top.color = "gray",
-    table.border.bottom.color = "gray",
-    column_labels.font.size = "medium",
-    row_group.font.size = "small"
-  ) %>%
-  # Add footnotes for explanation of relative differences
-  tab_footnote(
-    footnote = "Relative differences are calculated as |(imputed - original) / original|.",
-    locations = cells_column_labels(ends_with("_relative"))
-  )
+# Specify the output directory
+output_dir <- here::here("DATA", "OUTPUT_FROM_R", "FIGURES")
 
-# Optionally, export the table
-output_folder <- here("DATA", "OUTPUT_FROM_R")
-gtsave(comparison_gt, file.path(output_folder, "comparison_table.html"))
-gtsave(comparison_gt, file.path(output_folder, "comparison_table.pdf"))
+# Ensure the directory exists (optional step)
+if (!dir.exists(output_dir)) {
+  dir.create(output_dir, recursive = TRUE)
+}
 
-# Display the table
-comparison_gt
+# Save as PDF
 
+combined_metrics_comparison_with_original <- combined_metrics_comparison_with_original + theme_custom
+
+ggsave(
+  filename = file.path(output_dir, "combined_metrics_comparison_with_original.png"),
+  plot = combined_metrics_comparison_with_original,
+  width = 14, height = 18, dpi = 400,
+  bg = "white"
+)
 ```
 
 ```{r}
@@ -2274,10 +2572,14 @@ comparison_gt <- prepared_data_gt %>%
     mean_imputation_relative,
     upper_quartile, 
     upper_quartile_relative, 
+    bayesian,
+    bayesian_relative,
     pmm, 
     pmm_relative,  
     pmm_best,  
-    pmm_best_relative
+    pmm_best_relative,
+    rf,
+    rf_relative
     ) |> 
   # Set `metric` as row names
   gt() %>%
@@ -2294,7 +2596,7 @@ comparison_gt <- prepared_data_gt %>%
     "#FF0000", # Bright Red
     "#8B0000"  # Dark Red
 ),
-    domain = c(0, 0.3), # Domain for relative differences
+    domain = c(0, 0.25), # Domain for relative differences
     na_color = "#f0f0f0" # Light gray for missing/NA values
   ) %>%
   tab_header(
@@ -2309,10 +2611,14 @@ comparison_gt <- prepared_data_gt %>%
     mean_imputation_relative = "Mean Imputation Relative",
     upper_quartile = "Upper Quartile",
     upper_quartile_relative = "Upper Quartile Relative",
+    bayesian = "Bayesian",
+    bayesian_relative = "Bayesian Relative",
     pmm = "PMM",
     pmm_relative = "PMM Relative",
     pmm_best = "PMM Best",
-    pmm_best_relative = "PMM Best Relative"
+    pmm_best_relative = "PMM Best Relative",
+    rf = "Random Forest",
+    rf_relative = "Random Forest Relative"
     ) %>%
   fmt_number(
     columns = c(original, 
@@ -2327,7 +2633,7 @@ comparison_gt <- prepared_data_gt %>%
     columns = ends_with("_relative"),
     decimals = 3
   ) %>%
-  fmt_missing(
+  sub_missing(
     columns = ends_with("_relative"),
     missing_text = "NA"
   ) %>%
@@ -2342,9 +2648,34 @@ comparison_gt
 
 
 
+The visualization compares various imputation methods across key metrics, including mean, range, standard deviation, variance, and Jensen-Shannon divergence (JSD), applied to silvo and control standard errors (SEs). The original dataset serves as a baseline for comparison.
+
+The **upper quartile**, **rf**, and **pmm_best** methods emerge as strong contenders, consistently preserving the statistical properties of the original data. The **upper quartile** method achieves particularly favorable results, demonstrating low mean SE values for both silvo and control, coupled with balanced handling of data variability. Unlike Bayesian and mean imputation, which introduce noticeable upward bias in the mean SE values, the upper quartile method avoids distortions, ensuring the imputed data aligns closely with the original distribution. The **rf** and **pmm_best** methods also perform well in terms of distributional preservation, with **rf** achieving low relative differences but slightly higher variance and JSD values compared to upper quartile. 
+
+The range of SEs is stable across all imputation methods, indicating that extreme values in the dataset are well-preserved. The standard deviation and variance metrics show minimal variation across methods, reflecting consistent handling of the dataset’s internal variability. Notably, the **upper quartile** method retains these properties without the complexity of predictive modeling, offering a robust and straightforward approach.
+
+The JSD values reinforce these findings. While **pmm_best** and **rf** achieve the lowest JSD scores (indicating high similarity to the original data distribution), the **upper quartile** method maintains competitive JSD values (0.90 for both silvo and control SEs), highlighting its ability to balance simplicity with effective data preservation. Bayesian and mean imputation, by contrast, exhibit the highest JSD values, diverging considerably from the original data.
+
+Overall, while **rf** and **pmm_best** excel in certain metrics, the **upper quartile** method delivers the best overall performance, combining low relative differences, robust statistical preservation, and distributional alignment, making it the most suitable choice for imputation in this analysis.
 
 
+Save the comparison gt table
+```{r}
+# Specify the output directory
+output_dir <- here::here("DATA", "OUTPUT_FROM_R", "FIGURES")
 
+# Ensure the directory exists (optional step)
+if (!dir.exists(output_dir)) {
+  dir.create(output_dir, recursive = TRUE)
+}
+
+# Save as HTML
+gtsave(data = comparison_gt, filename = file.path(output_dir, "comparison_gt_table.html"))
+
+# Save as PDF
+# gtsave(data = comparison_gt, filename = file.path(output_dir, "comparison_gt_table.pdf"))
+
+```
 
 
 #############
@@ -2354,27 +2685,63 @@ MERGING THE IMPUTED DATASET BACK TO THE ORIGINAL DATA AND VISUALISE
 ##########################################################################################################################################
 
 ```{r}
-merged_data <- database_clean_sd %>%
+##############
+# MERGING IMPUTED DATA BACK TO THE ORIGINAL DATASET AND VISUALIZING
+############################################################################
+# Objective:
+# Combine the original dataset (`database_clean_sd`) with the imputed dataset 
+# (using the Upper Quartile imputation method, selected as the most robust approach).
+# This allows for a comparison of original vs. imputed values and ensures clarity by keeping columns distinct.
+
+# Merging process
+merged_data <- database_clean_sd_df %>%
   full_join(
-    # selecting pmm (out of all the imputation methods, pmm was selected as the best method out of all the imputation methods:
-    # mice, upper quartile, mean, linear regression imputation (norm.predict)), based on JSD and variance comparison
-    imputed_datasets$pmm %>% 
-      select(id_article, id_obs, silvo_se, control_se), # Select relevant imputed columns
-    by = c("id_article", "id_obs"),
-    suffix = c("_original", "_imputed") # Keep original vs. imputed columns distinct
+    # Selecting the Upper Quartile imputed dataset:
+    imputed_datasets$upper_quartile %>%
+      # Keep only relevant imputed columns
+      select(id_article, id_obs, silvo_se, control_se), 
+    # Merge based on unique identifiers
+    by = c("id_article", "id_obs"), 
+    # Suffix to distinguish original vs. imputed columns
+    suffix = c("_original", "_imputed") 
   )
 
-# View the structure of the merged dataset
-merged_data %>%
-  glimpse()
+# Preview the structure of the merged dataset to ensure the merge was successful
+glimpse(merged_data)
 
-# Rows: 1,126
-# Columns: 47
+# Dataset Summary:
+# - Rows: 1,126
+# - Columns: Updated based on merged dataset
+
+# Additional Context:
+# - The Upper Quartile method was selected as the most robust imputation method based on:
+#   - The lowest total relative differences (14.92%) across silvo and control SEs.
+#   - Competitive Jensen-Shannon Divergence (JSD) values (0.90), indicating strong alignment with the original distribution.
+#   - Consistent performance across key metrics like variance, standard deviation, and range.
+#   - Its simplicity and effectiveness in minimizing distortions compared to more complex methods.
+
+# Note:
+# The evaluations/assessments of the imputation methods, including relative differences, variance comparisons, 
+# and Jensen-Shannon Divergence (JSD), are performed in the subsequent sections below. These assessments 
+# substantiate the selection of the Upper Quartile method as the best approach for this dataset.
+
+
+# The merged dataset is now ready for further analysis and visualization, allowing for transparent comparisons between the original and imputed values.
+
 ```
 ```{r}
+# Replace missing values in `silvo_se` and `control_se` with imputed values if originals are NA
+
 merged_data <- merged_data %>%
   mutate(
+    # For `silvo_se`, check if the original value is missing (NA)
+    # If missing, use the imputed value (`silvo_se_imputed`)
+    # Otherwise, retain the original value (`silvo_se_original`)
     silvo_se = ifelse(is.na(silvo_se_original), silvo_se_imputed, silvo_se_original),
+    
+    # For `control_se`, check if the original value is missing (NA)
+    # If missing, use the imputed value (`control_se_imputed`)
+    # Otherwise, retain the original value (`control_se_original`)
     control_se = ifelse(is.na(control_se_original), control_se_imputed, control_se_original)
   )
 
@@ -2430,7 +2797,7 @@ missing_summary
 ```
 
 ```{r}
-original_data <- database_clean_sd %>%
+original_data <- database_clean_sd_df %>%
   select(id_article, id_obs, silvo_se, control_se) %>%
   mutate(data_source = "Original")
 
@@ -2459,57 +2826,396 @@ print(imputation_check)
 
 
 ##########################################################################################################################################
-VISUAL DIAGNOSTIGS OF MERGED DATA
+VISUAL DIAGNOSTIGS OF MERGED DATA WITH SELECTED IMPUTATION METHOD
 ##########################################################################################################################################
 
 ```{r}
+# imputed_datasets |> str()
+```
+
+
+```{r}
+# imputation_methods <- c("pmm", "upper_quartile", "mean_imputation", "linear_imputation", "rf", "bayesian")
+
+# Combine all imputed datasets with the original data
+
+# Convert 'mids' objects to complete data frames
+valid_imputation_methods <- imputed_datasets %>%
+  keep(~ !is.null(.)) %>%
+  lapply(function(dataset) {
+    if (inherits(dataset, "mids")) {
+      # Convert mids object to complete data frame
+      complete(dataset)
+    } else {
+      dataset
+    }
+  })
+
+# Convert the original data to a standard data frame
+original_data <- database_clean_sd %>% as.data.frame()
+
+# Combine all valid imputed datasets with the original data
+se_comparison_data <- valid_imputation_methods %>%
+  lapply(function(imp_data) {
+    # Convert imputed data to data.frame if necessary
+    imp_data <- imp_data %>%
+      as.data.frame() 
+    
+    # Summarize the original and imputed data by response_variable or other grouping variables
+    summarized_data <- original_data %>%
+      full_join(
+        imp_data %>% select(id_article, id_obs, silvo_se, control_se),
+        by = c("id_article", "id_obs"),
+        suffix = c("_original", "_imputed")
+      ) %>%
+      group_by(response_variable) %>%
+      summarise(
+        silvo_se_original_mean = mean(silvo_se_original, na.rm = TRUE),
+        silvo_se_imputed_mean = mean(silvo_se_imputed, na.rm = TRUE),
+        control_se_original_mean = mean(control_se_original, na.rm = TRUE),
+        control_se_imputed_mean = mean(control_se_imputed, na.rm = TRUE)
+      ) %>%
+      mutate(
+        silvo_diff = abs(silvo_se_original_mean - silvo_se_imputed_mean),
+        silvo_rel_diff = if_else(silvo_se_original_mean > 0, 
+                                 (silvo_diff / silvo_se_original_mean) * 100, NA_real_),
+        control_diff = abs(control_se_original_mean - control_se_imputed_mean),
+        control_rel_diff = if_else(control_se_original_mean > 0, 
+                                   (control_diff / control_se_original_mean) * 100, NA_real_)
+      )
+    
+    # Return the summarized data
+    summarized_data
+  })
+
+
+# Check the structure of one of the resulting datasets
+str(se_comparison_data[[1]])
+se_comparison_data |> str()
+```
+
+```{r}
+# Combine all the comparison data into a single dataframe for plotting
+se_comparison_combined <- bind_rows(
+  lapply(names(se_comparison_data), function(method) {
+    se_comparison_data[[method]] %>%
+      mutate(imputation_method = method)
+  }),
+  .id = "method"
+)
+
+# Reshape data for plotting relative differences
+se_comparison_long <- se_comparison_combined %>%
+  select(response_variable, imputation_method, silvo_rel_diff, control_rel_diff) %>%
+  pivot_longer(cols = c(silvo_rel_diff, control_rel_diff),
+               names_to = "type",
+               values_to = "relative_difference")
+
+# Plot relative differences
+# Bar chart
+se_comparison_plot_mods <- se_comparison_long |> 
+  ggplot(aes(x = imputation_method, y = relative_difference, fill = type)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_wrap(~ response_variable, scales = "free_y") +
+  labs(
+    title = "Relative Differences Between Original and Imputed SE",
+    x = "Imputation Method",
+    y = "Relative Difference (%)",
+    fill = "SE Type"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Plot relative differences with response variables on the x-axis
+se_comparison_plot_resp <- se_comparison_long |> 
+  ggplot(aes(x = response_variable, y = relative_difference, fill = imputation_method)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_wrap(~ type, scales = "free_y") +
+  labs(
+    title = "Relative Differences Across Response Variables and Imputation Methods",
+    x = "Response Variable",
+    y = "Relative Difference (%)",
+    fill = "Imputation Method"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Print the plots
+se_comparison_plot_mods
+se_comparison_plot_resp
+```
+
+Saving the plots of relative differences
+```{r}
+# Increase base text size and adjust all styling for the plots
+theme_custom <- theme_minimal(base_size = 30) + 
+  theme(
+    plot.title = element_text(size = 80),        # Increase title size
+    axis.text = element_text(size = 50),        # Increase axis text size
+    axis.title = element_text(size = 50),       # Increase axis title size
+    legend.position = "top",                    # Place legend at the top
+    legend.title = element_blank(),             # Remove legend title
+    legend.text = element_text(size = 60),      # Increase legend text size
+    strip.text = element_text(size = 50),       # Increase facet text size
+    axis.text.y = element_text(size = 80),
+    axis.text.x = element_text(size = 80,
+                               angle = 45, hjust = 1) # Rotate x-axis text
+  )
+
+# Apply theme modifications to each plot
+se_comparison_plot_mods <- se_comparison_plot_mods + theme_custom
+se_comparison_plot_resp <- se_comparison_plot_resp + theme_custom
+
+
+# Save the plots
+ggsave(
+  filename = file.path(output_dir, "se_comparison_plot_mods.png"),
+  plot = se_comparison_plot_mods,
+  width = 10, height = 8, dpi = 600,
+  bg = "white"
+)
+
+ggsave(
+  filename = file.path(output_dir, "se_comparison_plot_resp.png"),
+  plot = se_comparison_plot_resp,
+  width = 10, height = 8, dpi = 600,
+  bg = "white"
+)
+```
+
+
+
+```{r}
+# Identify the imputation method with the least relative difference
+# se_comparison_combined |> str()
+
+# Calculate the mean relative differences for each imputation method
+imp_method_summary <- se_comparison_combined %>%
+  group_by(imputation_method) %>%
+  summarize(
+    mean_silvo_rel_diff = mean(silvo_rel_diff, na.rm = TRUE),
+    mean_control_rel_diff = mean(control_rel_diff, na.rm = TRUE),
+    total_rel_diff = mean_silvo_rel_diff + mean_control_rel_diff
+  ) |> 
+  arrange(total_rel_diff)
+
+imp_method_summary
+
+# A tibble:7 × 4
+# imputation_method
+# <chr>
+# mean_silvo_rel_diff
+# <dbl>
+# mean_control_rel_diff
+# <dbl>
+# total_rel_diff
+# <dbl>
+# bayesian	23.516743	42.415572	65.93232	
+# linear_imputation	16.330035	21.200899	37.53093	
+# mean_imputation	15.642138	21.686978	37.32912	
+# pmm	10.123358	5.253195	15.37655	
+# pmm_best	7.750850	13.484360	21.23521	
+# rf	8.349813	8.251046	16.60086	
+# upper_quartile	7.409419	7.513123	14.92254	
+
+# Identify the imputation method with the least relative difference
+best_imp_method_based_on_se_rel_diff <- imp_method_summary %>%
+  arrange(!total_rel_diff) %>%
+  slice(1)
+
+# Display the best method
+best_imp_method_based_on_se_rel_diff
+```
+
+Generate this table as a gt table
+```{r}
+# imp_method_summary |> str()
+
+# Create a publication-ready gt table
+imp_method_real_diff_table <- imp_method_summary %>%
+  gt() %>%
+  tab_header(
+    title = "Comparison of Imputation Methods",
+    subtitle = "Relative Differences Across Metrics"
+  ) %>%
+  fmt_number(
+    columns = c(mean_silvo_rel_diff, mean_control_rel_diff, total_rel_diff),
+    decimals = 2
+  ) %>%
+  cols_label(
+    imputation_method = "Imputation Method",
+    mean_silvo_rel_diff = "Mean Silvo Rel. Diff (%)",
+    mean_control_rel_diff = "Mean Control Rel. Diff (%)",
+    total_rel_diff = "Total Rel. Diff (%)"
+  ) %>%
+  tab_style(
+    style = list(
+      cell_fill(color = "lightblue"),
+      cell_text(weight = "bold")
+    ),
+    locations = cells_column_labels(everything())
+  ) %>%
+  tab_options(
+    table.font.size = px(14),  # Adjust font size for readability
+    table.width = pct(100)    # Adjust table width
+  )
+
+# View the table
+print(imp_method_real_diff_table)
+```
+
+
+Taking into account the additional summary metrics above, which quantify the average relative differences (silvo, control, and total) across all imputation methods, we can further refine the evaluation of the imputation methods. The relative differences provide insight into how much the imputed values deviate from the original data on average.
+
+The imputation methods upper_quartile and pmm demonstrate the lowest total relative differences (14.92% and 15.38%, respectively). This indicates that these methods introduce the least overall distortion into the imputed data compared to the original dataset. Notably, upper_quartile has a slightly better balance between silvo and control SEs, with almost equal mean relative differences (7.41% and 7.51%).
+
+The rf method also performs well with a total relative difference of 16.60%, but its slightly higher relative differences for both silvo and control SEs indicate that it introduces a bit more variability than upper_quartile and pmm.
+
+On the other hand, methods like mean_imputation, linear_imputation, and bayesian exhibit much higher total relative differences (37.33%, 37.53%, and 65.93%, respectively). These methods significantly deviate from the original data, with bayesian showing the highest total relative difference. Such large deviations suggest that these methods are less effective at preserving the original data's characteristics, especially for analyses where minimizing distortion is critical.
+
+Considering both the visualization and these summary statistics, upper_quartile emerges as the most robust imputation method. It not only minimizes total relative differences but also maintains consistency across silvo and control SEs. The pmm method is a close second, providing similarly low total relative differences but with a slightly less balanced performance between silvo and control SEs. Methods like rf may be suitable in cases where slight deviations are acceptable, but mean_imputation, linear_imputation, and bayesian should generally be avoided unless specific methodological justifications exist.
+
+
+###########################################################
+
+
+Based on the analysis of the visualizations, summary metrics, and Jensen-Shannon Divergence (JSD), the **upper_quartile** imputation method stands out as the best choice. This method demonstrates strong performance across all metrics, preserving the statistical properties of the original dataset while introducing minimal distortion.
+
+The **upper_quartile** method achieves the lowest total relative difference, with an overall value of **14.92%**, and balances the relative differences for silvo and control SEs, with mean values of **7.41%** and **7.51%**, respectively. Additionally, its JSD values (0.90 for both silvo and control SEs) indicate strong preservation of the data distribution, outperforming more complex methods like Bayesian (0.98 for control and 0.92 for silvo). While **pmm** achieves slightly lower JSD values (0.25 for control and 0.07 for silvo), the **upper_quartile** method remains competitive in distributional similarity while excelling in minimizing relative differences.
+
+Other methods, such as Bayesian, mean_imputation, and linear_imputation, exhibit significantly higher relative differences, with Bayesian reaching a total of **65.93%**. These methods tend to introduce notable distortions into the data, making them less suitable for analyses where preserving the integrity of the original dataset is critical.
+
+From a practical standpoint, the simplicity and robustness of **upper_quartile** make it a dependable choice. It avoids overfitting or imposing relationships on the data, which can introduce biases, as seen in methods like Bayesian or random forests. While **pmm** (15.38% total relative difference) and **rf** (16.60%) also perform well, **upper_quartile** provides a superior balance between simplicity, distributional preservation, and low distortion.
+
+In conclusion, the **upper_quartile** method delivers the best combination of minimal relative differences, robust performance across metrics, and strong preservation of the data distribution, making it the most suitable choice for imputation in this analysis.
+
+
+###########################################################
+
+The upper quartile imputation method imputes missing values using the 75th percentile of the observed data distribution. This simple approach ensures imputed values remain within the dataset's plausible range while slightly favoring higher values. Unlike complex predictive models, it does not rely on assumptions about relationships between variables, making it robust against outliers and overfitting.
+
+This method outperforms others because it preserves the distribution of the original data. By relying on a robust summary statistic, it avoids introducing bias or unrealistic imputations often seen in mean or model-based imputation methods. Its focus on maintaining variability and range ensures that the statistical properties of the dataset remain intact. Furthermore, the method is consistent across different variables, minimizing distortion in both silvo and control SEs.
+
+Analyses show that upper quartile imputation has the lowest total relative differences across all response variables, outperforming more complex methods like Bayesian or random forests. It balances simplicity and accuracy, achieving reliable imputation without introducing unnecessary complexity or deviations from the original data.
+
+The success of upper quartile imputation lies in its simplicity and reliance on data-driven statistics rather than predictive modeling. This makes it especially effective in cases with skewed distributions or when preserving data integrity is a priority. While advanced methods may offer predictive power, they risk adding noise or bias. Upper quartile imputation provides a straightforward and reliable alternative, making it an ideal choice when the goal is to maintain the dataset's original characteristics with minimal distortion.
+
+
+
+
+
+
+
+
+
+
+Quality check of imputation using QQ-plot 
+```{r}
 # Pivot data to long format for easier plotting
-qq_data <- combined_data %>%
+qq_imp_data <- combined_data %>%
   pivot_longer(
     cols = c(silvo_se, control_se),
     names_to = "variable",
     values_to = "value"
-  )
+  ) |> 
+  mutate(value = ifelse(is.na(value), 0, value)) # Replace NA with 0 (or another strategy if preferred)
 
 
 
 # Compute theoretical quantiles and prepare the data for jitter
-qq_data_jitter <- qq_data %>%
+qq_data_jitter <- qq_imp_data %>%
   group_by(variable, data_source) %>%
   mutate(
     theoretical = qnorm((rank(value, na.last = "keep") - 0.5) / sum(!is.na(value))) # Compute theoretical quantiles
   ) %>%
-  ungroup()
+  ungroup() 
 
-# Create the Q-Q plot with jitter
-qqplot_combined <- qq_data_jitter %>%
-  ggplot(aes(x = theoretical, y = value, color = data_source)) +
-  geom_point(position = position_jitter(width = 0.1, height = 0.1), alpha = 0.5) + # Add jitter to points
-  geom_abline(slope = 1, intercept = 0, linetype = "dashed") + # Add reference line
-  facet_wrap(~variable, scales = "free") + # Separate facets for silvo_se and control_se
+
+# Enhanced Q-Q plot for publication (with jitter)
+# Enhanced Q-Q plot with different point types
+qqplot_imp_combined <- qq_data_jitter %>%
+  ggplot(aes(x = theoretical, y = value, color = data_source, shape = data_source)) + # Map shape to data_source
+  geom_point(
+    position = position_jitter(width = 0.1, height = 0.1),
+    alpha = 0.9,
+    size = 1
+  ) + # Adjust jitter, transparency, and size
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "black", size = 1) + # Reference line
+  facet_wrap(~variable, scales = "free", ncol = 2) + # Adjust layout
   labs(
-    title = "Q-Q Plots for Original vs. Imputed Data (with Jitter)",
+    title = "Q-Q Plots for Original vs. Imputed Data",
+    subtitle = "Assessing Distributional Similarity with Jitter",
     x = "Theoretical Quantiles",
     y = "Sample Quantiles",
-    color = "Data Source"
+    color = "Data Source",
+    shape = "Data Source" # Add legend for shape
   ) +
   scale_color_viridis_d(
     option = "D",
-    begin = 0.2,
-    end = 0.8,
-    direction = 1
+    begin = 0.3,
+    end = 0.9,
+    name = "Data Source"
   ) +
-  theme_minimal() +
+  scale_shape_manual(
+    values = c(16, 17) # Specify shapes: 16 (solid circle), 17 (triangle)
+  ) +
+  guides(
+    color = guide_legend(override.aes = list(size = 3)), # Increase color legend point size
+    shape = guide_legend(override.aes = list(size = 3))  # Increase shape legend point size
+  ) +
+  theme_minimal(base_size = 14) +
   theme(
-    strip.text = element_text(size = 12, face = "bold"),
-    plot.title = element_text(size = 16, face = "bold"),
-    legend.position = "bottom"
+    plot.title = element_text(size = 18, face = "bold", hjust = 0.5), # Centered title
+    plot.subtitle = element_text(size = 14, face = "italic", hjust = 0.5), # Italicized subtitle
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 14, face = "bold"),
+    strip.text = element_text(size = 14, face = "bold"),
+    legend.position = "bottom",
+    legend.title = element_text(size = 12, face = "bold"),
+    legend.text = element_text(size = 12)
   )
 
-# View the QQ plot
-qqplot_combined
+
+qqplot_imp_combined
 ```
 
+
+Saving QQ-plot
+
+```{r}
+# Increase base text size and adjust all styling for the plots
+theme_custom <- theme_minimal(base_size = 30) + 
+  theme(
+    plot.title = element_text(size = 80),        # Increase title size
+    plot.subtitle = element_text(size = 70),
+    axis.text = element_text(size = 50),        # Increase axis text size
+    axis.title = element_text(size = 50),       # Increase axis title size
+    legend.position = "top",                    # Place legend at the top
+    legend.title = element_blank(),             # Remove legend title
+    legend.text = element_text(size = 80),      # Increase legend text size
+    strip.text = element_text(size = 50),       # Increase facet text size
+    axis.text.y = element_text(size = 100),
+    axis.text.x = element_text(size = 100,
+                               angle = 0, hjust = 0) # Rotate x-axis text
+  )
+
+# Apply theme modifications to each plot
+qqplot_imp_combined <- qqplot_imp_combined + theme_custom
+
+
+# Save the enhanced plot
+output_dir <- here::here("DATA", "OUTPUT_FROM_R", "FIGURES")
+ggsave(
+  filename = file.path(output_dir, "qqplot_imp_combined_enhanced.png"),
+  plot = qqplot_imp_combined,
+  width = 8, height = 6, dpi = 600,
+  bg = "white"
+)
+```
+
+
+
+Again, checking the imputed control_se and silvo_se density distribution (imputation = upper quartile)
 ```{r}
 # Combine the data for silvo_se and control_se into long format
 density_data <- combined_data %>%
@@ -2523,14 +3229,17 @@ density_data <- combined_data %>%
 density_data_clean <- density_data %>%
   filter(value > 0) # Keep only positive values
 
-# Create density plots
+# Improved density plot with custom x-axis labels
 density_plot_clean <- density_data_clean %>%
   ggplot(aes(x = value, color = data_source, fill = data_source)) +
   geom_density(alpha = 0.4, na.rm = TRUE) + # Add density plot with transparency
-  scale_x_log10() + # Log-transform the x-axis
+  scale_x_log10(
+    breaks = scales::trans_breaks("log10", function(x) 10^x), # Define breaks at log10 intervals
+    labels = scales::trans_format("log10", scales::math_format(10^.x)) # Format labels as 10^x
+  ) +
   labs(
     title = "Density Distribution of silvo_se and control_se (Log-Transformed)",
-    x = "Log-transformed Value",
+    x = "Value (Log Scale)",
     y = "Density",
     color = "Data Source",
     fill = "Data Source"
@@ -2548,6 +3257,57 @@ density_plot_clean <- density_data_clean %>%
 # Display the density plot
 density_plot_clean
 ```
+
+Save density distribution plot of imputed control_se and silvo_se
+
+```{r}
+# Increase base text size and adjust all styling for the plots
+theme_custom <- theme_minimal(base_size = 30) + 
+  theme(
+    plot.title = element_text(size = 80),        # Increase title size
+    plot.subtitle = element_text(size = 70),
+    axis.text = element_text(size = 50),        # Increase axis text size
+    axis.title = element_text(size = 50),       # Increase axis title size
+    legend.position = "top",                    # Place legend at the top
+    legend.title = element_blank(),             # Remove legend title
+    legend.text = element_text(size = 80),      # Increase legend text size
+    strip.text = element_text(size = 50),       # Increase facet text size
+    axis.text.y = element_text(size = 100),
+    axis.text.x = element_text(size = 100,
+                               angle = 0, hjust = 0) # Rotate x-axis text
+  )
+
+# Apply theme modifications to each plot
+density_plot_clean <- density_plot_clean + theme_custom
+
+
+# Save the enhanced plot
+output_dir <- here::here("DATA", "OUTPUT_FROM_R", "FIGURES")
+ggsave(
+  filename = file.path(output_dir, "density_plot_clean.png"),
+  plot = density_plot_clean,
+  width = 8, height = 6, dpi = 600,
+  bg = "white"
+)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 #############
@@ -2570,6 +3330,13 @@ imp_pmm_best <- merged_data |>
     silvo_se = silvo_se_imputed      
   ) |> 
   as.data.frame()|> 
+  # RECALCALCULATE STANDARD DEVIATION FOR IMPUTED DATASET
+  mutate(
+    # Calculate standard deviation for silvo group
+    silvo_sd = silvo_se * sqrt(silvo_n),
+    # Calculate standard deviation for control group
+    control_sd = control_se * sqrt(control_n)
+  ) |> 
   relocate(
     # Overall ID info
     id_article, id_obs, treat_id, exp_id,
@@ -2587,6 +3354,13 @@ imp_pmm_best <- merged_data |>
 # Non-imputed dataset (remove geometry if necessary)
 non_imp_dataset <- database_clean_sd |> 
   as.data.frame() |> 
+  # RECALCALCULATE STANDARD DEVIATION 
+  mutate(
+    # Calculate standard deviation for silvo group
+    silvo_sd = silvo_se * sqrt(silvo_n),
+    # Calculate standard deviation for control group
+    control_sd = control_se * sqrt(control_n)
+  ) |> 
   relocate(
     # Overall ID info
     id_article, id_obs, treat_id, exp_id,
@@ -2600,6 +3374,25 @@ non_imp_dataset <- database_clean_sd |>
     silvo_mean, silvo_se, silvo_sd, silvo_n, control_mean, control_se, control_sd, control_n
   )
 ```
+
+
+
+```{r}
+# Calculate standard deviations from standard errors and sample sizes
+imp_pmm_best 
+
+```
+
+
+
+
+
+
+
+
+
+
+
 
 ```{r}
 # Visualize differences in categorical distributions
@@ -2682,6 +3475,16 @@ cat("- Best-imputed dataset: imp_pmm_best_dataset.rds\n")
 ##########################################################################################################################################
 CALCULATING EFFECT SIZES FOR IMPUTED AND NON-IMPUTED DATASETS
 ##########################################################################################################################################
+
+Loading datasets
+```{r}
+# Load the non-imputed and imputed datasets
+non_imp_dataset <- readRDS(file.path(output_dir, "non_imp_dataset.rds"))
+
+# Load the imputed dataset
+imp_pmm_best <- readRDS(file.path(output_dir, "imp_pmm_best_dataset.rds"))
+```
+
 
 
 ```{r}
@@ -2769,6 +3572,34 @@ imp_data_prep <- prep_dataset_for_rom(imp_pmm_best)
 ```
 
 ```{r}
+# Verify consistency between imputed _se and recalculated _sd
+verify_sd_calculation <- function(data) {
+  data <- data %>%
+    mutate(
+      recalculated_silvo_sd = silvo_se * sqrt(silvo_n),
+      recalculated_control_sd = control_se * sqrt(control_n),
+      silvo_sd_diff = abs(silvo_sd - recalculated_silvo_sd),
+      control_sd_diff = abs(control_sd - recalculated_control_sd)
+    ) %>%
+    filter(silvo_sd_diff > 1e-5 | control_sd_diff > 1e-5) # Filter rows with differences
+
+  return(data)
+}
+
+# Apply to both non-imputed and imputed datasets
+non_imp_inconsistencies <- verify_sd_calculation(non_imp_data_prep)
+imp_inconsistencies <- verify_sd_calculation(imp_data_prep)
+
+# Visualize inconsistencies (if any)
+list(
+  non_imputed = non_imp_inconsistencies,
+  imputed = imp_inconsistencies
+)
+
+```
+
+
+```{r}
 # Generic function for effect size calculation using `escalc()`
 
 # This function can be applied to both imputed and non-imputed datasets.
@@ -2811,16 +3642,389 @@ calculate_effect_sizes <- function(data, measure = "ROM") {
 ```
 
 ```{r}
+# Inspect the input data to `escalc()`
+imp_data_prep %>%
+  select(id_article, response_variable, silvo_mean, silvo_sd, silvo_n, control_mean, control_sd, control_n) %>%
+  filter(is.na(silvo_sd) | is.na(control_sd) | silvo_sd <= 0 | control_sd <= 0)
+```
+
+```{r}
 # Apply the function to both non-imputed and imputed datasets
-non_imp_data_rom <- calculate_effect_sizes(non_imp_data_prep)
-imp_data_rom <- calculate_effect_sizes(imp_data_prep)
+
+non_imp_data_rom <- calculate_effect_sizes(non_imp_data_prep,
+                                           # SMD (Standardized Mean Difference)
+                                           # ROM (Log-Transformed Ratio)
+                                           measure = "ROM") 
+
+imp_data_rom <- calculate_effect_sizes(imp_data_prep,
+                                       # SMD (Standardized Mean Difference)
+                                       # ROM (Log-Transformed Ratio)
+                                       measure = "ROM")
+```
+
+```{r}
+imp_data_rom |> glimpse()
+```
+
+```{r}
+# Create the boxplot for the effect size (yi)
+# Order response variables by descending median effect size
+imp_data_rom_reorder <- imp_data_rom %>%
+  mutate(response_variable = fct_reorder(response_variable, yi, .fun = median, .desc = FALSE))
+
+# Create the boxplot with ordered response variables
+boxplot_raw_effect_size <- imp_data_rom_reorder |> 
+  ggplot(aes(y = response_variable, x = yi, fill = response_variable)) +
+  geom_vline(xintercept = 0, linetype = "dotted", color = "red", size = 0.8) + # Add red dotted line at x = 0
+  geom_boxplot(alpha = 0.7, outlier.size = 1) +
+  labs(
+    title = "Raw Effect Sizes (yi) Across Response Variables",
+    x = "Raw Effect Size (yi)",
+    y = "Response Variable"
+  ) +
+  scale_x_continuous(
+    trans = pseudo_log_trans(sigma = 0.1), # Apply pseudo-log transformation
+    breaks = c(0, 0.1, 1, 10, 100),       # Custom breaks
+    labels = c("0", "0.1", "1", "10", "100") # Relatable labels
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    axis.text.y = element_text(size = 12), # Adjust y-axis text size
+    axis.text.x = element_text(angle = 45, hjust = 1), # Rotate x-axis labels
+    legend.position = "none"
+  )
+
+boxplot_raw_effect_size
+
+```
+
+
+Save raw effect size plot of each response variable
+
+```{r}
+# Increase base text size and adjust all styling for the plots
+theme_custom <- theme_minimal(base_size = 30) + 
+  theme(
+    plot.title = element_text(size = 120),        # Increase title size
+    plot.subtitle = element_text(size = 70),
+    axis.text = element_text(size = 50),        # Increase axis text size
+    axis.title = element_text(size = 100),       # Increase axis title size
+    strip.text = element_text(size = 50),       # Increase facet text size
+    axis.text.y = element_text(size = 100),
+    legend.position = "none",
+    axis.text.x = element_text(size = 100,
+                               angle = 45, hjust = 1) # Rotate x-axis text
+  )
+
+# Apply theme modifications to each plot
+boxplot_raw_effect_size <- boxplot_raw_effect_size + theme_custom
+
+
+# Save the enhanced plot
+output_dir <- here::here("DATA", "OUTPUT_FROM_R", "FIGURES")
+ggsave(
+  filename = file.path(output_dir, "boxplot_raw_effect_size.png"),
+  plot = boxplot_raw_effect_size,
+  width = 16, height = 8, dpi = 600,
+  bg = "white"
+)
 ```
 
 
 
 
+
+
+
+
+
+
+
+
+
+
+```{r}
+# Prepare the data for plotting
+data_long <- imp_data_rom %>%
+  select(response_variable, control_mean, silvo_mean) %>%
+  pivot_longer(
+    cols = c(control_mean, silvo_mean),
+    names_to = "Group",
+    values_to = "Mean"
+  )
+
+# Create the boxplot with a log-transformed y-axis
+ggplot(data_long, aes(x = Group, y = Mean, fill = Group)) +
+  geom_boxplot(alpha = 0.7, outlier.size = 1) +
+  facet_wrap(~ response_variable, scales = "free") +
+  labs(
+    title = "Comparison of Mean Values for Control and Silvo Groups by Response Variable (Log Scale)",
+    x = "Group",
+    y = "Mean Value (Log Scale)"
+  ) +
+  scale_y_log10() +  # Logarithmic transformation for the y-axis
+  theme_minimal(base_size = 14) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "none"
+  )
+```
+
+```{r}
+# Boxplot comparison for control and silvo groups
+imp_data_rom_long <- imp_data_rom %>%
+  select(response_variable, control_mean, silvo_mean) %>%
+  pivot_longer(cols = c(control_mean, silvo_mean), names_to = "Group", values_to = "Mean")
+
+ggplot(imp_data_rom_long, aes(x = Group, y = Mean, fill = Group)) +
+  geom_boxplot(alpha = 0.7) +
+  facet_wrap(~ response_variable, scales = "free") +  # Facet by response variable
+  scale_y_log10() +  # Logarithmic transformation for the y-axis
+  labs(
+    title = "Distribution of Means for Control and Silvo Groups",
+    x = "Group",
+    y = "Mean Value"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(legend.position = "none")
+```
+
+
+
+Identify Extreme Variances
+For response variables like "Crop yield" with extreme variances, identify rows with unusually high or low values in the variance column (vi).
+
+```{r}
+# Summary statistics for variance
+summary(imp_data_rom$vi)
+
+# Identify rows with extreme variances
+extreme_variance_rows <- imp_data_rom %>%
+  filter(vi > quantile(vi, 0.95) #| vi < quantile(vi, 0.05)
+         ) %>%
+  arrange(desc(vi)) |> 
+  relocate(yi, vi, id_article, response_variable,
+           silvo_mean, control_mean, 
+           silvo_se, control_se,
+           silvo_sd, control_sd, 
+           silvo_n, control_n)
+
+extreme_variance_rows |> str()
+
+# Set high and low variance thresholds (e.g., 95th and 5th percentiles)
+high_variance_threshold <- quantile(imp_data_rom$vi, 0.95, na.rm = TRUE)
+low_variance_threshold <- quantile(imp_data_rom$vi, 0.05, na.rm = TRUE)
+
+# Filter rows with extreme variances
+extreme_variance_articles <- imp_data_rom %>%
+  filter(vi > high_variance_threshold #| vi < low_variance_threshold
+         ) %>%
+  summarise(
+    num_obs = n(),
+    avg_variance = mean(vi, na.rm = TRUE),
+    max_variance = max(vi, na.rm = TRUE),
+    min_variance = min(vi, na.rm = TRUE),
+    response_variables = paste(unique(response_variable), collapse = ", ")
+  ) %>%
+  arrange(desc(avg_variance))
+
+# Display the summary of articles with high variance
+extreme_variance_articles |> str()
+
+extreme_variance_rows
+```
+```{r}
+# Identify high-variance observations
+high_variance_rows <- imp_data_rom %>%
+  filter(vi > quantile(vi, 0.95, na.rm = TRUE)) %>%
+  select(yi, vi,
+         id_obs, id_article, response_variable, 
+         silvo_mean, control_mean, 
+         silvo_se, control_se,
+         silvo_sd, control_sd, 
+         silvo_n, control_n)
+
+high_variance_row_isolated <- high_variance_rows |> 
+  relocate(yi, vi, id_article, id_obs, response_variable,
+           silvo_mean, control_mean, 
+           silvo_se, control_se,
+           silvo_sd, control_sd, 
+           silvo_n, control_n)
+
+high_variance_row_isolated |> glimpse()
+```
+
+```{r}
+# Define thresholds for high and non-high variance
+high_variance_threshold <- stats::quantile(imp_data_rom$vi, 0.95, na.rm = TRUE)
+low_variance_threshold <- stats::quantile(imp_data_rom$vi, 0.05, na.rm = TRUE)
+
+# Create separate datasets
+high_variance_data <- imp_data_rom %>%
+  filter(vi > high_variance_threshold | vi < low_variance_threshold)
+
+non_high_variance_data <- imp_data_rom %>%
+  filter(!(vi > high_variance_threshold | vi < low_variance_threshold))
+```
+
+```{r}
+# Plot for high variance
+high_variance_plot <- ggplot(high_variance_data, aes(x = id_article, y = vi, fill = response_variable)) +
+  geom_boxplot(outlier.color = "red", alpha = 0.7) +
+  labs(title = "High Variance Observations", x = "Article ID", y = "Variance (vi)") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  # Remove legend for better visualization
+  theme(legend.position = "none")
+
+# Plot for non-high variance
+non_high_variance_plot <- ggplot(non_high_variance_data, aes(x = id_article, y = vi, fill = response_variable)) +
+  geom_boxplot(outlier.color = "blue", alpha = 0.7) +
+  labs(title = "Non-High Variance Observations", x = "Article ID", y = "Variance (vi)") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Combine plots side by side
+combined_plot <- high_variance_plot + non_high_variance_plot + 
+  plot_layout(ncol = 2)
+
+# Display the combined plot
+print(combined_plot)
+```
+
+```{r}
+# High variance plot for individual observations with increased jitter
+high_variance_plot <- ggplot(high_variance_data, aes(x = as.factor(id_article), y = vi, color = response_variable)) +
+  geom_point(position = position_jitter(width = 0.3, height = 0), size = 3, alpha = 0.7) +
+  geom_text_repel(
+    aes(label = id_obs),
+    position = position_jitter(width = 0.3, height = 0),
+    size = 3,
+    max.overlaps = Inf
+  ) +
+  labs(
+    title = "High Variance Observations (Individual, Jittered)",
+    x = "Article ID",
+    y = "Variance (vi) [pseudo log transformed]",
+    color = "Response Variable"
+  ) +
+  scale_color_manual(values = global_palette) +
+  scale_y_continuous(
+    trans = pseudo_log_trans(sigma = 0.1),
+    breaks = c(0, 0.1, 1, 10, 30),
+    labels = c("0", "0.1", "1", "10", "30")
+  ) +
+  theme_minimal(base_size = 16) +
+  theme(
+    plot.title = element_text(size = 18, face = "bold"),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "top",
+    legend.title = element_text(size = 14, face = "bold"),
+    legend.text = element_text(size = 12)
+  )
+
+# Non-high variance plot with aggregated boxplots
+non_high_variance_plot <- ggplot(non_high_variance_data, aes(x = as.factor(id_article), y = vi, fill = response_variable)) +
+  geom_boxplot(outlier.color = "blue", alpha = 0.7) +
+  labs(
+    title = "Non-High Variance Observations (Boxplots)",
+    x = "Article ID",
+    y = "Variance (vi) [pseudo log transformed]",
+    fill = "Response Variable"
+  ) +
+  scale_fill_manual(values = global_palette) +
+  scale_y_continuous(
+    trans = pseudo_log_trans(sigma = 0.1),
+    breaks = c(0, 0.01, 0.1, 1),
+    labels = c("0", "0.01", "0.1", "1")
+  ) +
+  theme_minimal(base_size = 16) +
+  theme(
+    plot.title = element_text(size = 18, face = "bold"),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "top",
+    legend.title = element_text(size = 14, face = "bold"),
+    legend.text = element_text(size = 12)
+  )
+
+# Combine the two plots
+combined_plot_high_var_plot <- high_variance_plot + non_high_variance_plot +
+  plot_layout(ncol = 2, widths = c(1, 1)) &
+  theme(
+    plot.margin = margin(10, 10, 10, 10)
+  )
+
+# Display the combined plot
+print(combined_plot_high_var_plot)
+```
+
+Save the high-variance plot
+```{r}
+# Saving manually from the 'Plots -> Export -> Save as image -> dimension (2000::800)'
+```
+
+```{r}
+# Calculate variance contributions from SE columns
+extreme_variance_analysis <- extreme_variance_rows %>%
+  mutate(
+    silvo_variance = silvo_se^2 / silvo_n,        # Variance from silvo SE
+    control_variance = control_se^2 / control_n,  # Variance from control SE
+    total_pre_escalc_variance = silvo_variance + control_variance  # Combined variance
+  ) %>%
+  arrange(desc(vi)) %>%  # Sort by high vi
+  select(
+    yi, vi, id_article, response_variable,
+    silvo_mean, control_mean, 
+    silvo_se, control_se, silvo_sd, control_sd, 
+    silvo_n, control_n, total_pre_escalc_variance, silvo_variance, control_variance
+  )
+
+extreme_variance_analysis |> glimpse()
+```
+
+```{r}
+discrepancies <- extreme_variance_analysis %>%
+  mutate(discrepancy = vi - total_pre_escalc_variance) %>%
+  arrange(desc(discrepancy))
+
+print(discrepancies)
+```
+```{r}
+extreme_se <- extreme_variance_analysis %>%
+  filter(silvo_se > quantile(silvo_se, 0.75) | control_se > quantile(control_se, 0.75))
+
+print(extreme_se)
+```
+```{r}
+# Recompute vi for rows with high variance
+recomputed_vi <- escalc(
+  measure = "ROM", 
+  m1i = silvo_mean, sd1i = silvo_sd, n1i = silvo_n,
+  m2i = control_mean, sd2i = control_sd, n2i = control_n,
+  data = extreme_variance_analysis
+)
+
+# Compare recomputed vi with original vi
+comparison <- extreme_variance_analysis %>%
+  mutate(recomputed_vi = recomputed_vi$vi) %>%
+  select(yi, vi, recomputed_vi, total_pre_escalc_variance)
+
+print(comparison)
+```
+
+
+
+
+
+
+
+
+
+####################################################################################################################################################
+
 Heterogeneity Analysis
 Compare the heterogeneity statistics between the meta-analyses conducted on the imputed and non-imputed datasets. This will help you understand if the imputation has influenced the heterogeneity of the studies.
+####################################################################################################################################################
 
 ```{r}
 # Prepare the original data
@@ -2901,6 +4105,28 @@ time.taken
 # Imputed Data - Heterogeneity (I^2): 99.93201 
 # Imputed Data - Between-study variance (tau^2): 0.01083873 
 # Time difference of 6.113353 secs
+
+# Last go (04/01-2025)
+# Advarsel: 212 studies with NAs omitted from model fitting.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Non-Imputed Data - Heterogeneity (I^2): 9.354748 
+# Non-Imputed Data - Between-study variance (tau^2): 1.438406e-06 
+# Imputed Data - Heterogeneity (I^2): 99.89571 
+# Imputed Data - Between-study variance (tau^2): 0.0174592 
+# Time difference of 10.74234 secs
+
+# Last go (04/01-2025)
+# Advarsel: 184 studies with NAs omitted from model fitting.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Non-Imputed Data - Heterogeneity (I^2): 9.354748 
+# Non-Imputed Data - Between-study variance (tau^2): 1.438406e-06 
+# Imputed Data - Heterogeneity (I^2): 99.93201 
+# Imputed Data - Between-study variance (tau^2): 0.01006262 
+# Time difference of 5.507228 secs
+
+
+# Last go (12/01-2025)
+# Advarsel: 184 studies with NAs omitted from model fitting.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Non-Imputed Data - Heterogeneity (I^2): 9.354748 
+# Non-Imputed Data - Between-study variance (tau^2): 1.438406e-06 
+# Imputed Data - Heterogeneity (I^2): 99.93201 
+# Imputed Data - Between-study variance (tau^2): 0.01006262 
+# Time difference of 3.647738 secs
 ```
  
  
@@ -2935,17 +4161,39 @@ print(ks_test_result)
 # data:  non_imp_data_rom$yi and imp_data_rom$yi
 # D = 0.031966, p-value = 0.6897
 # alternative hypothesis: two-sided
+
+# Last go (04/01-2025)
+# Advarsel: p-value will be approximate in the presence of ties
+# 	Asymptotic two-sample Kolmogorov-Smirnov test
+# 
+# data:  non_imp_data_rom$yi and imp_data_rom$yi
+# D = 0.025547, p-value = 0.897
+# alternative hypothesis: two-sided
+
+# Last go (05/01-2025)
+# Advarsel: p-value will be approximate in the presence of ties
+# 	Asymptotic two-sample Kolmogorov-Smirnov test
+# 
+# data:  non_imp_data_rom$yi and imp_data_rom$yi
+# D = 0.032653, p-value = 0.6621
+# alternative hypothesis: two-sided
+
+# Last go (12/01-2025)
+# Advarsel: p-value will be approximate in the presence of ties
+# 	Asymptotic two-sample Kolmogorov-Smirnov test
+# 
+# data:  non_imp_data_rom$yi and imp_data_rom$yi
+# D = 0.032653, p-value = 0.6621
+# alternative hypothesis: two-sided
 ```
 
-The Kolmogorov-Smirnov (KS) test was conducted to compare the distributions of effect sizes (ROM) between the imputed and non-imputed datasets. The test statistic D was 0.0407, with a p-value of 0.4179. This high p-value indicates that there is no significant difference between the distributions of the two datasets. Thus, we fail to reject the null hypothesis, suggesting that both datasets share a similar underlying distribution.
+The Kolmogorov-Smirnov (KS) test was used to compare the distributions of effect sizes (ROM) between the non-imputed and imputed datasets. The test yielded a statistic \(D = 0.0327\) with a p-value of 0.6621, indicating no significant difference between the two distributions. This suggests that the imputed and non-imputed datasets share a similar underlying distribution, and the null hypothesis cannot be rejected. Although a warning was raised about approximate p-values due to ties in the data, the large sample size minimizes the impact of this issue on the overall interpretation.
 
-A warning about approximate p-values due to ties was noted. This occurs when there are identical values within the data, which can slightly affect the accuracy of the p-value calculation. However, given the large sample size, this effect is minimal and does not alter the overall interpretation.
+The random-effects models revealed notable differences between the two datasets. In the non-imputed dataset, heterogeneity was low (I² = 9.35%) with a minimal between-study variance (\(\tau^2 = 1.44 \times 10^{-6}\)), indicating that the variability among studies was small. In contrast, the imputed dataset showed extremely high heterogeneity (I² = 99.93%) and a substantially increased between-study variance (\(\tau^2 = 0.0101\)). These results suggest that the imputation process introduced additional variability not present in the original dataset. Both models also produced warnings about large ratios of the smallest to largest sampling variances, highlighting the potential instability of the results, particularly in the imputed dataset.
 
-These results align with earlier findings, such as the identical between-study variance implying that the imputation process did not introduce significant changes. The small D value and non-significant p-value suggest that the imputed values closely resemble the original data.
+The KS test results indicate that the imputation process effectively preserved the distribution of effect sizes. This supports the reliability of the imputation approach and ensures that comparisons made within the meta-analysis remain meaningful. However, the increased heterogeneity in the imputed dataset signals the introduction of additional variability, which should be carefully considered when interpreting the results.
 
-Overall, the KS test supports the conclusion that the imputation process was effective in preserving the distribution of effect sizes, allowing for a consistent comparison in the meta-analysis without introducing bias or altering the data structure.
- 
- 
+Overall, these findings suggest that while the imputation process successfully maintained the distributional properties of the data, it also added variability that influenced the heterogeneity and between-study variance. This has implications for the conclusions of the meta-analysis, as the imputed dataset may present a broader range of uncertainty compared to the original data. It is essential to transparently report these differences, perform sensitivity analyses, and interpret the results cautiously to account for the potential impact of imputation on the overall findings.
  
 ```{r}
 # Descriptive statistics for non-imputed data
@@ -3005,6 +4253,62 @@ summary_imp
 # sd_yi
 # <dbl>
 # 0.02369684	0.001916168	0.2386678	
+# 
+# Description:df [1 × 3]
+# mean_yi
+# <dbl>
+# median_yi
+# <dbl>
+# sd_yi
+# <dbl>
+# 0.02767394	0.003205885	0.2501374	
+# 
+# Description:df [1 × 3]
+# mean_yi
+# <dbl>
+# median_yi
+# <dbl>
+# sd_yi
+# <dbl>
+# 0.03006166	0.003048475	0.2482813
+
+# Last go (05/01-2025)
+# Description:df [1 × 3]
+# mean_yi
+# <dbl>
+# median_yi
+# <dbl>
+# sd_yi
+# <dbl>
+# 0.02767394	0.003205885	0.2501374
+# 
+# Description:df [1 × 3]
+# mean_yi
+# <dbl>
+# median_yi
+# <dbl>
+# sd_yi
+# <dbl>
+# 0.02423623	0.00187394	0.2387344	
+
+# Last go (12/01-2025)
+# Description:df [1 × 3]
+# mean_yi
+# <dbl>
+# median_yi
+# <dbl>
+# sd_yi
+# <dbl>
+# 0.02767394	0.003205885	0.2501374		
+# 
+# Description:df [1 × 3]
+# mean_yi
+# <dbl>
+# median_yi
+# <dbl>
+# sd_yi
+# <dbl>
+# 0.02423623	0.00187394	0.2387344		
 ```
  
 ```{r}
@@ -3013,38 +4317,453 @@ density_plot_non_imp <- ggplot(non_imp_data_rom, aes(x = yi)) +
   geom_density(fill = "#0072B2", alpha = 0.5) +
   labs(title = "Density Plot: Non-Imputed Data",
        x = "Effect Size (yi)", y = "Density") +
-  theme_minimal()
+  theme_minimal() +
+  # Use pseudo-log transformation for x-axis
+  scale_x_continuous(trans = pseudo_log_trans(sigma = 0.1))
 
 # Density plot for imputed data
 density_plot_imp <- ggplot(imp_data_rom, aes(x = yi)) +
   geom_density(fill = "#E69F00", alpha = 0.5) +
   labs(title = "Density Plot: Imputed Data",
        x = "Effect Size (yi)", y = "Density") +
-  theme_minimal()
+  theme_minimal() +
+  # Use pseudo-log transformation for x-axis
+  scale_x_continuous(trans = pseudo_log_trans(sigma = 0.1))
 
 # Boxplot for non-imputed data
 boxplot_non_imp <- ggplot(non_imp_data_rom, aes(y = yi)) +
   geom_boxplot(fill = "#0072B2", alpha = 0.5) +
   labs(title = "Boxplot: Non-Imputed Data",
        y = "Effect Size (yi)") +
-  theme_minimal()
+  theme_minimal() +
+  # Use pseudo-log transformation for y-axis
+  scale_y_continuous(trans = pseudo_log_trans(sigma = 0.1))
 
 # Boxplot for imputed data
 boxplot_imp <- ggplot(imp_data_rom, aes(y = yi)) +
   geom_boxplot(fill = "#E69F00", alpha = 0.5) +
   labs(title = "Boxplot: Imputed Data",
        y = "Effect Size (yi)") +
-  theme_minimal()
+  theme_minimal() +
+  # Use pseudo-log transformation for y-axis
+  scale_y_continuous(trans = pseudo_log_trans(sigma = 0.1))
 
 # Arrange the plots in a 2x2 layout
-(density_plot_non_imp | density_plot_imp) /
-(boxplot_non_imp | boxplot_imp)
+(density_plot_non_imp | boxplot_non_imp) /
+(density_plot_imp | boxplot_imp)
+
 ```
 
 
+##########################################################################################################################################
+ASSESSING CORRELATION BETWEEN RESPONSE VARIABLES
+##########################################################################################################################################
+
+```{r}
+non_imp_data_rom |> glimpse()
+imp_data_rom |> glimpse()
+```
+
+```{r}
+##########################################################################
+# Visual Diagnostics for Predictor Redundancy and Model Fit
+##########################################################################
+
+# Set up data
+# Testing on the imputed dataset
+moderators_data <- imp_data_rom %>%
+  select(tree_type, crop_type, age_system, season, soil_texture) %>%
+  mutate(across(everything(), as.factor)) %>%
+  as.data.frame()
+
+##########################################################################
+# Fit a linear model with moderators
+##########################################################################
+
+lm_model <- lm(yi ~ tree_type + crop_type + age_system + season + soil_texture, 
+               data = imp_data_rom)
+```
+
+```{r}
+##########################################################################
+# 1. Correlation Analysis
+##########################################################################
+# Convert categorical variables to numeric for correlation matrix
+moderators_numeric <- model.matrix(~ . + 0, data = moderators_data) %>% as.data.frame()
+
+# Calculate correlation matrix
+cor_matrix <- cor(moderators_numeric, use = "pairwise.complete.obs")
+
+# Visualize correlation matrix
+corrplot::corrplot(cor_matrix, method = "circle", type = "upper",
+         tl.col = "black", tl.srt = 45, title = "Correlation Matrix of Moderators")
+```
+
+```{r}
+##########################################################################
+# 2. Variance Inflation Factor (VIF)
+##########################################################################
+
+# Calculate VIF for predictors
+vif_values <- car::vif(lm_model)
+
+# Print VIF values
+print(vif_values)
+
+# Plot VIF values
+barplot(vif_values, main = "Variance Inflation Factors (VIF)",
+        col = "blue", horiz = TRUE, las = 1, xlab = "VIF Value")
+```
+
+The Variance Inflation Factor (VIF) helps identify if predictors in a regression model are too similar or correlated with each other. When predictors are highly related, it can make it difficult to determine the individual impact of each predictor, as their effects overlap. VIF measures how much the variance of a predictor's coefficient is inflated due to this overlap.
+
+For categorical variables with multiple levels, the Generalized VIF (GVIF) is used. GVIF adjusts for the number of levels in a categorical variable, providing a way to compare them with other predictors. A scaled version of GVIF helps interpret these adjusted values more easily.
+
+In this analysis, the predictors all have low VIF values. The largest adjusted GVIF is 1.17 for soil texture, which is far below the commonly used thresholds of 5 or 10 for concern. This indicates there is no significant multicollinearity among the predictors, meaning they are not overly correlated with one another.
+
+Since none of the predictors exhibit high VIF values, no corrective actions are needed, such as removing variables or combining them into fewer components. The predictors are providing independent and valuable information to the model, and the results can be interpreted without concerns about redundancy or instability.
+
+In summary, the VIF analysis confirms that the model's predictors are sufficiently independent and do not cause issues with multicollinearity. This ensures the model's results are clear, reliable, and interpretable.
 
 
 
+
+
+
+```{r}
+# Convert categorical variables to factors (if not already factors)
+predictors <- imp_data_rom %>%
+  select(tree_age, crop_type, tree_type, soil_texture, experiment_year, alley_width) %>%
+  mutate(across(where(is.character), as.factor))
+
+# Create dummy variables for categorical predictors
+predictors_numeric <- model.matrix(~ . - 1, data = predictors) %>%  # -1 to exclude the intercept
+  as.data.frame()
+
+# Calculate pairwise correlations
+correlation_matrix <- cor(predictors_numeric, use = "pairwise.complete.obs")
+
+# Visualize the correlation matrix
+corrplot::corrplot(correlation_matrix, method = "circle")
+
+# Visualize correlations with a heatmap
+heatmap(correlation_matrix, symm = TRUE)
+
+# PCA
+pca_results <- prcomp(predictors_numeric, scale. = TRUE)
+summary(pca_results)
+biplot(pca_results)
+```
+
+```{r}
+# Convert categorical variables to factors and create dummy variables
+predictors <- imp_data_rom %>%
+  select(tree_age, crop_type, tree_type, soil_texture, experiment_year, alley_width) %>%
+  mutate(across(where(is.character), as.factor))
+
+# Create numeric predictors with dummy variables
+predictors_numeric <- model.matrix(~ . - 1, data = predictors) %>%
+  as.data.frame()
+
+# Ensure the response is aligned with predictors
+# Keep only rows where both predictors and response are not missing
+aligned_data <- imp_data_rom %>%
+  select(tree_age, crop_type, tree_type, soil_texture, experiment_year, alley_width, yi) %>%
+  drop_na()
+
+# Split aligned data into predictors and response
+predictors_numeric <- model.matrix(~ . - 1, data = aligned_data %>% 
+                                     select(-yi)) %>% 
+  as.data.frame()
+
+
+response_filled <- aligned_data$yi
+
+# Fit the Random Forest model
+library(randomForest)
+rf_model <- randomForest(x = predictors_numeric, y = response_filled, importance = TRUE)
+
+# Display feature importance
+varImpPlot(rf_model)
+```
+
+The results from the random forest analysis and the correlation matrix provide insight into how the predictors (tree type, crop type, age system, season, and soil texture) influence the variability in your dataset and how they relate to each other.
+
+The random forest model was employed to evaluate the relative importance of variables considered as moderators in the meta-regression model (`rma.mv`). Random forest is particularly suitable for this purpose due to its ability to handle complex interactions and non-linear relationships between predictors, making it an effective tool for identifying which moderators most strongly influence the response variable. The model assessed the importance of these moderators using two key metrics: the percentage increase in mean squared error (%IncMSE) and increase in node purity (IncNodePurity). These metrics reflect how much each moderator improves the model's predictive power and reduces uncertainty.
+
+###############################################
+
+The results highlight tree age and experiment year as the most influential moderators. These variables significantly impact both %IncMSE and IncNodePurity, indicating their critical role in explaining variations in the response variable within the meta-analytic framework. Their importance suggests that temporal factors, such as the age of the tree systems and the year of the experiments, are vital in shaping the observed outcomes across studies.
+
+Moderators related to soil texture, such as sand and silt, were also identified as moderately important, reflecting the role of soil properties in influencing the outcomes under study. Tree type and crop type, including specific categories like "Fruit, nut & other" and "Legume," were somewhat less influential but still contributed meaningfully to explaining variability in the response. Their inclusion underscores the importance of agroforestry and crop-specific characteristics as moderators in the meta-regression.
+
+Variables like alley width and certain crop or tree types, such as tuber/root crops and timber trees, showed relatively lower importance. This indicates that their moderating effects are less pronounced in this context, suggesting they may not need to be prioritized in the meta-regression model.
+
+The random forest results emphasize the hierarchy of moderator importance, with tree age and experiment year standing out as dominant predictors. This refined understanding can improve the meta-regression model by focusing on the most impactful moderators, simplifying the model structure while maintaining its explanatory and predictive power.
+
+###########################################
+
+The correlation matrix reveals the relationships between predictors. Strong correlations (shown as larger, darker circles) suggest that some predictors may overlap in the information they provide. For example, if "tree type" and "crop type" have a high positive or negative correlation, this could mean they are not entirely independent, potentially leading to redundancy in the model. This aligns with earlier findings of multicollinearity, where predictors interfere with each other.
+
+From the PCA results, the first three principal components (PC1, PC2, and PC3) explain approximately 79% of the variance in the data. This means most of the variation in your dataset can be summarized using fewer dimensions, reducing complexity while retaining the critical patterns. The decreasing proportion of variance explained by PC4 and PC5 suggests these components add less unique information.
+
+Overall, while "tree type" and "crop type" seem to be the most influential predictors, their high correlation with other variables might complicate the interpretation. You should consider techniques like feature selection, dimensionality reduction, or removing redundant variables to improve model clarity and performance.
+
+
+###########################################
+
+
+The results of the random forest analysis reveal important limitations and implications for reporting and communicating overall meta-analysis findings. By identifying tree age and experiment year as the dominant moderators, the analysis highlights a key limitation of heterogeneity within the dataset. This underscores the challenge of attributing outcomes to specific factors when a few moderators exert disproportionate influence. Such dominance may mask the contributions of less impactful moderators and complicate the interpretation of their individual roles in the meta-analysis.
+
+One limitation lies in the reliance on moderators that capture temporal or environmental variability, such as experiment year or soil texture. These factors, while essential, may vary considerably across studies, making it difficult to disentangle their effects from study-specific conditions. Additionally, the relatively lower importance of certain moderators, such as alley width or specific tree and crop types, raises questions about whether these variables are consistently measured or reported across studies. Inconsistent data collection or reporting practices may contribute to their diminished influence, emphasizing the importance of standardized reporting in future studies.
+
+Communicating the meta-analysis results requires careful consideration of these limitations. Overemphasis on the dominant moderators, such as tree age, may oversimplify the nuanced interactions present in agroforestry systems. Researchers and stakeholders must be cautious not to generalize findings without acknowledging the variability that less prominent moderators can introduce. This is particularly relevant when translating findings into practical recommendations, as the applicability of results to diverse settings may be constrained.
+
+The findings also highlight the need for transparency when reporting results. Explicitly addressing the hierarchical importance of moderators, as identified by the random forest analysis, can help contextualize the results and guide readers in understanding the limitations of the analysis. Clear communication about the variability and potential biases introduced by dominant moderators is essential for ensuring that the conclusions of the meta-analysis are interpreted appropriately and applied responsibly in decision-making contexts.
+
+###########################################
+
+
+```{r}
+# Prepare the data
+# Convert categorical variables to factors
+imp_data_rom <- imp_data_rom %>%
+  mutate(across(where(is.character), as.factor))
+
+# Define the predictors and response
+predictors <- imp_data_rom %>%
+  select(tree_age, crop_type, tree_type, soil_texture, experiment_year, alley_width)
+
+
+response <- imp_data_rom$yi
+
+# Combine predictors and response into a single dataset
+complete_data <- cbind(predictors, response = response) %>%
+  na.omit() # Remove rows with missing values to ensure compatibility
+
+
+# complete_data |> str()
+# 'data.frame':	808 obs. of  7 variables:
+#  $ tree_age       : num  2 2 2 9 9 9 9 8 8 8 ...
+#  $ crop_type      : Factor w/ 3 levels "Cereal","Legume",..: 1 1 1 1 1 1 1 1 1 1 ...
+#  $ tree_type      : Factor w/ 3 levels "Biomass","Fruit,nut & other",..: 2 2 2 2 2 2 2 1 1 1 ...
+#  $ soil_texture   : Factor w/ 3 levels "Clay","Sand",..: 1 1 1 1 1 1 1 3 3 3 ...
+#  $ experiment_year: Date, format: "2011-01-01" "2011-01-01" "2011-01-01" "2011-01-01" ...
+#  $ alley_width    : Factor w/ 2 levels "Narrow","Wide": 2 2 2 2 2 2 2 2 2 2 ...
+#  $ response       : num  0.633 0.199 0.771 0.137 0.182 ...
+#  - attr(*, "na.action")= 'omit' Named int [1:290] 329 330 331 332 333 334 335 336 337 338 ...
+#   ..- attr(*, "names")= chr [1:290] "329" "330" "331" "332" ...
+
+# Tidymodels Random Forest Workflow
+
+# Step 1: Create a recipe for preprocessing
+rf_recipe <- recipe(response ~ ., data = complete_data) %>%
+  step_dummy(all_nominal(), -all_outcomes()) %>%  # Convert categorical predictors to dummies
+  step_normalize(all_numeric_predictors())       # Normalize numeric predictors
+
+# Step 2: Specify the Random Forest model
+rf_spec <- rand_forest(
+  mode = "regression",
+  mtry = tune(),         # Number of predictors sampled at each split
+  trees = 500,           # Number of trees
+  min_n = tune()         # Minimum samples per node
+) %>%
+  set_engine("ranger", importance = "permutation")  # Use permutation importance
+
+# Step 3: Define a workflow
+rf_workflow <- workflow() %>%
+  add_recipe(rf_recipe) %>%
+  add_model(rf_spec)
+
+# Step 4: Create cross-validation folds
+set.seed(123)
+
+cv_splits <- vfold_cv(complete_data, v = 5)
+
+# Step 5: Tune the model
+rf_res <- tune_grid(
+  rf_workflow,
+  resamples = cv_splits,
+  grid = 10,  # Number of parameter combinations to try
+  metrics = metric_set(rmse, rsq)  # Evaluation metrics
+)
+
+# Step 6: Finalize the model with the best parameters
+# Finalize the model with the best parameters
+best_rf <- finalize_workflow(
+  rf_workflow,
+  select_best(rf_res, metric = "rmse") # Explicitly name the argument 'metric'
+)
+
+# Step 7: Fit the finalized model
+final_rf_fit <- fit(best_rf, data = complete_data)
+
+# Step 8: Compute and visualize variable importance
+# Extract the fitted model
+rf_final_model <- final_rf_fit %>% extract_fit_parsnip()
+
+# Visualize Variable Importance
+vip(rf_final_model) +
+  ggtitle("Variable Importance from Random Forest Model") +
+  theme_minimal()
+
+```
+
+##########################################################################
+# 3. Stepwise Regression
+##########################################################################
+
+Stepwise regression iteratively adds or removes predictors from a model to optimize the Akaike Information Criterion (AIC), balancing goodness-of-fit with model complexity. Starting with an initial model, predictors are evaluated through forward selection (adding predictors) and backward elimination (removing predictors). This process identifies the most relevant variables while discarding redundant or insignificant ones, improving model interpretability and predictive performance. It mitigates multicollinearity and avoids overfitting by ensuring parsimony. However, results should be interpreted cautiously, as stepwise methods may exclude theoretically important predictors.
+
+```{r}
+##########################################################################
+# Set up the parallel processing plan
+plan(multisession, workers = parallel::detectCores() - 1)
+##################################################
+# Start time tracking
+start.time <- Sys.time()
+##################################################
+##################################################
+
+# Set up data (imputed dataset)
+moderators_data <- imp_data_rom %>%
+  select(tree_type, crop_type, age_system, season, soil_texture) %>%
+  mutate(across(everything(), as.factor)) %>%
+  as.data.frame()
+
+##########################################################################
+# Fit a linear model with moderators
+lm_model <- lm(yi ~ tree_type + crop_type + age_system + season + soil_texture, 
+               data = imp_data_rom)
+
+##########################################################################
+# Stepwise regression using AIC
+stepwise_model <- step(lm_model, direction = "both", trace = TRUE)
+
+# Summary of the stepwise regression model
+summary(stepwise_model)
+
+
+
+##################################################
+# End time tracking
+end.time <- Sys.time()
+# Calculate time taken
+time.taken <- end.time - start.time
+time.taken
+##############################################################
+# Last go (12/01-2025)
+# Time difference of  mins
+```
+The updated stepwise regression analysis assessed the relationship between moderators (tree type, crop type, age system, season, and soil texture) and the response variable (yi). The final model retained all predictors, as removing any would increase the AIC from its optimal value (-3147.24). This suggests that each predictor contributes, albeit to varying degrees, to the overall model.
+
+Tree type displayed mixed effects. Timber trees significantly reduced the response variable compared to the reference group, indicating their distinct influence. Crop type emerged as a strong predictor, with legumes showing a positive and significant association with the response variable, whereas tuber, root, and other crops showed no significant effect. System age had a notable impact, with younger systems significantly increasing the response, suggesting they may offer greater benefits during earlier stages of development. Seasonal effects were also evident, with winter seasons linked to significantly lower response values, highlighting seasonal variations in observed effects. Soil texture showed weaker influence, with sand and silt not exhibiting significant effects, though silt approached significance, suggesting context-dependent influences.
+
+The model explained 6.6% of the variance in the response variable, as indicated by the R-squared value. While this shows that the moderators contribute meaningfully, a large proportion of variability remains unexplained, signaling the potential importance of additional moderators or interactions not included in this analysis. Despite the low explanatory power, the model as a whole is statistically significant (F-statistic p-value = 2.46e-12), confirming that the predictors collectively have an impact on the response variable.
+
+In summary, stepwise regression highlights key moderators such as crop type, tree type, age system, and season as important influencers of the response variable. However, the relatively low R-squared suggests the need for further refinement, either by including additional moderators, exploring interactions between variables, or considering non-linear relationships to better capture the complexity inherent in the dataset.
+
+
+The findings from the stepwise regression analysis have several implications for reporting and communicating the results of the overall meta-analysis. These implications can shape how the relationships between moderators and the response variable are presented and how uncertainties or gaps in the analysis are conveyed.
+**Highlighting Key Moderators**: The stepwise regression identified significant moderators, such as crop type, tree type, age system, and season. These findings suggest that these variables are pivotal in shaping the response variable and should be emphasized in the meta-analysis results. For instance, the positive association between legumes and the response variable or the negative effect of timber trees provides actionable insights that can be linked to specific ecological or management contexts.
+**Acknowledging Context-Dependent Effects**: The weaker or non-significant effects of variables like soil texture and certain crop and tree types imply that their influence may vary across studies or contexts. This highlights the importance of discussing heterogeneity in the meta-analysis, emphasizing that not all moderators have uniform impacts. Including such nuance ensures the results are interpreted with an understanding of the variability in underlying datasets.
+**Explaining Limited Variance Explained**: With the R-squared value at 6.6%, the stepwise regression indicates that the included moderators only explain a small proportion of the variance in the response variable. This limitation should be transparently communicated to avoid overstating the explanatory power of the meta-analysis. It suggests that additional factors—such as interactions between moderators, unmeasured variables, or study-level characteristics—may also influence the response.
+**Interpreting Seasonal and Temporal Trends**: The significant seasonal and age system effects underscore the dynamic nature of the response variable over time and seasons. Communicating these findings can guide recommendations for management practices or experimental designs that consider seasonal or developmental variability.
+**Need for Caution in Overgeneralization**: Given the low explanatory power, it is crucial to avoid overgeneralizing the findings across all agroforestry systems. Instead, the results should be framed as indicative of broader trends, with the acknowledgment that the model does not fully capture the complexity of the data.
+**Incorporating Insights into Meta-Analysis Models**: The findings from the stepwise regression can inform the structure of the meta-analysis models, particularly in prioritizing the inclusion of significant moderators like crop type, tree type, and season. Interactions between these variables should also be explored to better understand their combined effects.
+**Communicating Uncertainty**: The presence of unexplained variance should be communicated as a limitation in the meta-analysis. This uncertainty could be due to missing data, unmeasured moderators, or study-specific idiosyncrasies. Reporting this openly ensures the results are interpreted with appropriate caution.
+
+In summary, the stepwise regression findings provide valuable insights into the roles of specific moderators, but they also highlight the complexity and limitations of the relationships in the dataset. This dual narrative—of meaningful trends and unexplained variability—should guide the reporting and communication of the meta-analysis results to ensure they are both impactful and scientifically rigorous.
+
+
+##########################################################################
+# 4. Principal Component Analysis (PCA)
+##########################################################################
+
+```{r}
+# Perform PCA on the numeric moderator data
+pca_results <- prcomp(moderators_numeric, scale. = TRUE)
+
+pca_results |> str()
+
+screeplot(pca_results, type = "lines", main = "Scree Plot for PCA")
+
+# Calculate proportion of variance explained
+explained_variance <- (pca_results$sdev^2) / sum(pca_results$sdev^2)
+
+# Create a scree plot
+plot(explained_variance, type = "b", pch = 19, col = "blue",
+     xlab = "Principal Components", ylab = "Proportion of Variance Explained",
+     main = "Scree Plot for PCA")
+
+barplot(explained_variance, names.arg = paste0("PC", 1:length(explained_variance)),
+        col = "skyblue", xlab = "Principal Components", ylab = "Proportion of Variance",
+        main = "Variance Explained by Principal Components")
+
+# Biplot of the first two components
+biplot(pca_results, scale = 0, main = "PCA Biplot")
+```
+
+##########################################################################
+# 5. Cross-Validation
+##########################################################################
+
+```{r}
+# Define predictors and response
+predictors <- imp_data_rom %>% 
+  select(tree_type, crop_type, age_system, season, soil_texture) %>%
+  mutate(across(everything(), as.factor)) %>% # Convert to factors first
+  mutate(across(everything(), as.numeric))   # Convert to numeric
+response <- imp_data_rom$yi
+
+# Check the structure of predictors
+str(predictors)
+
+# Remove rows with missing values in predictors or response
+complete_cases <- complete.cases(predictors, response)
+predictors <- predictors[complete_cases, ]
+response <- response[complete_cases]
+
+# Create a train/test split
+set.seed(123)
+train_index <- caret::createDataPartition(response, p = 0.8, list = FALSE)
+train_data <- predictors[train_index, ]
+train_response <- response[train_index]
+test_data <- predictors[-train_index, ]
+test_response <- response[-train_index]
+
+# Ensure training data has no missing values
+if (anyNA(train_data) || anyNA(train_response)) {
+  stop("Training data contains missing values. Please clean your data.")
+}
+
+# Train a linear model with cross-validation
+cv_model <- caret::train(
+  x = train_data, 
+  y = train_response, 
+  method = "lm", 
+  trControl = caret::trainControl(method = "cv", number = 10)
+)
+
+# Evaluate on test set
+predictions <- predict(cv_model, newdata = test_data)
+results <- caret::postResample(predictions, test_response)
+
+# Print cross-validation results
+print(cv_model)
+print("Performance on test data:")
+print(results)
+```
+
+The cross-validation test evaluated how well the selected meta-analysis moderators—tree type, crop type, age system, season, and soil texture—explain the variability in the response variable, **yi**. The dataset, containing 1,098 observations, was cleaned to remove missing values, and numeric transformations were applied to categorical variables to enable linear regression analysis. The dataset was split into training (80%) and testing (20%) subsets, and 10-fold cross-validation was used to assess the model’s predictive performance.
+
+The linear regression model produced an RMSE (Root Mean Square Error) of **0.2332** during cross-validation, indicating the average deviation of predictions from observed values. The MAE (Mean Absolute Error), which reflects the average size of prediction errors without considering direction, was **0.1223**. The R-squared value, at **0.0445**, revealed that only 4.5% of the variation in **yi** was explained by the moderators in the model, suggesting that their overall contribution to explaining the response variable was minimal.
+
+When the model was applied to the independent test set, the results were consistent. The test set evaluation yielded an RMSE of **0.1805**, an MAE of **0.1122**, and an R-squared value of **0.0355**. These findings reaffirm that the model’s predictions are generally close to the observed values but that the moderators collectively explain only a small fraction of the variability in the response variable.
+
+The low R-squared values in both the cross-validation and test phases indicate that while the moderators may have some role, they are not the primary determinants of the observed variability. This suggests that other unmeasured factors or interactions might have a more substantial influence on **yi**. 
+
+The results imply that further refinement of the meta-analysis is needed, either by identifying additional moderators, exploring potential interactions among existing moderators, or employing more sophisticated models that can capture complex relationships. These findings should be clearly communicated to contextualize the limited explanatory power of the current moderators and emphasize the need for caution when interpreting their effects on the response variable.
 
 
 

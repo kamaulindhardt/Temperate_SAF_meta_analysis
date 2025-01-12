@@ -152,27 +152,30 @@ setwd(here::here())
 
 
 # Define your working directory using 'here'
-output_dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
+dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
 
-# Load datasets
-non_imp_dataset <- readRDS(file.path(output_dir, "non_imp_dataset.rds"))
-imp_dataset <- readRDS(file.path(output_dir, "imp_dataset.rds"))
-non_imp_dataset_imputed <- readRDS(file.path(output_dir, "non_imp_dataset_imputed.rds"))
-imp_dataset_imputed <- readRDS(file.path(output_dir, "imp_dataset_imputed.rds"))
+# Load datasets 
+
+## NON-IMPUTED
+non_imp_dataset <- readRDS(here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R", "non_imp_data_rom.rds"))
+
+## IMPUTED
+imp_dataset <- readRDS(here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R", "imp_data_rom.rds"))
+
 ```
 
 ```{r}
-non_imp_dataset |> glimpse()
+imp_dataset |> glimpse()
 ```
 
 ```{r}
 # Check the unique response variables and sub-response variables
-unique(non_imp_dataset$response_variable)
-# unique(non_imp_dataset$sub_response_variable)
+unique(imp_dataset$response_variable)
+# unique(imp_dataset$sub_response_variable)
 ```
 ```{r}
 response_summary <- 
-  non_imp_dataset |> 
+  imp_dataset |> 
   count(response_variable) |> 
   arrange(desc(n))
 
@@ -192,8 +195,8 @@ response_var_summary_plot
 
 ```{r}
 # Check the unique response variables and sub-response variables
-unique_articles <- unique(non_imp_dataset$id_article)
-unique_response_vars <- unique(non_imp_dataset$response_variable)
+unique_articles <- unique(imp_dataset$id_article)
+unique_response_vars <- unique(imp_dataset$response_variable)
 
 print(unique_response_vars)
 print(length(unique_articles))  # Total number of unique articles
@@ -202,7 +205,7 @@ print(length(unique_articles))  # Total number of unique articles
 
 ```{r}
 # Count the number of unique articles for each response variable
-article_summary <- non_imp_dataset %>%
+article_summary <- imp_dataset %>%
   group_by(response_variable) %>%
   summarise(unique_articles = n_distinct(id_article)) %>%
   arrange(desc(unique_articles))
@@ -227,13 +230,18 @@ article_summary_plot
 
 ```{r}
 # Sample one observation per article per response variable
-sampled_data <- non_imp_dataset %>%
+sampled_data <- imp_dataset %>%
   group_by(id_article, response_variable) %>%
   slice_head(n = 1)
 
+sampled_data
+```
+```{r}
 # Boxplot of effect sizes by response variable (unique articles)
-sampled_data |> 
-  ggplot(aes(x = response_variable, y = yi, fill = response_variable)) +
+boxplot_effec_size_response_variable <- sampled_data |> 
+  ggplot(aes(x = response_variable, 
+             y = yi, 
+             fill = response_variable)) +
   geom_boxplot() +
   coord_flip() +
   labs(title = "Boxplot of Effect Sizes (yi) by Response Variable (Unique Articles)",
@@ -242,6 +250,7 @@ sampled_data |>
   theme_minimal() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
+boxplot_effec_size_response_variable
 ```
 
 The boxplot shows the distribution of effect sizes (yi) for each response variable. In the context of this meta-analysis, the effect size (yi) represents the standardized difference between the treatment group (agroforestry systems) and the control group (monoculture).
@@ -260,11 +269,6 @@ The variation in the effect sizes for each response variable indicates heterogen
 
 
 ```{r}
-# Sample one observation per article per response variable
-sampled_data <- non_imp_dataset %>%
-  group_by(id_article, response_variable) %>%
-  slice_head(n = 1)
-
 # Calculate mean effect size and number of unique articles for each response variable
 response_summary <- sampled_data %>%
   group_by(response_variable) %>%
@@ -301,11 +305,6 @@ ggplot(sampled_data, aes(x = yi, fill = response_variable)) +
 ```
 
 ```{r}
-# Sample one observation per article per response variable
-sampled_data <- non_imp_dataset %>%
-  group_by(id_article, response_variable) %>%
-  slice_head(n = 1)
-
 # Calculate mean effect size and number of unique articles for each response variable
 response_summary <- sampled_data %>%
   group_by(response_variable) %>%
@@ -719,9 +718,9 @@ inspect_data <- function(data, moderator) {
 }
 
 # Inspect data for a specific response variable and moderator
-inspect_data(response_splits$non_imp[["Biodiversity"]], "tree_type")
-inspect_data(response_splits$non_imp[["Crop yield"]], "tree_type")
-inspect_data(response_splits$non_imp[["Soil quality"]], "tree_type")
+inspect_data(response_splits$imp[["Biodiversity"]], "tree_type")
+inspect_data(response_splits$imp[["Crop yield"]], "tree_type")
+inspect_data(response_splits$imp[["Soil quality"]], "tree_type")
 ```
 
 ```{r}
@@ -835,8 +834,8 @@ for (response_var in response_variables) {
   cat("\nAnalyzing response variable:", response_var, "\n")
   
   # Get the subset and corresponding V_matrix
-  data_subset <- response_splits$non_imp[[response_var]]
-  V_matrix <- v_matrices$v_matrix_non_imp[[response_var]]
+  data_subset <- response_splits$imp[[response_var]]
+  V_matrix <- v_matrices$v_matrix_imp[[response_var]]
   
   # Align data and V_matrix
   aligned_data <- align_data_and_v_matrix(data_subset, V_matrix)
@@ -952,7 +951,7 @@ time.taken <- end.time - start.time
 time.taken
 ##############################################################
 # Last go: (17/11-24)
-
+# Time difference of 0.2157011 secs
 
 ##############################################################
 # Check the results
@@ -1332,8 +1331,7 @@ SENSITIVITY ANALYSIS (Leave-One-Out Sensitivity Analysis)
 
 non_imp_dataset 
 imp_dataset 
-non_imp_dataset_imputed 
-imp_dataset_imputed 
+
 
 
 Performing a Leave-One-Out (LOO) sensitivity analysis on the full datasets and full model can be justified. This analysis would complement the LOO performed on each individual meta-regression model and provide additional insights. Here’s a detailed explanation:
@@ -1388,13 +1386,10 @@ output_dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
 # Load datasets and V_matrices
 non_imp_dataset <- readRDS(file.path(output_dir, "non_imp_dataset.rds"))
 imp_dataset <- readRDS(file.path(output_dir, "imp_dataset.rds"))
-non_imp_dataset_imputed <- readRDS(file.path(output_dir, "non_imp_dataset_imputed.rds"))
-imp_dataset_imputed <- readRDS(file.path(output_dir, "imp_dataset_imputed.rds"))
+
 
 V_matrix_non_imp <- readRDS(file.path(output_dir, "V_matrix_non_imp_dataset.rds"))
 V_matrix_imp <- readRDS(file.path(output_dir, "V_matrix_imp_dataset.rds"))
-V_matrix_non_imp_imputed <- readRDS(file.path(output_dir, "V_matrix_non_imp_dataset_imputed.rds"))
-V_matrix_imp_imputed <- readRDS(file.path(output_dir, "V_matrix_imp_dataset_imputed.rds"))
 ```
 
 
@@ -1464,8 +1459,16 @@ split_by_response_variable <- function(dataset, selected_response_variables = NU
 ```
 
 ```{r}
+cat("Data rows:", nrow(imp_dataset), "\n")
+cat("V_matrix dimensions:", dim(V_matrix_imp), "\n")
+cat("Data rows:", nrow(non_imp_dataset), "\n")
+cat("V_matrix dimensions:", dim(V_matrix_non_imp), "\n")
+```
+
+
+```{r}
 # Define the selected response variables
-selected_responses <- c("Crop yield", "Soil quality", "Biodiversity")
+selected_responses <- c("Crop yield", "Soil quality", "Biodiversity") # "Pests and Diseases", "Water quality", "Product quality"
 
 
 ####################################################################################################
@@ -1473,10 +1476,8 @@ selected_responses <- c("Crop yield", "Soil quality", "Biodiversity")
 
 # Prepare datasets and their corresponding V_matrices
 datasets <- list(
-  non_imp_dataset = list(data = non_imp_dataset, V_matrix = V_matrix_non_imp),
-  imp_dataset = list(data = imp_dataset, V_matrix = V_matrix_imp),
-  non_imp_dataset_imputed = list(data = non_imp_dataset_imputed, V_matrix = V_matrix_non_imp_imputed),
-  imp_dataset_imputed = list(data = imp_dataset_imputed, V_matrix = V_matrix_imp_imputed)
+  imp_dataset = list(data = imp_dataset, V_matrix = V_matrix_imp)
+  #non_imp_dataset = list(data = non_imp_dataset, V_matrix = V_matrix_non_imp)
 )
 
 # Split datasets
@@ -1488,7 +1489,7 @@ splits <- lapply(datasets, function(ds) {
 str(splits)
 
 # View sneak-peak
-splits$non_imp_dataset$Biodiversity |> glimpse()
+splits$imp_dataset$Biodiversity |> glimpse()
 ```
 
 
@@ -1677,17 +1678,25 @@ combined_loo_res
 
 Influence Diagnostics
 ```{r}
+combined_loo_res |> str()
+```
+
+```{r}
 # Step 1: Identify overlapping studies
-overlapping_studies <- all_loo_results_for_plotting %>%
+overlapping_studies <- combined_loo_res %>%
   distinct(response_variable, id_article) %>%  # Get unique combinations
   count(id_article) %>%  # Count how many response variables each study appears in
   filter(n > 1) %>%  # Filter studies that appear in more than 1 response variable
   pull(id_article)  # Extract the IDs of these studies
 
 # Step 2: Add a flag for overlapping studies
-all_loo_results_for_plotting <- all_loo_results_for_plotting %>%
+all_loo_results_for_plotting <- combined_loo_res %>%
   mutate(
     overlap_flag = ifelse(id_article %in% overlapping_studies, TRUE, FALSE)
+  ) |> 
+  mutate(
+    lower_ci = estimate - 1.96 * se,
+    upper_ci = estimate + 1.96 * se
   )
 
 # Step 3: Create the forest plot with highlights
@@ -1721,10 +1730,10 @@ all_loo_results_plot
 Between-Study Heterogeneity
 ```{r}
 # Check data structure
-str(non_imp_dataset)
+str(imp_dataset)
 
 # Check dimensions of V_matrix
-dim(V_matrix_non_imp)
+dim(V_matrix_imp)
 
 ```
 
@@ -1734,9 +1743,9 @@ dim(V_matrix_non_imp)
 tryCatch({
   model <- rma.mv(
     yi = yi, 
-    V = V_matrix_non_imp, 
+    V = V_matrix_imp, 
     random = ~ 1 | id_article,  # Simplified random structure
-    data = non_imp_dataset, 
+    data = imp_dataset, 
     method = "REML"
   )
   summary(model)  # Print model summary
@@ -1747,15 +1756,15 @@ tryCatch({
 ```
 ```{r}
 # Check dimensions
-dim(V_matrix_non_imp)
-nrow(non_imp_dataset)
+dim(V_matrix_imp)
+nrow(imp_dataset)
 
 # Check if V_matrix is symmetric
-is_symmetric <- all.equal(V_matrix_non_imp, t(V_matrix_non_imp))
+is_symmetric <- all.equal(V_matrix_imp, t(V_matrix_imp))
 print(is_symmetric)
 
 # Check diagonal elements
-diag_positive <- all(diag(V_matrix_non_imp) > 0)
+diag_positive <- all(diag(V_matrix_imp) > 0)
 print(diag_positive)
 
 # Inspect potential outliers in vi
@@ -1807,10 +1816,7 @@ calculate_between_study_variance <- function(data, V_matrix, random_formula, dat
 ```{r}
 # List of datasets and their V_matrices
 datasets <- list(
-  non_imp_dataset = list(data = non_imp_dataset, V_matrix = V_matrix_non_imp),
-  imp_dataset = list(data = imp_dataset, V_matrix = V_matrix_imp),
-  non_imp_dataset_imputed = list(data = non_imp_dataset_imputed, V_matrix = V_matrix_non_imp_imputed),
-  imp_dataset_imputed = list(data = imp_dataset_imputed, V_matrix = V_matrix_imp_imputed)
+  imp_dataset = list(data = imp_dataset, V_matrix = V_matrix_imp)
 )
 
 # Loop through datasets and compute Between-Study Heterogeneity
