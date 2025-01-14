@@ -157,8 +157,6 @@ output_dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
 # Load datasets
 non_imp_dataset <- readRDS(file.path(output_dir, "non_imp_dataset.rds"))
 imp_dataset <- readRDS(file.path(output_dir, "imp_dataset.rds"))
-non_imp_dataset_imputed <- readRDS(file.path(output_dir, "non_imp_dataset_imputed.rds"))
-imp_dataset_imputed <- readRDS(file.path(output_dir, "imp_dataset_imputed.rds"))
 ```
 
 ```{r}

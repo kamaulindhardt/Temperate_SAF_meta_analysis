@@ -181,6 +181,17 @@ global_palette <- c(
   "#0000ff"
 )
 
+
+custom_colors <- c(
+  "Biodiversity" = "#FF9999",
+  "Greenhouse gas emission" = "#66C266",
+  "Product quality" = "#FFC000",
+  "Crop yield" = "#FF9933",
+  "Pest and Disease" = "#33CCCC",
+  "Soil quality" = "#9966CC",
+  "Water quality" = "#9999FF"
+)
+
 # Define global ggplot2 scales for color and fill
 scale_fill_global <- scale_fill_viridis_d(option = "D")  # Discrete
 scale_color_global <- scale_color_viridis_d(option = "D")  # Discrete
@@ -338,138 +349,44 @@ database_clean <- database |>
   ) 
 ```
 
-```{r, eval=FALSE}
-# Function to safely convert to numeric, replacing non-numeric values with NA
-safe_as_numeric <- function(x) {
-  suppressWarnings(as.numeric(x))
-}
 
-# Data Preprocessing
-database_clean_dummy <- database_dummy |>
-  # Step 1: Clean column names
-  janitor::clean_names() |>
-  
-  # Step 2: Convert id_article and id_obs to integer
-  mutate(
-    id_article = as.integer(id_article),
-    id_obs = as.integer(id_obs)
-  ) |>
-  
-  # Step 3: Convert standard errors and other numeric columns
-  mutate(
-    silvo_mean = safe_as_numeric(silvo_mean),
-    silvo_se = safe_as_numeric(silvo_se),
-    silvo_sd = safe_as_numeric(silvo_sd),
-    silvo_n = safe_as_numeric(silvo_n),
-    control_mean = safe_as_numeric(control_mean),
-    control_se = safe_as_numeric(control_se),
-    control_sd = safe_as_numeric(control_sd),
-    control_n = safe_as_numeric(control_n),
-    tree_age = safe_as_numeric(tree_age),
-    no_tree_per_m = as.character(no_tree_per_m)) |> 
-  
-  # Step 4: Create Identifiers (Experiment, Treatment, Common Control)
-  # Group data by relevant columns for Treatment ID
-  group_by(id_article, tree_type, crop_type, location, experiment_year) |>
-  mutate(treat_id = cur_group_id()) |>
-  ungroup() |>
-  
-  # Group data by relevant columns for Experiment ID
-  group_by(id_article, location, experiment_year) |>
-  mutate(exp_id = cur_group_id()) |>
-  ungroup() |> 
-  
-  # Step 5: Ensure no infinite or NaN values are present in any columns
-  mutate(across(everything(), ~ifelse(is.infinite(.) | is.nan(.), NA, .))
-         ) |> 
-  
-  # Step 6: Convert "NA" strings to real NA values, excluding 'id_article' and 'id_obs'
-  mutate(
-    across(
-      .cols = where(is.character) & !c("id_article", "id_obs"),
-      .fns = ~ na_if(., "NA")
-    )
-  ) |>
-  
- # Step 7: Convert year columns to date format
- # Convert to proper Date format using "YYYY-01-01"
- mutate(
-    experiment_year = as.Date(paste0(experiment_year, "-01-01")),
-    year_est_exp = as.Date(paste0(year_est_exp, "-01-01")),
-    study_year_start = as.Date(paste0(study_year_start, "-01-01")),
-    study_year_end = as.Date(paste0(study_year_end, "-01-01"))
-  ) |> 
-  # Step 8: Rename Latitude and Longitude to lat and lon
-  rename(
-    lat = latitude,
-    lon = longitude
-  ) |>
-  
-  # Step 9: Convert lat and lon to numeric coordinates
-  mutate(
-    lat = str_replace_all(lat, "[°NS]", "") |> safe_as_numeric(),
-    lon = str_replace_all(lon, "[°EW]", "") |> safe_as_numeric(),
-    lat = if_else(str_detect(lat, "S$"), -lat, lat),
-    lon = if_else(str_detect(lon, "W$"), -lon, lon)
-  ) |>
-  
-  # Step 10: Create a Coherent 'site_x' Column
-  mutate(
-    # If `lat` and `lon` are present, use them; otherwise, use the `location` name
-    site_x = case_when(
-      !is.na(lat) & !is.na(lon) ~ paste(lat, lon, sep = ", "),
-      !is.na(location) ~ location,
-      TRUE ~ NA_character_
-    )
-  ) 
-```
 
 ```{r}
-database_clean
+database_clean |> filter(id_article == 10)
 ```
 
 ####################################
 GEOSPATIAL PREPROCESSING
 ####################################
 
-Manually changing 'France (south west)' to 'France' and 'South East England(Cambridgeshire)' to 'Cambridgeshire, England' and 
+In the Excel meta-data file, I am manually changing 'France (south west)' to 'France' and 'South East England(Cambridgeshire)' to 'Cambridgeshire, England' and 
 'Bramham in northern England' to 'Bramham, England'
+
 ```{r}
 # Step 1: Extract Coordinates from `site_x` if available
 database_clean <- database_clean |>
   mutate(
-    # Extract latitude and longitude from `site_x` if it contains coordinates
-    extracted_lat = str_extract(site_x, "[-]?\\d+\\.\\d+(?=, )") |> as.numeric(),
-    extracted_lon = str_extract(site_x, "(?<=, )[-]?\\d+\\.\\d+") |> as.numeric()
-  )
-
-# Step 2: Identify rows that need geocoding (i.e., where coordinates are missing)
-locations_to_geocode <- database_clean |>
-  filter(is.na(extracted_lat) | is.na(extracted_lon)) |>
-  distinct(location) |>
-  filter(!is.na(location))
-
-# Step 3: Geocode Location Names
-geocoded_locations <- locations_to_geocode |>
-  geocode(address = location, method = "osm", lat = "geo_lat", long = "geo_lon")
-
-# Step 4: Merge Geocoded Coordinates Back to the Dataset
-database_clean <- database_clean |>
-  left_join(geocoded_locations, by = "location") |>
+    # Extract latitude: Matches integers or decimals before a comma
+    extracted_lat = str_extract(site_x, "[-]?\\d+(\\.\\d+)?(?=, )"),
+    # Extract longitude: Matches integers or decimals after a comma and space
+    extracted_lon = str_extract(site_x, "(?<=, )[-]?\\d+(\\.\\d+)?")
+  ) |>
   mutate(
-    # Use extracted coordinates if available, otherwise use geocoded coordinates
-    final_lat = coalesce(extracted_lat, geo_lat),
-    final_lon = coalesce(extracted_lon, geo_lon),
+    # Convert extracted values to numeric
+    extracted_lat = as.numeric(extracted_lat),
+    extracted_lon = as.numeric(extracted_lon),
+    # Use extracted coordinates directly as final coordinates
+    final_lat = extracted_lat,
+    final_lon = extracted_lon,
     # Create the `exp_site_loc` column with final coordinates
     exp_site_loc = if_else(!is.na(final_lat) & !is.na(final_lon),
                            paste(final_lat, final_lon, sep = ", "),
                            NA_character_)
   ) |>
-  select(-extracted_lat, -extracted_lon, -geo_lat, -geo_lon)|> 
+  # Remove intermediate columns
+  select(-extracted_lat, -extracted_lon) |>
   
-  
-  
-  # Step 5: Relocate columns to the desired order
+  # Step 2: Relocate columns to the desired order
   relocate(
     # Overall ID info
     id_article, id_obs, treat_id, exp_id,
@@ -479,20 +396,9 @@ database_clean <- database_clean |>
     location, final_lat, final_lon, exp_site_loc, experiment_year,
     # Moderators info
     tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width,
-    # Quantitative mata-analysis effect size info
+    # Quantitative meta-analysis effect size info
     silvo_mean, silvo_se, silvo_sd, silvo_n, control_mean, control_se, control_sd, control_n
   )
-
-# Passing 23 addresses to the Nominatim single address geocoder
-# Query completed in: 23.4 seconds
-
-# Last run (03/12-2024)
-# Passing 4 addresses to the Nominatim single address geocoder
-# Query completed in: 4.3 seconds
-
-# Last run (01/01-2025)
-# Passing 3 addresses to the Nominatim single address geocoder
-# Query completed in: 3 seconds
 ```
 
 Checking if any missing values in coordinates
@@ -625,61 +531,21 @@ database_clean_sf <- database_clean_sf %>%
     )
   )
 ```
-Id_article	Id_obs	Site	Location	Latitude	Longitude	Experimental_design	Experiment_Year	Study_duration	Comparator	Tree_type	Crop_type
-10	366	Leeds	England	53.883333° N	1.5491° W	NA	1992	7	Monoculture	Biomass	Cereal
-
-Id_article	Id_obs	Site	Location	Latitude	Longitude	Experimental_design	Experiment_Year	Study_duration	Comparator	Tree_type	Crop_type	Year_est_exp
-29	873	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
-29	874	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
-29	875	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
-29	876	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
-29	877	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
-29	878	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
-29	879	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
-29	880	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
-29	881	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
-29	882	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
-29	883	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
-29	884	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
-29	885	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
-29	886	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
-29	887	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
-29	888	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
-29	889	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
-29	890	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
-29	891	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
-29	892	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
-29	893	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
-29	894	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
-29	895	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
-29	896	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
-29	897	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
-29	898	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
-29	899	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
-29	900	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
-29	901	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
-29	902	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
-29	903	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
-29	904	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
-29	905	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
-29	906	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
-29	907	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
-29	908	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
-
-Id_article	Id_obs	Site	Location	Latitude	Longitude	Experimental_design	Experiment_Year	Study_duration	Comparator	Tree_type	Crop_type	Year_est_exp
-36	1074	Xinjiang	China	73.370° N	34.200° E	Single-factor design	2011	2	Monoculture	Fruit,nut & other	Cereal	2011
-36	1075	Xinjiang	China	73.370° N	34.200° E	Single-factor design	2011	2	Monoculture	Fruit,nut & other	Cereal	2011
 
 
-
-Checking for unclassified in climate_zone and bioclim_sub_regions
+Checking for unclassified in climate_zone and bioclim_sub_regions or if any observations have odd classes e.g. 'Tropical Climates'
 
 ```{r}
 # Check classification coverage
 database_clean_sf %>%
   filter(climate_zone == "Unclassified" | bioclim_sub_regions == "Unclassified") %>%
   head()
+
+# Check classification of BioClim that is classified as 'Tropical'
+database_clean_sf %>%
+  filter(bioclim_sub_regions == "Tropical Climates") 
 ```
+
 
 
 
@@ -871,8 +737,10 @@ aggregation_summary |>
   ) +
   theme_minimal()
 ```
+
+
 ```{r}
-# Step 4: Map Visualization (Optional)
+# Step 4: Map Visualization of Studies
 # Simplify the dataset
 geo_data <- database_clean %>%
   select(lat, lon, exp_id) %>%
@@ -905,7 +773,6 @@ ggplot() +
     plot.title = element_text(face = "bold", hjust = 0.5),
     legend.position = "right"
   )
-
 ```
 
 ```{r}
@@ -930,6 +797,97 @@ missingness_summary <- database_clean %>%
     .groups = "drop"
   )
 ```
+
+Publication-ready map that visualizes the ecosystem services (response variables) reported in each study (id_article),
+```{r}
+# Step 1: Simplify the dataset for visualization
+geo_data <- database_clean %>%
+  group_by(lat = final_lat, lon = final_lon, response_variable) %>%
+  summarize(
+    n_studies = n_distinct(id_article),
+    .groups = "drop"
+  ) %>%
+  filter(!is.na(lat) & !is.na(lon)) # Remove rows with missing coordinates
+
+# Step 2: Base world map
+world_map <- map_data("world")
+
+
+# Step 4: Create the map
+geo_distribution_of_studies_map <- ggplot() +
+  # Add base map polygons
+  geom_polygon(
+    data = world_map,
+    aes(x = long, y = lat, group = group),
+    fill = "gray90", color = "gray70", size = 0.4
+  ) +
+   # Add jittered points for studies
+  geom_jitter(
+    data = geo_data,
+    aes(x = lon, y = lat, color = response_variable, size = as.factor(n_studies)),
+    alpha = 0.8,
+    width = 0.8,  # Adjust jitter width (longitude)
+    height = 0.75  # Adjust jitter height (latitude)
+  ) +
+  # Apply custom colors
+  scale_color_manual(values = custom_colors, name = "Ecosystem Service") +
+  scale_size_manual(
+    name = "n studies for the given locataion",
+    values = c(2, 3, 4, 5, 6, 7), # Assign size values for bins 1-6
+    breaks = as.character(1:6),  # Ensure breaks correspond to whole numbers
+    labels = as.character(1:6)   # Labels for the legend
+  ) +
+  # Add labels and theme adjustments
+  labs(
+    title = "Geographical Distribution of Ecosystem Services in Silvoarable Agroforestry Studies (Northern Hemisphere)",
+    x = "Longitude",
+    y = "Latitude"
+  ) +
+  coord_cartesian(ylim = c(20, 90)) +  # Restrict to the northern hemisphere
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5, size = 16),
+    legend.title = element_text(face = "bold"),
+    legend.position = "right",
+    panel.grid = element_blank(),
+    axis.line = element_line(color = "gray50")
+  )
+
+geo_distribution_of_studies_map
+```
+
+```{r}
+# Define the output directory
+output_dir <- here::here("DATA", "OUTPUT_FROM_R", "FIGURES")
+
+# Increase base text size and adjust all styling for the plots
+theme_custom <- theme_minimal(base_size = 30) + 
+  theme(
+    plot.title = element_text(size = 120),        # Increase title size
+    plot.subtitle = element_text(size = 70),
+    axis.text = element_text(size = 50),        # Increase axis text size
+    axis.title = element_text(size = 100),       # Increase axis title size
+    strip.text = element_text(size = 50),       # Increase facet text size
+    axis.text.y = element_text(size = 100),
+    legend.title = element_text(size = 80),
+    legend.position = "top",
+    legend.text = element_text(size = 80),
+    axis.text.x = element_text(size = 100)
+                               #angle = 45, hjust = 1) # Rotate x-axis text
+  )
+
+# Apply theme modifications to each plot
+geo_distribution_of_studies_map <- geo_distribution_of_studies_map + theme_custom
+
+# Save the map plot
+ggsave(
+  filename = file.path(output_dir, "geo_distribution_of_studies_map.png"), # Name of the file
+  plot = geo_distribution_of_studies_map, 
+  width = 20, height = 10, dpi = 600, # Specify dimensions and resolution
+  bg = "white" # Ensure a white background for publication-ready output
+)
+```
+
 
 Visualize Missingness (Facet Plot for Moderators and Responses)
 ```{r}
@@ -1057,6 +1015,40 @@ Code for Calculating Meta-Analysis Quantitative Data
 ```
 
 ```{r}
+##########################################################################################################################################
+# CALCULATING STANDARD DEVIATION FROM EXISTING STANDARD ERROR
+##########################################################################################################################################
+
+# Calculate standard deviations from standard errors and sample sizes only when _sd is FALSE or NA
+# database_clean_sd <- database_clean |>
+#   mutate(
+#     # Calculate standard deviation for silvo group if silvo_sd is FALSE or NA
+#     silvo_sd = if_else(
+#       is.na(silvo_sd) | silvo_sd == FALSE,
+#       silvo_se * sqrt(silvo_n),
+#       silvo_sd  # Keep existing value if silvo_sd is TRUE
+#     ),
+#     
+#     # Calculate standard deviation for control group if control_sd is FALSE or NA
+#     control_sd = if_else(
+#       is.na(control_sd) | control_sd == FALSE,
+#       control_se * sqrt(control_n),
+#       control_sd  # Keep existing value if control_sd is TRUE
+#     )
+#   )
+
+```
+
+```{r}
+database_clean |> glimpse()
+```
+
+
+##########################################################################################################################################
+CALCULATING STANDARD DEVIATION FROM EXISTING STANDARD ERROR
+##########################################################################################################################################
+
+```{r}
 # Calculate standard deviations from standard errors and sample sizes
 database_clean_sd <- database_clean |>
   mutate(
@@ -1130,6 +1122,7 @@ database_clean_sd_missingness <- database_clean_sd %>%
 
 missingness_summary
 ```
+
 ```{r}
 # Visualize missingness across response variables and moderators
 missingness_plot <- database_clean_sd_missingness %>%
@@ -1155,6 +1148,7 @@ missingness_plot <- database_clean_sd_missingness %>%
 
 missingness_plot
 ```
+
 ```{r}
 # Filter the dataset for rows with missing sd (either control_sd or silvo_sd)
 missing_sd_data <- database_clean_sd_missingness %>%
@@ -1177,6 +1171,7 @@ ggplot(missing_sd_summary, aes(x = reorder(response_variable, -count), y = count
   theme_minimal() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
+
 ```{r}
 # Filter the dataset for rows with missing sd (either control_sd or silvo_sd)
 missing_sd_data_rel <- database_clean_sd_missingness %>%
@@ -1196,6 +1191,7 @@ missing_sd_summary_rel <- missing_sd_data_rel %>%
 
 missing_sd_summary_rel
 ```
+
 ```{r}
 # Plot the relative missingness
 missing_sd_summary_rel |> 
@@ -1210,7 +1206,6 @@ missing_sd_summary_rel |>
   theme_minimal() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
-
 
 ```{r}
 # Assess missingness patterns across moderators
@@ -1266,7 +1261,6 @@ ggplot(missing_by_location, aes(x = reorder(location, -perc_missing_control_sd),
   theme_minimal() +
   coord_flip()
 ```
-
 ```{r}
 # Calculate missingness by study ID (id_article)
 missing_by_study <- database_clean_sd_missingness %>%
@@ -1284,7 +1278,6 @@ missing_by_study <- database_clean_sd_missingness %>%
 cat("\nMissingness by Study ID:\n")
 print(missing_by_study)
 ```
-
 ```{r}
 # Missingness by study ID
 ggplot(missing_by_study, aes(x = reorder(as.factor(id_article), -perc_missing_control_sd), y = perc_missing_control_sd)) +
@@ -1615,7 +1608,7 @@ These patterns reinforce the importance of tailoring imputation strategies to ac
 #############
 # STEP 4
 ##########################################################################################################################################
-HANDELING OF MISSING VALUES IN THE DATASET
+HANDELING OF MISSING VALUES IN THE DATASET - IMPUTATION
 ##########################################################################################################################################
 
 Perform imputation on  silvo_se, control_se using 
@@ -1630,6 +1623,7 @@ Linear regression imputation (norm.predict)
 database_clean_sd |> glimpse()
 ```
 
+The imputation process below does not explicitly ensure that imputation only occurs when both se and sd are missing (NA or FALSE, respectively). This is because the code primarily focuses on imputing se values based on the method specified (e.g., mean_imputation, pmm, etc.), and no condition is explicitly set to check whether both se and sd are missing before proceeding. To implement the condition that imputation should only occur when both se and sd are missing, we would need to modify the imputation logic. Specifically, by adding a condition that checks for e.g. NA or FALSE in both columns before imputing se. 
 
 ```{r}
 ##########################################################################
@@ -2299,16 +2293,15 @@ More quantitative statistical assessment
 
 ```{r}
 # Variable importance from a random forest model
+rf_data <- na.omit(imputed_datasets$upper_quartile)
 
-# Remove rows with missing values
-rf_data <- na.omit(imputed_datasets$rf)  
-
-# Exclude specific variables as predictors
+# Ensure to compute variable importance during model training
 rf_model <- randomForest(silvo_se ~ . - control_se - control_n - silvo_n - id_obs - treat_id - exp_id,
-                         data = rf_data)
+                         data = rf_data,
+                         importance = TRUE)
 
 # View variable importance
-importance(rf_model)
+randomForest::importance(rf_model)
 
 # Plot variable importance
 varImpPlot(rf_model)
@@ -2729,6 +2722,7 @@ glimpse(merged_data)
 # The merged dataset is now ready for further analysis and visualization, allowing for transparent comparisons between the original and imputed values.
 
 ```
+
 ```{r}
 # Replace missing values in `silvo_se` and `control_se` with imputed values if originals are NA
 
@@ -3316,7 +3310,6 @@ ggsave(
 SAVING TWO VERSIONS OF PREPROCESSED DATA FOR FURTHER ANALYSIS AND VISUALIZATION
 ##########################################################################################################################################
 
-
 ```{r}
 # Imputed dataset
 imp_pmm_best <- merged_data |> 
@@ -3376,11 +3369,9 @@ non_imp_dataset <- database_clean_sd |>
 ```
 
 
-
 ```{r}
 # Calculate standard deviations from standard errors and sample sizes
-imp_pmm_best 
-
+# Workflow for Calculating _SD with Comprehensive Conditions
 ```
 
 

@@ -3230,6 +3230,274 @@ plot(res.gosh.diag, type = "diagnostics")
 
 
 
+```{r, eval=FALSE}
+# Function to safely convert to numeric, replacing non-numeric values with NA
+safe_as_numeric <- function(x) {
+  suppressWarnings(as.numeric(x))
+}
+
+# Data Preprocessing
+database_clean_dummy <- database_dummy |>
+  # Step 1: Clean column names
+  janitor::clean_names() |>
+  
+  # Step 2: Convert id_article and id_obs to integer
+  mutate(
+    id_article = as.integer(id_article),
+    id_obs = as.integer(id_obs)
+  ) |>
+  
+  # Step 3: Convert standard errors and other numeric columns
+  mutate(
+    silvo_mean = safe_as_numeric(silvo_mean),
+    silvo_se = safe_as_numeric(silvo_se),
+    silvo_sd = safe_as_numeric(silvo_sd),
+    silvo_n = safe_as_numeric(silvo_n),
+    control_mean = safe_as_numeric(control_mean),
+    control_se = safe_as_numeric(control_se),
+    control_sd = safe_as_numeric(control_sd),
+    control_n = safe_as_numeric(control_n),
+    tree_age = safe_as_numeric(tree_age),
+    no_tree_per_m = as.character(no_tree_per_m)) |> 
+  
+  # Step 4: Create Identifiers (Experiment, Treatment, Common Control)
+  # Group data by relevant columns for Treatment ID
+  group_by(id_article, tree_type, crop_type, location, experiment_year) |>
+  mutate(treat_id = cur_group_id()) |>
+  ungroup() |>
+  
+  # Group data by relevant columns for Experiment ID
+  group_by(id_article, location, experiment_year) |>
+  mutate(exp_id = cur_group_id()) |>
+  ungroup() |> 
+  
+  # Step 5: Ensure no infinite or NaN values are present in any columns
+  mutate(across(everything(), ~ifelse(is.infinite(.) | is.nan(.), NA, .))
+  ) |> 
+  
+  # Step 6: Convert "NA" strings to real NA values, excluding 'id_article' and 'id_obs'
+  mutate(
+    across(
+      .cols = where(is.character) & !c("id_article", "id_obs"),
+      .fns = ~ na_if(., "NA")
+    )
+  ) |>
+  
+  # Step 7: Convert year columns to date format
+  # Convert to proper Date format using "YYYY-01-01"
+  mutate(
+    experiment_year = as.Date(paste0(experiment_year, "-01-01")),
+    year_est_exp = as.Date(paste0(year_est_exp, "-01-01")),
+    study_year_start = as.Date(paste0(study_year_start, "-01-01")),
+    study_year_end = as.Date(paste0(study_year_end, "-01-01"))
+  ) |> 
+  # Step 8: Rename Latitude and Longitude to lat and lon
+  rename(
+    lat = latitude,
+    lon = longitude
+  ) |>
+  
+  # Step 9: Convert lat and lon to numeric coordinates
+  mutate(
+    lat = str_replace_all(lat, "[°NS]", "") |> safe_as_numeric(),
+    lon = str_replace_all(lon, "[°EW]", "") |> safe_as_numeric(),
+    lat = if_else(str_detect(lat, "S$"), -lat, lat),
+    lon = if_else(str_detect(lon, "W$"), -lon, lon)
+  ) |>
+  
+  # Step 10: Create a Coherent 'site_x' Column
+  mutate(
+    # If `lat` and `lon` are present, use them; otherwise, use the `location` name
+    site_x = case_when(
+      !is.na(lat) & !is.na(lon) ~ paste(lat, lon, sep = ", "),
+      !is.na(location) ~ location,
+      TRUE ~ NA_character_
+    )
+  ) 
+```
+
+mutate(
+  # Clean site_x values to remove extra spaces
+  site_x = str_trim(site_x),
+  # Extract latitude and longitude from 'site_x' with a more robust pattern
+  extracted_lat = str_extract(site_x, "[-]?\\d+\\.\\d+(?=, ?[-]?\\d+\\.\\d+)") |> as.numeric(),
+  extracted_lon = str_extract(site_x, "(?<=, ?)[-]?\\d+\\.\\d+") |> as.numeric()
+)
+
+
+The geocoder is not needed becasue all observations has geographical coorordinates (lat. lon.)
+
+# Step 2: Identify rows that need geocoding (i.e., where coordinates are missing)
+locations_to_geocode <- database_clean |>
+  filter(is.na(extracted_lat) | is.na(extracted_lon)) |>
+  distinct(location) |>
+  filter(!is.na(location))
+
+# Step 3: Geocode Location Names
+geocoded_locations <- locations_to_geocode |>
+  geocode(address = location, method = "osm", lat = "geo_lat", long = "geo_lon")
+
+# Step 4: Merge Geocoded Coordinates Back to the Dataset
+database_clean <- database_clean |>
+  left_join(geocoded_locations, by = "location") |>
+  mutate(
+    # Use extracted coordinates if available, otherwise use geocoded coordinates
+    final_lat = coalesce(extracted_lat, geo_lat),
+    final_lon = coalesce(extracted_lon, geo_lon),
+    # Create the `exp_site_loc` column with final coordinates
+    exp_site_loc = if_else(!is.na(final_lat) & !is.na(final_lon),
+                           paste(final_lat, final_lon, sep = ", "),
+                           NA_character_)
+  ) 
+
+
+
+```{r}
+# Step 1: Extract Coordinates from `site_x` if available
+database_clean <- database_clean |>
+  mutate(
+    # Extract latitude: Matches integers or decimals before a comma
+    extracted_lat = str_extract(site_x, "[-]?\\d+(\\.\\d+)?(?=, )"),
+    # Extract longitude: Matches integers or decimals after a comma and space
+    extracted_lon = str_extract(site_x, "(?<=, )[-]?\\d+(\\.\\d+)?")
+  ) |>
+  mutate(
+    # Convert extracted values to numeric
+    extracted_lat = as.numeric(extracted_lat),
+    extracted_lon = as.numeric(extracted_lon)
+  )
+
+# Step 2: Identify rows that need geocoding (i.e., where coordinates are missing)
+locations_to_geocode <- database_clean |>
+  filter(is.na(extracted_lat) | is.na(extracted_lon)) |>
+  distinct(location) |>
+  filter(!is.na(location))
+
+# Step 3: Geocode Location Names
+geocoded_locations <- locations_to_geocode |>
+  geocode(address = location, method = "osm", lat = "geo_lat", long = "geo_lon")
+
+# Step 4: Merge Geocoded Coordinates Back to the Dataset
+database_clean <- database_clean |>
+  left_join(geocoded_locations, by = "location") |>
+  mutate(
+    # Use extracted coordinates if available, otherwise use geocoded coordinates
+    final_lat = coalesce(extracted_lat, geo_lat),
+    final_lon = coalesce(extracted_lon, geo_lon),
+    # Create the `exp_site_loc` column with final coordinates
+    exp_site_loc = if_else(!is.na(final_lat) & !is.na(final_lon),
+                           paste(final_lat, final_lon, sep = ", "),
+                           NA_character_)
+  ) |>
+  select(-extracted_lat, -extracted_lon, -geo_lat, -geo_lon)|> 
+  
+  
+  
+  # Step 5: Relocate columns to the desired order
+  relocate(
+    # Overall ID info
+    id_article, id_obs, treat_id, exp_id,
+    # Response variable info
+    response_variable, sub_response_variable,
+    # Geographic and temporal info
+    location, final_lat, final_lon, exp_site_loc, experiment_year,
+    # Moderators info
+    tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width,
+    # Quantitative mata-analysis effect size info
+    silvo_mean, silvo_se, silvo_sd, silvo_n, control_mean, control_se, control_sd, control_n
+  )
+
+# Passing 23 addresses to the Nominatim single address geocoder
+# Query completed in: 23.4 seconds
+
+# Last run (03/12-2024)
+# Passing 4 addresses to the Nominatim single address geocoder
+# Query completed in: 4.3 seconds
+
+# Last run (01/01-2025)
+# Passing 3 addresses to the Nominatim single address geocoder
+# Query completed in: 3 seconds
+```
+
+Id_article	Id_obs	Site	Location	Latitude	Longitude	Experimental_design	Experiment_Year	Study_duration	Comparator	Tree_type	Crop_type
+10	366	Leeds	England	53.883333° N	1.5491° W	NA	1992	7	Monoculture	Biomass	Cereal
+
+Id_article	Id_obs	Site	Location	Latitude	Longitude	Experimental_design	Experiment_Year	Study_duration	Comparator	Tree_type	Crop_type	Year_est_exp
+29	873	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	874	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	875	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	876	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	877	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	878	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	879	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	880	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	881	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	882	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	883	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	884	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	885	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	886	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	887	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	888	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	889	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	890	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	891	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	892	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	893	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	894	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	895	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	896	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	897	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	898	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	899	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	900	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	901	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	902	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	903	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	904	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	905	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	906	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	907	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+29	908	Nothern England	England	53.866667°N	1.320278°W	NA	1990	>2	Monoculture	Timber	Legume	1987
+
+Id_article	Id_obs	Site	Location	Latitude	Longitude	Experimental_design	Experiment_Year	Study_duration	Comparator	Tree_type	Crop_type	Year_est_exp
+36	1074	Xinjiang	China	73.370° N	34.200° E	Single-factor design	2011	2	Monoculture	Fruit,nut & other	Cereal	2011
+36	1075	Xinjiang	China	73.370° N	34.200° E	Single-factor design	2011	2	Monoculture	Fruit,nut & other	Cereal	2011
+
+
+
+Id_article	Id_obs	Site	Location	Latitude	Longitude	Experimental_design	Experiment_Year	Study_duration	Comparator	Tree_type	Crop_type	Year_est_exp
+10	380	Silsoe	UK	52.0° N	0.433333° W	NA	1995	7	Monoculture	Biomass	Cereal	1992
+10	381	Silsoe	UK	52.0° N	0.433333° W	NA	1995	7	Monoculture	Biomass	Cereal	1992
+10	382	Silsoe	UK	52.0° N	0.433333° W	NA	1996	7	Monoculture	Biomass	Cereal	1992
+10	383	Silsoe	UK	52.0° N	0.433333° W	NA	1996	7	Monoculture	Biomass	Cereal	1992
+10	384	Silsoe	UK	52.0° N	0.433333° W	NA	1997	7	Monoculture	Biomass	Cereal	1992
+10	385	Silsoe	UK	52.0° N	0.433333° W	NA	1997	7	Monoculture	Biomass	Cereal	1992
+10	386	Silsoe	UK	52.0° N	0.433333° W	NA	1998	7	Monoculture	Biomass	Legume	1992
+21	622	Bedfordshire	UK	52.000000° N	-0.430000° W	NA	2011	>2	Monoculture	Biomass	Cereal	1992
+21	623	Bedfordshire	UK	52.000000° N	-0.430000° W	NA	2011	>2	Monoculture	Biomass	Cereal	1992
+21	624	Bedfordshire	UK	52.000000° N	-0.430000° W	NA	2011	>2	Monoculture	Biomass	Cereal	1992
+21	625	Bedfordshire	UK	52.000000° N	-0.430000° W	NA	2011	>2	Monoculture	Biomass	Cereal	1992
+21	626	Bedfordshire	UK	52.000000° N	-0.430000° W	NA	2011	>2	Monoculture	Biomass	Cereal	1992
+21	627	Bedfordshire	UK	52.000000° N	-0.430000° W	NA	2011	>2	Monoculture	Biomass	Cereal	1992
+21	628	Bedfordshire	UK	52.000000° N	-0.430000° W	NA	2011	>2	Monoculture	Biomass	Cereal	1992
+21	629	Bedfordshire	UK	52.000000° N	-0.430000° W	NA	2011	>2	Monoculture	Biomass	Cereal	1992
+21	630	Bedfordshire	UK	52.000000° N	-0.430000° W	NA	2011	>2	Monoculture	Biomass	Cereal	1992
+21	631	Bedfordshire	UK	52.000000° N	-0.430000° W	NA	2011	>2	Monoculture	Biomass	Cereal	1992
+21	632	Bedfordshire	UK	52.000000° N	-0.430000° W	NA	2011	>2	Monoculture	Biomass	Cereal	1992
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -15229,4 +15497,393 @@ ggplot(fit_stats_results, aes(x = Response, y = AIC, fill = Model)) +
     x = "Response Variable",
     y = "AIC Value"
   )
+```
+
+
+Calculate standard deviations from standard errors and sample sizes only when _sd is missing
+
+```{r}
+# Calculate standard deviations from standard errors and sample sizes only when _sd is missing
+database_clean_sd <- database_clean |>
+  mutate(
+    # Preserve existing silvo_sd and calculate only if missing
+    silvo_sd = if_else(is.na(silvo_sd), silvo_se * sqrt(silvo_n), silvo_sd),
+    
+    # Preserve existing control_sd and calculate only if missing
+    control_sd = if_else(is.na(control_sd), control_se * sqrt(control_n), control_sd),
+    
+    # Create separate columns for calculated standard deviations for better transparency
+    silvo_sd_calculated = if_else(is.na(silvo_sd), silvo_se * sqrt(silvo_n), NA_real_),
+    control_sd_calculated = if_else(is.na(control_sd), control_se * sqrt(control_n), NA_real_)
+  )
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+##########################################################################################################################################
+Workflow for Calculating _SD with Comprehensive Conditions
+##########################################################################################################################################
+
+
+# Workflow for Calculating _SD with Comprehensive Conditions
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+# Imputed dataset
+imp_pmm_best <- merged_data |> 
+  # Modify the imp_pmm_best dataset before saving
+  # Remove existing columns
+  select(-c(control_se, silvo_se, control_se_original, silvo_se_original)) |>  
+  rename(
+    # Rename control_se_imputed to control_se
+    control_se = control_se_imputed, 
+    # Rename silvo_se_imputed to silvo_se
+    silvo_se = silvo_se_imputed      
+  ) |> 
+  as.data.frame()|> 
+  # RECALCALCULATE STANDARD DEVIATION FOR IMPUTED DATASET
+  mutate(
+    # Calculate standard deviation for silvo group
+    silvo_sd = silvo_se * sqrt(silvo_n),
+    # Calculate standard deviation for control group
+    control_sd = control_se * sqrt(control_n)
+  ) |> 
+  relocate(
+    # Overall ID info
+    id_article, id_obs, treat_id, exp_id,
+    # Response variable info
+    response_variable, sub_response_variable,
+    # Geographic and temporal info
+    location, final_lat, final_lon, exp_site_loc, experiment_year,
+    # Moderators info
+    tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width,
+    # Quantitative mata-analysis effect size info
+    silvo_mean, silvo_se, silvo_sd, silvo_n, control_mean, control_se, control_sd, control_n
+  )
+
+
+# Non-imputed dataset (remove geometry if necessary)
+non_imp_dataset <- database_clean_sd |> 
+  as.data.frame() |> 
+  # RECALCALCULATE STANDARD DEVIATION 
+  mutate(
+    # Calculate standard deviation for silvo group
+    silvo_sd = silvo_se * sqrt(silvo_n),
+    # Calculate standard deviation for control group
+    control_sd = control_se * sqrt(control_n)
+  ) |> 
+  relocate(
+    # Overall ID info
+    id_article, id_obs, treat_id, exp_id,
+    # Response variable info
+    response_variable, sub_response_variable,
+    # Geographic and temporal info
+    location, final_lat, final_lon, exp_site_loc, experiment_year,
+    # Moderators info
+    tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width,
+    # Quantitative mata-analysis effect size info
+    silvo_mean, silvo_se, silvo_sd, silvo_n, control_mean, control_se, control_sd, control_n
+  )
+```
+
+
+
+
+```{r}
+# Workflow for Calculating _SD with Comprehensive Conditions
+
+# Step 1: Define the full workflow to calculate _SD with explicit handling of original _SE, imputed _SE, and weighted average CV.
+
+# Load necessary libraries
+library(dplyr)
+
+# Step 2: Calculate the CV for studies that report SDs
+calculate_cv <- function(data) {
+  data %>%
+    mutate(
+      # Calculate CV for silvo group (when SD and mean are available)
+      silvo_cv = ifelse(!is.na(silvo_sd) & silvo_mean > 0, silvo_sd / silvo_mean, NA),
+      
+      # Calculate CV for control group (when SD and mean are available)
+      control_cv = ifelse(!is.na(control_sd) & control_mean > 0, control_sd / control_mean, NA)
+    )
+}
+
+# Step 3: Calculate the weighted average (pooled) CV
+calculate_pooled_cv <- function(data) {
+  pooled_values <- data %>%
+    filter(!is.na(silvo_cv) & !is.na(control_cv)) %>%
+    summarise(
+      # Weighted average CV for silvo group
+      pooled_silvo_cv = sqrt(sum((silvo_cv^2) * silvo_n, na.rm = TRUE) / sum(silvo_n, na.rm = TRUE)),
+      
+      # Weighted average CV for control group
+      pooled_control_cv = sqrt(sum((control_cv^2) * control_n, na.rm = TRUE) / sum(control_n, na.rm = TRUE))
+    )
+  return(pooled_values)
+}
+
+# Step 4: Apply conditional logic to calculate SD
+calculate_sd <- function(data, pooled_cv) {
+  data %>%
+    mutate(
+      # Calculate SD using original _SE values (if available)
+      silvo_sd_from_se_original = ifelse(!is.na(silvo_se_original), silvo_se_original * sqrt(silvo_n), NA),
+      control_sd_from_se_original = ifelse(!is.na(control_se_original), control_se_original * sqrt(control_n), NA),
+      
+      # Calculate SD using imputed _SE values (if available)
+      silvo_sd_from_se_imputed = ifelse(is.na(silvo_se_original) & !is.na(silvo_se_imputed), silvo_se_imputed * sqrt(silvo_n), NA),
+      control_sd_from_se_imputed = ifelse(is.na(control_se_original) & !is.na(control_se_imputed), control_se_imputed * sqrt(control_n), NA),
+      
+      # Calculate SD using pooled CV (for missing SDs)
+      silvo_sd_from_weight_cv = ifelse(is.na(silvo_se_original) & is.na(silvo_se_imputed), pooled_cv$pooled_silvo_cv * silvo_mean, NA),
+      control_sd_from_weight_cv = ifelse(is.na(control_se_original) & is.na(control_se_imputed), pooled_cv$pooled_control_cv * control_mean, NA),
+      
+      # Warning for completely missing SE values
+      silvo_warning = ifelse(is.na(silvo_se_original) & is.na(silvo_se_imputed) & is.na(pooled_cv$pooled_silvo_cv), "Warning: Missing silvo SE values for this observation.", NA),
+      control_warning = ifelse(is.na(control_se_original) & is.na(control_se_imputed) & is.na(pooled_cv$pooled_control_cv), "Warning: Missing control SE values for this observation.", NA)
+    )
+}
+
+# Step 5: Workflow implementation
+workflow <- function(data) {
+  # Step 5a: Calculate CV
+  data <- calculate_cv(data)
+  
+  # Step 5b: Calculate pooled CV
+  pooled_cv <- calculate_pooled_cv(data)
+  
+  # Step 5c: Calculate SD using the comprehensive conditions
+  data <- calculate_sd(data, pooled_cv)
+  
+  # Return the processed dataset
+  return(data)
+}
+
+# Example usage
+# Assuming `imp_pmm_best` is the dataset with necessary columns
+processed_data <- workflow(imp_pmm_best)
+
+# Glimpse the processed dataset
+processed_data |> glimpse()
+
+# Save the processed dataset
+saveRDS(processed_data, file = "processed_data_with_sd.rds")
+
+```
+
+
+
+
+
+
+
+
+
+```{r}
+# Modify the `imp_pmm_best` dataset to retain all necessary columns for the Workflow for Calculating _SD with Comprehensive Conditions
+
+# Imputed dataset
+imp_pmm_best <- merged_data |> 
+  # Retain all required columns including original and imputed SE values
+  select(
+    id_article, id_obs, treat_id, exp_id,
+    response_variable, sub_response_variable, location, final_lat, final_lon, exp_site_loc, experiment_year,
+    tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width,
+    silvo_mean, silvo_se_original, silvo_se_imputed, silvo_sd,
+    silvo_n, control_mean, control_se_original, control_se_imputed, control_sd, control_n
+  ) |>  
+  # Ensure column names are consistent and informative
+  rename(
+    control_se_original = control_se_original,
+    control_se_imputed = control_se_imputed,
+    silvo_se_original = silvo_se_original,
+    silvo_se_imputed = silvo_se_imputed
+  ) |> 
+  # Convert to a data frame for compatibility
+  as.data.frame() |> 
+  # Rearrange columns for better readability
+  relocate(
+    # Overall ID info
+    id_article, id_obs, treat_id, exp_id,
+    # Response variable info
+    response_variable, sub_response_variable,
+    # Geographic and temporal info
+    location, final_lat, final_lon, exp_site_loc, experiment_year,
+    # Moderators info
+    tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width,
+    # Quantitative meta-analysis effect size info
+    silvo_mean, silvo_se_original, silvo_se_imputed, silvo_sd, silvo_n,
+    control_mean, control_se_original, control_se_imputed, control_sd, control_n
+  )
+
+# Confirm the structure of the modified dataset
+imp_pmm_best |> glimpse()
+
+# The dataset now retains original and imputed _SE values, as well as placeholders for _SD calculations,
+# ensuring compatibility with the Workflow for Calculating _SD with Comprehensive Conditions.
+```
+
+```{r}
+# Workflow for Calculating _SD with Comprehensive Conditions
+
+# Step 1: Define the full workflow to calculate _SD with explicit handling of original _SE, imputed _SE, and weighted average CV.
+
+# Step 2: Calculate the CV for studies that report SDs
+calculate_cv <- function(data) {
+  data %>%
+    mutate(
+      # Calculate CV for silvo group (when SD and mean are available)
+      silvo_cv = ifelse(!is.na(silvo_sd) & silvo_mean > 0, silvo_sd / silvo_mean, NA),
+      
+      # Calculate CV for control group (when SD and mean are available)
+      control_cv = ifelse(!is.na(control_sd) & control_mean > 0, control_sd / control_mean, NA)
+    )
+}
+
+# Step 3: Calculate the weighted average (pooled) CV
+calculate_pooled_cv <- function(data) {
+  pooled_values <- data %>%
+    filter(!is.na(silvo_cv) & !is.na(control_cv)) %>%
+    summarise(
+      # Weighted average CV for silvo group
+      pooled_silvo_cv = sqrt(sum((silvo_cv^2) * silvo_n, na.rm = TRUE) / sum(silvo_n, na.rm = TRUE)),
+      
+      # Weighted average CV for control group
+      pooled_control_cv = sqrt(sum((control_cv^2) * control_n, na.rm = TRUE) / sum(control_n, na.rm = TRUE))
+    )
+  return(pooled_values)
+}
+
+# Step 4: Apply conditional logic to calculate SD
+calculate_sd <- function(data, pooled_cv) {
+  data %>%
+    mutate(
+      # Calculate SD using original _SE values (if available)
+      silvo_sd_from_se_original = ifelse(!is.na(silvo_se_original), silvo_se_original * sqrt(silvo_n), NA),
+      control_sd_from_se_original = ifelse(!is.na(control_se_original), control_se_original * sqrt(control_n), NA),
+      
+      # Calculate SD using imputed _SE values (if available)
+      silvo_sd_from_se_imputed = ifelse(is.na(silvo_se_original) & !is.na(silvo_se_imputed), silvo_se_imputed * sqrt(silvo_n), NA),
+      control_sd_from_se_imputed = ifelse(is.na(control_se_original) & !is.na(control_se_imputed), control_se_imputed * sqrt(control_n), NA),
+      
+      # Calculate SD using pooled CV (for missing SDs)
+      silvo_sd_from_weight_cv = ifelse(is.na(silvo_se_original) & is.na(silvo_se_imputed), pooled_cv$pooled_silvo_cv * silvo_mean, NA),
+      control_sd_from_weight_cv = ifelse(is.na(control_se_original) & is.na(control_se_imputed), pooled_cv$pooled_control_cv * control_mean, NA),
+      
+      # Warning for completely missing SE values
+      silvo_warning = ifelse(is.na(silvo_se_original) & is.na(silvo_se_imputed) & is.na(pooled_cv$pooled_silvo_cv), "Warning: Missing silvo SE values for this observation.", NA),
+      control_warning = ifelse(is.na(control_se_original) & is.na(control_se_imputed) & is.na(pooled_cv$pooled_control_cv), "Warning: Missing control SE values for this observation.", NA)
+    )
+}
+
+# Step 5: Workflow implementation
+workflow <- function(data) {
+  # Step 5a: Calculate CV
+  data <- calculate_cv(data)
+  
+  # Step 5b: Calculate pooled CV
+  pooled_cv <- calculate_pooled_cv(data)
+  
+  # Step 5c: Calculate SD using the comprehensive conditions
+  data <- calculate_sd(data, pooled_cv)
+  
+  # Return the processed dataset
+  return(data)
+}
+
+# Example usage
+# Assuming `imp_pmm_best` is the dataset with necessary columns
+processed_data <- workflow(imp_pmm_best)
+
+# Glimpse the processed dataset
+processed_data |> glimpse()
+```
+```{r}
+# Define the column groups
+se_columns <- c("silvo_se_original", "silvo_se_imputed", "control_se_original", "control_se_imputed")
+# Updated SD columns with weight-based CV
+sd_columns <- c(
+  "silvo_sd", "control_sd", 
+  "silvo_sd_from_se_original", "control_sd_from_se_original", 
+  "silvo_sd_from_se_imputed", "control_sd_from_se_imputed", 
+  "silvo_sd_from_weight_cv", "control_sd_from_weight_cv"  
+)
+
+cv_columns <- c("silvo_cv", "control_cv")
+
+# Function to pivot and plot density plots
+plot_density <- function(data, columns, title, x_label) {
+  data %>%
+    select(all_of(columns)) %>%
+    pivot_longer(cols = everything(), names_to = "variable", values_to = "value") %>%
+    ggplot(aes(x = value, fill = variable)) +
+    geom_density(alpha = 0.5) +
+    labs(title = title, x = x_label, y = "Density") +
+    theme_minimal() +
+    theme(legend.position = "bottom") +
+    scale_fill_discrete(name = "Variables")
+}
+
+# Density plot for SE variables
+plot_density(processed_data, se_columns, "Density Plot of SE Variables", "SE Value")
+
+# Density plot for SD variables
+plot_density(processed_data, sd_columns, "Density Plot of SD Variables", "SD Value")
+
+# Density plot for CV variables
+plot_density(processed_data, cv_columns, "Density Plot of CV Variables", "CV Value")
+```
+```{r}
+# Function to pivot and plot density plots with pseudo log scaling
+plot_density_pseudo <- function(data, columns, title, x_label, y_label) {
+  data %>%
+    select(all_of(columns)) %>%
+    pivot_longer(cols = everything(), names_to = "variable", values_to = "value") %>%
+    ggplot(aes(x = value, fill = variable)) +
+    geom_density(alpha = 0.5) +
+    scale_x_continuous(trans = "pseudo_log") +  # Apply pseudo-log scaling to x-axis
+    scale_y_continuous(trans = "pseudo_log") +  # Apply pseudo-log scaling to y-axis
+    labs(title = title, x = x_label, y = y_label) +
+    theme_minimal() +
+    theme(legend.position = "bottom") +
+    scale_fill_discrete(name = "Variables")
+}
+
+# Density plot for SE variables with pseudo scaling
+plot_density_pseudo(processed_data, se_columns, 
+                    "Density Plot of SE Variables (Pseudo Log Scale)", 
+                    "SE Value", "Density")
+
+# Density plot for SD variables with pseudo scaling
+plot_density_pseudo(processed_data, sd_columns, 
+                    "Density Plot of SD Variables (Pseudo Log Scale)", 
+                    "SD Value", "Density")
+
+# Density plot for CV variables with pseudo scaling
+plot_density_pseudo(processed_data, cv_columns, 
+                    "Density Plot of CV Variables (Pseudo Log Scale)", 
+                    "CV Value", "Density")
+
 ```

@@ -1488,8 +1488,8 @@ model_comparison_gt_table_concise
 # Save the concise table
 output_dir <- here::here("DATA", "OUTPUT_FROM_R", "TABLES")
 gtsave(
-  data = concise_gt,
-  filename = file.path(output_dir, "concise_model_comparison_metrics_table.html")
+  data = model_comparison_gt_table_concise,
+  filename = file.path(output_dir, "model_comparison_gt_table_concise.html")
 )
 ```
 
