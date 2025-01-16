@@ -172,7 +172,7 @@ imp_data_rom <- readRDS(here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_
 # Read in the non-imputed dataset
 non_imp_dataset <- non_imp_data_rom %>%
   as.data.frame()|> 
-  select(-geometry) |> 
+  # select(-geometry) |> 
   relocate(
     # Overall ID info
     id_article, id_obs, treat_id, exp_id,
@@ -185,7 +185,8 @@ non_imp_dataset <- non_imp_data_rom %>%
     # Moderators info
     tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width,
     # Quantitative mata-analysis effect size info
-    silvo_mean, silvo_se, silvo_sd, silvo_n, control_mean, control_se, control_sd, control_n
+    silvo_mean, silvo_se_original, silvo_sd_combined, silvo_n, 
+    control_mean, control_se_original, control_sd_combined, control_n
   )
 
 # Read in the imputed dataset
@@ -203,7 +204,8 @@ imp_dataset <- imp_data_rom %>%
     # Moderators info
     tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width,
     # Quantitative mata-analysis effect size info
-    silvo_mean, silvo_se, silvo_sd, silvo_n, control_mean, control_se, control_sd, control_n
+     silvo_mean, silvo_se_original, silvo_sd_combined, silvo_n, 
+    control_mean, control_se_original, control_sd_combined, control_n
   )
 })
 ```
@@ -216,8 +218,8 @@ high_variance_obs <-
   # Reorder columns for better readability
   relocate(id_article, response_variable, measured_metrics, measured_unit, 
            yi, vi,
-           silvo_mean, silvo_se, silvo_sd, silvo_n, 
-           control_mean, control_se, control_sd, control_n,
+           silvo_mean, silvo_se_original, silvo_sd_combined, silvo_n, 
+           control_mean, control_se_original, control_sd_combined, control_n,
            tree_type, crop_type, age_system, season, soil_texture, no_tree_per_m, tree_height, alley_width) |> 
   arrange(id_article, response_variable)
 
