@@ -2837,13 +2837,112 @@ This plot provides valuable insights into the trade-offs between model complexit
 One limitation of this analysis is that it does not address how these differences in heterogeneity metrics affect the broader goals of the meta-analysis, such as reporting effect sizes or testing specific hypotheses. Additionally, model performance may vary depending on the specific response variables being studied, and the choice of the best model should align with the overarching research questions and practical considerations for reporting. These results highlight the importance of transparently communicating the rationale for model selection and acknowledging the trade-offs involved in balancing explanatory power, complexity, and interpretability in meta-analysis.
 
 
+#############
+# STEP 5
+##########################################################################################################################################
+KEY INFLUENCE DIAGNOSTICS ON EACH SUBSET - SIMPLIFIED MODEL FITTING 
+##########################################################################################################################################
 
+Understanding the overall effect of each response variable on the overall effect size: Quantifying how the outcomes (response variables) studied in our meta-analysis contribute to the aggregated measure of effect sizes. The Null and Minimal Random Effects Models are particularly good in this.
 
+What Does "Overall Effect of Each Response Variable" Mean?
+Effect Size (yi):
+
+Each study reports an effect size (yi) for a specific response variable (e.g., biodiversity, crop yield). The effect size quantifies the magnitude of the observed effect, such as the improvement in biodiversity or crop yield due to an intervention.
+Overall Effect:
+
+The overall effect is a weighted average of the effect sizes across studies for a given response variable. It answers the question: "On average, how much does this response variable change across studies?"
+Weighting accounts for the precision (variance, vi) of each study, giving more weight to studies with lower variance.
+
+```{r}
+# The Null Model is the simplest form of meta-analysis. It estimates an overall effect size (intercept-only) without accounting for moderators or random effects, making # it ideal for quickly summarizing the overall effect.
+
+# Fit the null model for each response variable
+overall_effects <- lapply(names(v_matrices), function(response) {
+  data_subset <- meta_data[meta_data$response_variable == response, ]
+  
+  # Fit the null model
+  fit_null_model(data_subset, response)
+})
+
+# Extract results
+overall_effects_summary <- lapply(overall_effects, function(model) {
+  if (!is.null(model)) {
+    summary(model)$b[, "Estimate"] # Extract the overall effect size (intercept)
+  } else {
+    NA
+  }
+})
+
+# Combine results into a data frame
+overall_effects_df <- data.frame(
+  ResponseVariable = names(v_matrices),
+  OverallEffect = unlist(overall_effects_summary)
+)
+
+# Fit the minimal random effects model for each response variable
+minimal_effects <- lapply(names(v_matrices), function(response) {
+  data_subset <- meta_data[meta_data$response_variable == response, ]
+  v_matrix <- v_matrices[[response]]
+  
+  # Fit the minimal random effects model
+  fit_minimal_model(data_subset, response, v_matrix)
+})
+
+# Extract results
+minimal_effects_summary <- lapply(minimal_effects, function(model) {
+  if (!is.null(model)) {
+    summary(model)$b[, "Estimate"] # Extract the overall effect size (intercept)
+  } else {
+    NA
+  }
+})
+
+# Combine results into a data frame
+minimal_effects_df <- data.frame(
+  ResponseVariable = names(v_matrices),
+  OverallEffect = unlist(minimal_effects_summary)
+)
+
+# Compare results from both models
+comparison_df <- merge(
+  overall_effects_df,
+  minimal_effects_df,
+  by = "ResponseVariable",
+  suffixes = c("_NullModel", "_MinimalModel")
+)
+```
+
+```{r}
+# Combine results for visualization
+effects_plot_data <- overall_effects_df %>%
+  rename(EffectSize = OverallEffect) %>%
+  mutate(Model = "Null Model") %>%
+  bind_rows(
+    minimal_effects_df %>%
+      rename(EffectSize = OverallEffect) %>%
+      mutate(Model = "Minimal Random Effects Model")
+  )
+
+# Plot
+ggplot(effects_plot_data, aes(x = ResponseVariable, y = EffectSize, color = Model)) +
+  geom_point(size = 3, position = position_dodge(width = 0.5)) +
+  geom_errorbar(aes(ymin = EffectSize - 0.1, ymax = EffectSize + 0.1), # Adjust error range as needed
+                width = 0.2, position = position_dodge(width = 0.5)) +
+  labs(
+    title = "Overall Effect Sizes by Response Variable",
+    x = "Response Variable",
+    y = "Overall Effect Size",
+    color = "Model"
+  ) +
+  theme_minimal(base_size = 14)
+
+```
 
 
 
 #############
-# STEP 5
+# STEP 6
 ##########################################################################################################################################
 KEY INFLUENCE DIAGNOSTICS ON EACH SUBSET - SIMPLIFIED MODEL FITTING 
 ##########################################################################################################################################
@@ -2862,10 +2961,12 @@ SAVING DATASETS AND MODEL OBJECTS
 
 
 #############
-# STEP 6
+# STEP 7
 ##########################################################################################################################################
-PUBLICATION-READY PLOTS OF EFFECT SIZE IMPACTS ON RESPONSE VARIABLES OF TEMPERATE SAF FOR EACH SUBSET MODEL FITTING 
+PUBLICATION-READY PLOTS AND TABLES OF EFFECT SIZE IMPACTS ON RESPONSE VARIABLES OF TEMPERATE SAF FOR EACH SUBSET MODEL FITTING 
 ##########################################################################################################################################
+
+
 
 Forest Plot: Visualizes effect sizes and confidence intervals for response variables.
 Ridge Plot: Shows the distribution of effect sizes for each response variable.
@@ -3262,8 +3363,86 @@ funnel_data <- data.frame(
 
 
 
+To produce a table similar to the one in the "cabbage paper," summarizing the effect of moderator variables on response variables, you can follow these steps. The table will display the significance (p-values) of the moderators for different response variables based on your simplified meta-analysis model.
 
+```{r}
+# Fit simplified models (assuming this has already been done)
+model_results <- lapply(names(v_matrices), function(response) {
+  data_subset <- meta_data[meta_data$response_variable == response, ]
+  v_matrix <- v_matrices[[response]]
+  moderators <- c("tree_type", "crop_type", "age_system", "season", "soil_texture") # Define moderators
+  fit_simplified_model(data_subset, response, v_matrix, moderators)
+})
+names(model_results) <- names(v_matrices)
+```
 
+```{r}
+# Extract p-values for each model and moderator
+extract_p_values <- function(model, response_variable) {
+  if (is.null(model)) return(NULL)
+  
+  summary_data <- summary(model)
+  p_values <- summary_data$coefficients[-1, "pval"]  # Exclude the intercept
+  moderators <- rownames(summary_data$coefficients)[-1]
+  
+  data.frame(
+    ResponseVariable = response_variable,
+    Moderator = moderators,
+    P_Value = p_values,
+    stringsAsFactors = FALSE
+  )
+}
+
+# Combine p-values across all response variables
+p_values_table <- do.call(
+  rbind,
+  lapply(names(model_results), function(response) {
+    extract_p_values(model_results[[response]], response)
+  })
+)
+```
+
+```{r}
+# Reshape the table for final output
+
+formatted_table <- p_values_table %>%
+  pivot_wider(
+    names_from = ResponseVariable,
+    values_from = P_Value
+  ) %>%
+  arrange(Moderator)
+```
+
+```{r}
+# Add aspects manually (example mapping)
+aspects <- c(
+  "tree_type" = "Genetic",
+  "crop_type" = "Genetic",
+  "age_system" = "Temporal",
+  "season" = "Temporal",
+  "soil_texture" = "Spatial"
+)
+
+formatted_table <- formatted_table %>%
+  mutate(Aspect = aspects[Moderator]) %>%
+  relocate(Aspect, .before = Moderator)
+```
+
+```{r}
+# Highlight significant p-values
+formatted_table <- formatted_table %>%
+  mutate(across(where(is.numeric), ~ ifelse(. < 0.05, sprintf("**%.3f**", .), sprintf("%.3f", .))))
+```
+
+```{r}
+# Render as Publication-Ready Table
+formatted_table %>%
+  gt() %>%
+  tab_header(
+    title = "Effect of Moderator Variables on Ecosystem Services",
+    subtitle = "Significant effects (P < 0.05) are highlighted."
+  )
+```
 
 
 

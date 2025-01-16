@@ -15887,3 +15887,326 @@ plot_density_pseudo(processed_data, cv_columns,
                     "CV Value", "Density")
 
 ```
+
+
+
+
+
+
+
+
+
+```{r}
+# Step 4: Map Visualization of Studies
+# Simplify the dataset
+geo_data <- database_clean %>%
+  select(lat, lon, exp_id) %>%
+  filter(!is.na(lat) & !is.na(lon)) # Remove rows with missing coordinates
+
+# Base map
+world_map <- map_data("world")
+
+# Plot the map with points
+ggplot() +
+  geom_polygon(
+    data = world_map,
+    aes(x = long, y = lat, group = group),
+    fill = "gray90", color = "gray70", size = 0.3
+  ) +
+  geom_point(
+    data = geo_data,
+    aes(x = lon, y = lat, color = as.factor(exp_id)),
+    size = 3, alpha = 0.7
+  ) +
+  scale_color_viridis_d() +
+  labs(
+    title = "Geographical Distribution of exp_id",
+    x = "Longitude",
+    y = "Latitude",
+    color = "Experiment ID"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    legend.position = "right"
+  )
+```
+
+
+Code for Calculating Meta-Analysis Quantitative Data
+
+```{r}
+# Dunctions for converting different measures of variability to SD - (however, in our data we only have SE)
+
+# SE to SD
+# SEtoSD <- function(SE, n) {
+#   SE * sqrt(n)
+# }
+
+# # LSD to SD
+# LSDtoSD <- function(LSD, n) {
+#   LSD / (qt(0.975, n - 1)) * (sqrt(n) / sqrt(2))
+# }
+# 
+# # CV to SD
+# CVtoSD <- function(CV, mean) {
+#   (CV / 100) * mean
+# }
+# 
+# # MSE to SD
+# MSEtoSD <- function(MSE) {
+#   sqrt(MSE)
+# }
+```
+
+```{r}
+##########################################################################################################################################
+# CALCULATING STANDARD DEVIATION FROM EXISTING STANDARD ERROR
+##########################################################################################################################################
+
+# Calculate standard deviations from standard errors and sample sizes only when _sd is FALSE or NA
+# database_clean_sd <- database_clean |>
+#   mutate(
+#     # Calculate standard deviation for silvo group if silvo_sd is FALSE or NA
+#     silvo_sd = if_else(
+#       is.na(silvo_sd) | silvo_sd == FALSE,
+#       silvo_se * sqrt(silvo_n),
+#       silvo_sd  # Keep existing value if silvo_sd is TRUE
+#     ),
+#     
+#     # Calculate standard deviation for control group if control_sd is FALSE or NA
+#     control_sd = if_else(
+#       is.na(control_sd) | control_sd == FALSE,
+#       control_se * sqrt(control_n),
+#       control_sd  # Keep existing value if control_sd is TRUE
+#     )
+#   )
+
+```
+
+
+
+
+
+
+
+
+```{r}
+##########################################################################
+# Set up the parallel processing plan
+plan(multisession, workers = parallel::detectCores() - 1)
+##########################################################################
+# Start time tracking
+start.time <- Sys.time()
+
+#######################################################################################
+# Step 1: Check and enforce correct data types
+#######################################################################################
+col_for_impute <- database_clean_sd |> 
+  as.data.frame() |> 
+  select(-geometry) |> 
+  select(
+    # Columns that need to be imputed
+    silvo_se, control_se, 
+    # Columns that are used by mice to impute values
+    tree_age, crop_type, tree_type, bioclim_sub_regions, experiment_year, alley_width, silvo_n, control_n,
+    # IDs that are used to back-link imputed values to the dataset
+    id_article, id_obs, treat_id, exp_id
+  ) |> 
+  mutate(
+    silvo_se = as.numeric(silvo_se),
+    control_se = as.numeric(control_se),
+    silvo_n = as.numeric(silvo_n),
+    control_n = as.numeric(control_n),
+    tree_age = as.numeric(tree_age),
+    crop_type = as.factor(crop_type),
+    tree_type = as.factor(tree_type),
+    bioclim_sub_regions = as.factor(bioclim_sub_regions),
+    alley_width = as.factor(alley_width),
+    id_article = as.numeric(id_article),
+    id_obs = as.numeric(id_obs),
+    treat_id = as.numeric(treat_id),
+    exp_id = as.numeric(exp_id)
+  )
+
+#######################################################################################
+# Step 2: Define the function for each imputation method
+#######################################################################################
+impute_data <- function(data, method_name) {
+  if (method_name == "mean_imputation") {
+    data <- data %>%
+      mutate(
+        silvo_se_imputed = ifelse(is.na(silvo_se), mean(silvo_se, na.rm = TRUE), silvo_se),
+        control_se_imputed = ifelse(is.na(control_se), mean(control_se, na.rm = TRUE), control_se)
+      )
+    return(data)
+    
+  } else if (method_name == "upper_quartile") {
+    upper_quartile_variance <- data %>%
+      summarise(across(c(silvo_se, control_se), ~ quantile(.^2, 0.75, na.rm = TRUE))) %>%
+      pivot_longer(cols = everything(), names_to = "variable", values_to = "upper_quartile")
+    
+    data <- data %>%
+      mutate(
+        silvo_se_imputed = ifelse(is.na(silvo_se), sqrt(upper_quartile_variance$upper_quartile[1]), silvo_se),
+        control_se_imputed = ifelse(is.na(control_se), sqrt(upper_quartile_variance$upper_quartile[2]), control_se)
+      )
+    return(data)
+    
+  } else if (method_name == "linear_imputation") {
+    data <- data %>%
+      mutate(
+        crop_type = as.numeric(as.factor(crop_type)),
+        tree_type = as.numeric(as.factor(tree_type)),
+        bioclim_sub_regions = as.numeric(as.factor(bioclim_sub_regions)),
+        alley_width = as.numeric(as.factor(alley_width))
+      )
+    
+    pred_matrix <- mice::make.predictorMatrix(data)
+    pred_matrix[, c("tree_age", "crop_type", "tree_type", "bioclim_sub_regions", "experiment_year", "alley_width", 
+                    "id_article", "id_obs", "treat_id", "exp_id")] <- 0 
+    
+    method <- c(
+      "silvo_se" = "norm.predict",   # Imputed using linear regression
+      "control_se" = "norm.predict"   # Imputed using linear regression
+    )
+    
+    imputed_mids <- mice(
+      data,
+      m = 20,
+      maxit = 100,
+      method = method,
+      predictorMatrix = pred_matrix,
+      seed = 1234,
+      printFlag = FALSE
+    )
+    
+    completed_data <- mice::complete(imputed_mids)
+    completed_data <- completed_data %>%
+      mutate(
+        silvo_se_imputed = completed_data$silvo_se,
+        control_se_imputed = completed_data$control_se
+      )
+    return(completed_data)
+    
+  } else if (method_name == "bayesian") {
+    data <- data %>%
+      mutate(
+        silvo_se = ifelse(silvo_se < 0, 0, silvo_se),
+        control_se = ifelse(control_se < 0, 0, control_se)
+      )
+    
+    pred_matrix <- mice::make.predictorMatrix(data)
+    pred_matrix[, c("tree_age", "crop_type", "tree_type", "bioclim_sub_regions", "experiment_year", "alley_width", 
+                    "id_article", "id_obs", "treat_id", "exp_id")] <- 0 
+    
+    method <- c(
+      "silvo_se" = "norm.nob",   # Imputed using Bayesian regression
+      "control_se" = "norm.nob"   # Imputed using Bayesian regression
+    )
+    
+    imputed_mids <- mice(
+      data,
+      m = 20,
+      maxit = 100,
+      method = method,
+      predictorMatrix = pred_matrix,
+      seed = 1234,
+      printFlag = FALSE
+    )
+    
+    completed_data <- mice::complete(imputed_mids)
+    completed_data <- completed_data %>%
+      mutate(
+        silvo_se_imputed = completed_data$silvo_se,
+        control_se_imputed = completed_data$control_se
+      )
+    return(completed_data)
+    
+  } else if (method_name == "pmm") {
+    pred_matrix <- mice::make.predictorMatrix(data)
+    pred_matrix[, c("tree_age", "crop_type", "tree_type", "bioclim_sub_regions", "experiment_year", "alley_width", 
+                    "id_article", "id_obs", "treat_id", "exp_id")] <- 0 
+    
+    method <- c(
+      "silvo_se" = "pmm",   # Imputed using predictive mean matching
+      "control_se" = "pmm"  # Imputed using predictive mean matching
+    )
+    
+    imputed_mids <- mice(
+      data,
+      m = 20,
+      maxit = 100,
+      method = method,
+      predictorMatrix = pred_matrix,
+      seed = 1234,
+      printFlag = FALSE
+    )
+    
+    completed_data <- mice::complete(imputed_mids)
+    completed_data <- completed_data %>%
+      mutate(
+        silvo_se_imputed = completed_data$silvo_se,
+        control_se_imputed = completed_data$control_se
+      )
+    return(completed_data)
+    
+  } else {
+    stop("Invalid method name.")
+  }
+}
+
+#######################################################################################
+# Step 3: Apply each imputation method
+#######################################################################################
+imputation_methods <- c("mean_imputation", "upper_quartile", "linear_imputation", "bayesian", "pmm")
+imputed_datasets <- list()
+
+# Iterate through imputation methods
+for (method_name in imputation_methods) {
+  cat("Applying", method_name, "imputation...\n")
+  
+  tryCatch({
+    imputed_datasets[[method_name]] <- impute_data(col_for_impute, method_name)
+  }, error = function(e) {
+    cat("Error applying", method_name, "imputation:", e$message, "\n")
+  })
+}
+
+#######################################################################################
+# Step 4: Combine and Compare Results
+#######################################################################################
+imputed_summaries <- lapply(imputed_datasets, function(dataset) {
+  dataset %>%
+    summarise(
+      missing_silvo_se = sum(is.na(silvo_se)),
+      missing_control_se = sum(is.na(control_se)),
+      imputed_silvo_se = sum(!is.na(silvo_se_imputed)),
+      imputed_control_se = sum(!is.na(control_se_imputed))
+    )
+})
+
+names(imputed_summaries) <- imputation_methods
+
+for (method_name in imputation_methods) {
+  cat("\nSummary for", method_name, ":\n")
+  print(imputed_summaries[[method_name]])
+}
+
+##########################################################################
+# End time tracking
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+cat("\nTotal time taken:", time.taken, "\n")
+##########################################################################
+# Last run (04/01-25)
+# Total time taken: 18.98046 secs
+
+# Last run (05/01-25)
+# Total time taken: 2.224936 mins 
+
+# Last run (11/01-25)
+# Total time taken: 3.70053 mins
+
+# Last run (16/01-25)
+```
