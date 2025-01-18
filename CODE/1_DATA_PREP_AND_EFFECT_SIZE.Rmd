@@ -168,6 +168,7 @@ conflict_prefer("geocode", "tidygeocoder")
 conflict_prefer("chisq.test", "stats")
 conflict_prefer("step", "stats")
 conflict_prefer("margin", "ggplot2")
+conflict_prefer("intersect", "base")
 ```
 ```{r}
 # Set a global theme and color scale
@@ -2275,6 +2276,15 @@ varImpPlot(rf_model)
 ```
 
 
+This plot shows the importance of different variables in a random forest model, with two metrics used to assess their impact: %IncMSE (percent increase in mean squared error) and IncNodePurity (increase in node purity).
+
+On the left, %IncMSE measures how much the prediction error increases when a variable is randomly permuted. Variables with higher values here are more important for predicting the target outcome. In this case, "bioclim_sub_regions" and "tree_age" appear to have the largest influence, followed by "experiment_year" and "tree_type."
+
+On the right, IncNodePurity assesses how much a variable contributes to the homogeneity (or purity) of nodes when used to split the data in the random forest. Variables with higher values are better at creating splits that improve the model. Again, "tree_age" and "bioclim_sub_regions" are prominent, with contributions from other variables like "experiment_year" and "tree_type."
+
+Both metrics indicate that "bioclim_sub_regions" and "tree_age" are the most important variables in this model, with some influence from "experiment_year," "tree_type," and other predictors like "crop_type" and "alley_width."
+
+
 ```{r}
 # a. Descriptive Statistics
 # Calculate and compare mean, standard deviation, and range for key variables (e.g., silvo_se, control_se).
@@ -2638,6 +2648,14 @@ gtsave(data = comparison_gt, filename = file.path(output_dir, "comparison_gt_tab
 ```
 
 
+
+```{r}
+imputed_datasets |> glimpse()
+```
+
+
+
+
 #############
 # STEP 5
 ##########################################################################################################################################
@@ -2646,26 +2664,44 @@ MERGING THE IMPUTED DATASET BACK TO THE ORIGINAL DATA AND VISUALISE
 
 ```{r}
 ##############
-# MERGING IMPUTED DATA BACK TO THE ORIGINAL DATASET AND VISUALIZING
+# SMART SELECTION OF IMPUTATION METHOD - MERGING IMPUTED _SE
 ############################################################################
-# Objective:
-# Combine the original dataset (`database_clean_sd`) with the imputed dataset 
-# (using the PMM imputation method, selected as the most robust approach).
-# This allows for a comparison of original vs. imputed values and ensures clarity by keeping columns distinct.
 
-# Merging process
+
+# Step 1: Create a combined dataset with both PMM and Upper Quartile imputations
+combined_imputed_data <- imputed_datasets$pmm %>%
+  select(id_article, id_obs, silvo_se_pmm = silvo_se, control_se_pmm = control_se) %>%
+  full_join(
+    imputed_datasets$upper_quartile %>%
+      select(id_article, id_obs, silvo_se_uq = silvo_se, control_se_uq = control_se),
+    by = c("id_article", "id_obs")
+  )
+
+# Step 2: Apply conditional logic to select the imputation method
+smart_imputed_data <- combined_imputed_data %>%
+  mutate(
+    silvo_se = ifelse(silvo_se_pmm <= silvo_se_uq, silvo_se_pmm, silvo_se_uq),
+    control_se = ifelse(control_se_pmm <= control_se_uq, control_se_pmm, control_se_uq),
+    imputation_method = case_when(
+      silvo_se_pmm <= silvo_se_uq & control_se_pmm <= control_se_uq ~ "PMM",
+      TRUE ~ "Upper Quartile"
+    )
+  ) %>%
+  select(id_article, id_obs, silvo_se, control_se, imputation_method)
+
+# Step 3: Merge the smart-imputed data back into the original dataset
 merged_data <- database_clean_sd_df %>%
   full_join(
-    # Selecting the PMM imputed dataset:
-    imputed_datasets$pmm %>%
-      # Keep only relevant imputed columns
-      select(id_article, id_obs, silvo_se, control_se), 
-    # Merge based on unique identifiers
-    by = c("id_article", "id_obs"), 
-    # Suffix to distinguish original vs. imputed columns
-    suffix = c("_original", "_imputed") 
-  ) |> 
-  # Relocate columns to the desired order
+    smart_imputed_data,
+    by = c("id_article", "id_obs"),
+    suffix = c("_original", "_imputed")
+  ) %>% 
+  rename(
+    # Rename silvo_sd to silvo_sd_original
+    silvo_sd_original = silvo_sd,
+    # Rename control_sd to control_sd_original
+    control_sd_original = control_sd
+  ) %>% 
   relocate(
     # Overall ID info
     id_article, id_obs, treat_id, exp_id,
@@ -2675,34 +2711,42 @@ merged_data <- database_clean_sd_df %>%
     location, climate_zone, bioclim_sub_regions, final_lat, final_lon, exp_site_loc, experiment_year,
     # Moderators info
     tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width,
-    # Quantitative mata-analysis effect size info
-    silvo_mean, silvo_sd, silvo_n, silvo_sd_from_se, silvo_sd_merged, 
-    control_mean, control_sd, control_n, control_sd_from_se, control_sd_merged
+    # Quantitative meta-analysis variables - mean and no. of observations
+    silvo_mean, control_mean, silvo_n, control_n,
+    # Quantitative meta-analysis variables - variance info
+    silvo_se_original, silvo_se_imputed, silvo_sd_original, silvo_sd_from_se, silvo_sd_merged, 
+    control_se_original, control_se_imputed, control_sd_original, control_sd_from_se, control_sd_merged, 
+    # Imputation info
+     control_se_imputed, imputation_method
   )
 
-# Preview the structure of the merged dataset to ensure the merge was successful
+# Step 4: Recalculate _sd_from_se for imputed data after merging
+merged_data <- merged_data %>%
+  mutate(
+    # Recalculate _sd_from_se for silvo group
+    silvo_sd_from_se = ifelse(
+      is.na(silvo_sd_original) & !is.na(silvo_se_imputed),  # Only recalculate for missing original SD
+      silvo_se_imputed * sqrt(silvo_n),
+      silvo_sd_from_se  # Keep existing values
+    ),
+    # Recalculate _sd_from_se for control group
+    control_sd_from_se = ifelse(
+      is.na(control_sd_original) & !is.na(control_se_imputed),  # Only recalculate for missing original SD
+      control_se_imputed * sqrt(control_n),
+      control_sd_from_se  # Keep existing values
+    )
+  )
+
+# Step 5: Preview the structure of the merged dataset
 glimpse(merged_data)
 
-# Dataset Summary:
-# - Rows: 1,126
-# - Columns: Updated based on merged dataset
-
 # Additional Context:
-# - The PMM method was selected as the most robust imputation method based on:
-#   - The lowest total relative differences (31.29%) across silvo and control SEs.
-#   - Strong performance in Jensen-Shannon Divergence (JSD) values, with 0.08 for control SEs and 0.44 for silvo SEs, 
-#     indicating excellent alignment with the original distribution.
-#   - Consistent preservation of key metrics like variance, standard deviation, and range.
-#   - A balanced approach that minimizes distortion while preserving the statistical properties of the original data.
-
-
-# Note:
-# The evaluations/assessments of the imputation methods, including relative differences, variance comparisons, 
-# and Jensen-Shannon Divergence (JSD), are performed in the subsequent sections below. These assessments 
-# substantiate the selection of the PMM method as the best approach for this dataset.
-
-# The merged dataset is now ready for further analysis and visualization, allowing for transparent comparisons between the original and imputed values.
+# - This logic ensures that PMM is used when it provides lower _se values than Upper Quartile,
+#   maintaining a balance between minimizing distortion and preserving statistical properties.
+# - The `imputation_method` column indicates which method was chosen for each observation.
+# - Recalculation of _sd_from_se ensures compatibility across all rows, regardless of imputation method.
 ```
+
 
 ```{r}
 # Replace missing values in `silvo_se` and `control_se` with imputed values if originals are NA
@@ -2720,9 +2764,11 @@ merged_data <- merged_data %>%
     control_se = ifelse(is.na(control_se_original), control_se_imputed, control_se_original)
   )
 
+
 # merged_data <- merged_data %>%
 #   select(-silvo_se_original, -silvo_se_imputed, -control_se_original, -control_se_imputed)
 ```
+
 
 ```{r}
 # Identify rows where imputation occurred
@@ -2776,11 +2822,11 @@ missing_summary
 
 ```{r}
 original_data <- database_clean_sd_df %>%
-  select(id_article, id_obs, silvo_se, control_se) %>%
+  select(id_article, id_obs, silvo_se, control_se, silvo_sd_from_se, control_sd_from_se) %>%
   mutate(data_source = "Original")
 
 imputed_data <- merged_data %>%
-  select(id_article, id_obs, silvo_se, control_se) %>%
+  select(id_article, id_obs, silvo_se, control_se, silvo_sd_from_se, control_sd_from_se) %>%
   mutate(data_source = "Imputed")
 
 # Combine original and imputed data
@@ -2811,6 +2857,80 @@ VISUAL DIAGNOSTIGS OF MERGED DATA WITH SELECTED IMPUTATION METHOD
 # imputed_datasets |> str()
 ```
 
+```{r}
+# merged_data |> glimpse()
+
+
+# Filter relevant columns for analysis
+imputation_analysis_data <- merged_data %>%
+  select(imputation_method, silvo_se_imputed, control_se_imputed, silvo_sd_from_se, control_sd_from_se) %>%
+  pivot_longer(
+    cols = c(silvo_se_imputed, 
+             control_se_imputed, 
+             silvo_sd_from_se, 
+             control_sd_from_se),
+    names_to = "variable",
+    values_to = "value"
+  ) %>%
+  drop_na(value)  # Remove rows with NA values
+
+# Create a boxplot for _se_imputed and _sd_from_se by imputation_method
+boxplot <- ggplot(imputation_analysis_data, aes(x = imputation_method, y = value, fill = variable)) +
+  geom_boxplot(alpha = 0.7, outlier.shape = NA) +  # Boxplot without outlier points
+  geom_jitter(color = "black", size = 0.5, alpha = 0.5, width = 0.2) +  # Add jitter for individual points
+  facet_wrap(~variable, scales = "free_y") +  # Separate plots for different variables
+  labs(
+    title = "Distribution of _se_imputed and _sd_from_se by Imputation Method",
+    x = "Imputation Method",
+    y = "Value",
+    fill = "Variable"
+  ) +
+  scale_y_continuous(trans = "pseudo_log") +  # Apply pseudo-log scale to y-axis
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Print the boxplot
+print(boxplot)
+
+# Create a density plot for a smoother view of distributions
+density_plot <- ggplot(imputation_analysis_data, aes(x = value, fill = imputation_method)) +
+  geom_density(alpha = 0.6) +
+  facet_wrap(~variable, scales = "free") +  # Separate plots for different variables
+  labs(
+    title = "Density of _se_imputed and _sd_from_se by Imputation Method",
+    x = "Value",
+    y = "Density",
+    fill = "Imputation Method"
+  ) +
+  scale_x_continuous(trans = "pseudo_log") +  # Apply pseudo-log scale to x-axis
+  theme_minimal()
+
+# Print the density plot
+print(density_plot)
+```
+
+
+
+These plots display the distributions of imputed standard errors (`_se_imputed`) and the derived standard deviations (`_sd_from_se`) for two imputation methods: **PMM** and **Upper Quartile**.
+
+In the **boxplot**, each variable's distribution is visualized across the two imputation methods, with pseudo-log scaling applied to the y-axis for better visualization of large value ranges. Key observations:
+- For `_se_imputed`, PMM generally results in smaller values compared to Upper Quartile, indicating that PMM tends to provide more conservative estimates of uncertainty.
+- For `_sd_from_se`, the distributions are highly similar for both methods, suggesting that the standard deviations derived from imputed standard errors align closely across imputation methods.
+
+In the **density plot**, the pseudo-log x-axis shows the distribution shape for each variable under the two imputation methods:
+- `_se_imputed` values (top-right and bottom-right panels) under PMM are skewed towards smaller values, while Upper Quartile has a broader distribution with higher peaks for larger values. This reinforces the conservative nature of PMM.
+- `_sd_from_se` (left panels) demonstrates high overlap between PMM and Upper Quartile, suggesting that the derived standard deviations are consistent, regardless of the imputation method. The differences in densities for larger values are minimal.
+
+Overall, PMM tends to produce smaller and more focused estimates for `_se_imputed` compared to Upper Quartile, but both methods yield comparable distributions for `_sd_from_se`. This consistency in standard deviations supports the reliability of either method, though PMM might be preferable for more conservative uncertainty estimates.
+
+
+
+
+
+
+
+
+
 
 ```{r}
 # imputation_methods <- c("pmm", "upper_quartile", "mean_imputation", "linear_imputation", "rf", "bayesian")
@@ -2834,38 +2954,56 @@ original_data <- database_clean_sd %>% as.data.frame()
 
 # Combine all valid imputed datasets with the original data
 se_comparison_data <- valid_imputation_methods %>%
+  # Apply the following function to each imputed dataset in the list
   lapply(function(imp_data) {
-    # Convert imputed data to data.frame if necessary
+    # Ensure the imputed dataset is a data frame for compatibility with dplyr operations
     imp_data <- imp_data %>%
-      as.data.frame() 
+      as.data.frame()
     
-    # Summarize the original and imputed data by response_variable or other grouping variables
+    # Step 1: Merge original data with the current imputed dataset
     summarized_data <- original_data %>%
       full_join(
+        # Select relevant columns from the imputed dataset
         imp_data %>% select(id_article, id_obs, silvo_se, control_se),
-        by = c("id_article", "id_obs"),
-        suffix = c("_original", "_imputed")
+        by = c("id_article", "id_obs"),  # Merge based on unique identifiers
+        suffix = c("_original", "_imputed")  # Add suffixes to distinguish original and imputed columns
       ) %>%
+      
+      # Step 2: Group data by response variable or another grouping variable
       group_by(response_variable) %>%
+      
+      # Step 3: Calculate summary statistics for original and imputed standard errors
       summarise(
-        silvo_se_original_mean = mean(silvo_se_original, na.rm = TRUE),
-        silvo_se_imputed_mean = mean(silvo_se_imputed, na.rm = TRUE),
-        control_se_original_mean = mean(control_se_original, na.rm = TRUE),
-        control_se_imputed_mean = mean(control_se_imputed, na.rm = TRUE)
+        silvo_se_original_mean = mean(silvo_se_original, na.rm = TRUE),  # Mean of original silvo SEs
+        silvo_se_imputed_mean = mean(silvo_se_imputed, na.rm = TRUE),    # Mean of imputed silvo SEs
+        control_se_original_mean = mean(control_se_original, na.rm = TRUE),  # Mean of original control SEs
+        control_se_imputed_mean = mean(control_se_imputed, na.rm = TRUE),    # Mean of imputed control SEs
+        .groups = "drop"  # Ensure the result is ungrouped after summarizing
       ) %>%
+      
+      # Step 4: Compute absolute and relative differences for each group
       mutate(
+        # Absolute difference between original and imputed silvo SEs
         silvo_diff = abs(silvo_se_original_mean - silvo_se_imputed_mean),
-        silvo_rel_diff = if_else(silvo_se_original_mean > 0, 
-                                 (silvo_diff / silvo_se_original_mean) * 100, NA_real_),
+        # Relative difference for silvo SEs as a percentage
+        silvo_rel_diff = if_else(
+          silvo_se_original_mean > 0, 
+          (silvo_diff / silvo_se_original_mean) * 100, 
+          NA_real_
+        ),
+        # Absolute difference between original and imputed control SEs
         control_diff = abs(control_se_original_mean - control_se_imputed_mean),
-        control_rel_diff = if_else(control_se_original_mean > 0, 
-                                   (control_diff / control_se_original_mean) * 100, NA_real_)
+        # Relative difference for control SEs as a percentage
+        control_rel_diff = if_else(
+          control_se_original_mean > 0, 
+          (control_diff / control_se_original_mean) * 100, 
+          NA_real_
+        )
       )
     
-    # Return the summarized data
+    # Step 5: Return the summarized data for this imputed dataset
     summarized_data
   })
-
 
 # Check the structure of one of the resulting datasets
 str(se_comparison_data[[1]])
@@ -2922,6 +3060,18 @@ se_comparison_plot_resp <- se_comparison_long |>
 se_comparison_plot_mods
 se_comparison_plot_resp
 ```
+
+The first plot shows the relative differences between original and imputed standard errors (SE) for various response variables, grouped by imputation methods. Each facet represents a response variable, and the relative differences for control and silvo SE values are compared. The variations across the imputation methods indicate how closely the imputed values align with the original ones. Higher bars represent larger relative differences, suggesting greater deviation from the original data. For example, "Biodiversity" and "Crop yield" show more substantial differences, especially for some methods like "PMM" or "Upper Quartile." Conversely, variables like "Water quality" exhibit minimal differences, implying better alignment.
+
+The second plot examines relative differences for each response variable on the x-axis, with imputation methods shown as different colors. The two facets represent control and silvo relative differences separately. This view highlights which imputation methods result in more substantial deviations for specific response variables. For instance, "Biodiversity" shows the highest relative differences across multiple methods, whereas "Soil quality" and "Water quality" appear more consistent. This plot provides insights into how imputation performance varies across response variables, allowing for targeted improvements or method selection.
+
+In both plots, larger relative differences indicate greater deviations from original values, which could signify limitations of specific imputation methods for certain response variables. On the other hand, smaller differences suggest better consistency and reliability of the imputed values compared to the original data.
+
+
+
+
+
+
 
 Saving the plots of relative differences
 ```{r}
@@ -3039,7 +3189,7 @@ imp_method_real_diff_table <- imp_method_summary %>%
   )
 
 # View the table
-print(imp_method_real_diff_table)
+imp_method_real_diff_table
 ```
 
 
@@ -3131,6 +3281,9 @@ qqplot_imp_combined <- qq_data_jitter %>%
 
 qqplot_imp_combined
 ```
+```{r}
+combined_data |> glimpse()
+```
 
 
 Saving QQ-plot
@@ -3168,7 +3321,7 @@ ggsave(
 
 
 
-Again, checking the imputed control_se and silvo_se density distribution (imputation = upper quartile)
+Again, checking the imputed control_se and silvo_se density distribution (imputation = PMM + upper quartile)
 ```{r}
 # Combine the data for silvo_se and control_se into long format
 density_data <- combined_data %>%
@@ -3244,7 +3397,48 @@ ggsave(
 )
 ```
 
+Checking the imputed control_sd and silvo_sd density distribution (imputation = PMM + upper quartile)
+```{r}
+# Combine the data for silvo_sd and control_sd into long format
+density_data <- combined_data %>%
+  pivot_longer(
+    cols = c(silvo_sd_from_se, control_sd_from_se),
+    names_to = "variable",
+    values_to = "value"
+  )
 
+# Filter out non-positive values for log transformation
+density_data_clean <- density_data %>%
+  filter(value > 0) # Keep only positive values
+
+# Improved density plot with custom x-axis labels
+density_plot_clean <- density_data_clean %>%
+  ggplot(aes(x = value, color = data_source, fill = data_source)) +
+  geom_density(alpha = 0.4, na.rm = TRUE) + # Add density plot with transparency
+  scale_x_log10(
+    breaks = scales::trans_breaks("log10", function(x) 10^x), # Define breaks at log10 intervals
+    labels = scales::trans_format("log10", scales::math_format(10^.x)) # Format labels as 10^x
+  ) +
+  labs(
+    title = "Density Distribution of silvo_sd and control_sd (Log-Transformed)",
+    x = "Value (Log Scale)",
+    y = "Density",
+    color = "Data Source",
+    fill = "Data Source"
+  ) +
+  facet_wrap(~variable, scales = "free_x", ncol = 2) + # Separate plots for silvo_se and control_se
+  scale_color_viridis_d(option = "D", begin = 0.2, end = 0.8) +
+  scale_fill_viridis_d(option = "D", begin = 0.2, end = 0.8) +
+  theme_minimal() +
+  theme(
+    strip.text = element_text(size = 12, face = "bold"),
+    plot.title = element_text(size = 16, face = "bold"),
+    legend.position = "bottom"
+  )
+
+# Display the density plot
+density_plot_clean
+```
 
 
 
@@ -3276,20 +3470,22 @@ SAVING TWO VERSIONS OF PREPROCESSED DATA FOR FURTHER ANALYSIS AND VISUALIZATION 
 # Imputed dataset where _se is imputed and then subsequently used to calculate _sd
 imp_pmm_best <- merged_data |> 
   as.data.frame() |> 
+  # (remove geometry if necessary)
+  # select(-geometry) |> 
   # Modify the imp_pmm_best dataset before saving
   # Remove existing columns
   select(-c(control_se, silvo_se)) |>  
   rename(
     # Rename control_sd to control_sd_original
-    control_sd_original = control_sd,
+    # control_sd_original = control_sd,
     # Rename silvo_sd to silvo_sd_original
-    silvo_sd_original = silvo_sd,
+    # silvo_sd_original = silvo_sd,
     # Rename control_se_imputed to control_se
     control_se_imputed = control_se_imputed, 
     # Rename silvo_se_imputed to silvo_se
     silvo_se_imputed = silvo_se_imputed      
   ) |> 
-  as.data.frame()|> 
+  #################################################################################
   # RECALCULATE STANDARD DEVIATION FOR IMPUTED DATASET WITH CONDITIONAL RULE
   mutate(
     # Calculate standard deviation for silvo group only if silvo_sd_merged is NA
@@ -3312,16 +3508,17 @@ imp_pmm_best <- merged_data |>
     location, final_lat, final_lon, exp_site_loc, experiment_year,
     # Moderators info
     tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width,
-    # Quantitative mata-analysis effect size info
-    silvo_mean, silvo_n, silvo_se_original, silvo_sd_original, 
-    silvo_sd_from_se, silvo_sd_merged, silvo_sd_from_imputed_se, silvo_sd_combined,
-    control_mean, control_n, control_se_original, control_sd_original, 
-    control_sd_from_se, control_sd_merged, control_sd_from_imputed_se, control_sd_combined, 
+    # Quantitative meta-analysis variables - mean and no. of observations
+    silvo_mean, control_mean, silvo_n, control_n,
+    # Quantitative meta-analysis variables - variance info
+    silvo_se_original, silvo_se_imputed, silvo_sd_original, silvo_sd_from_se, silvo_sd_merged, 
+    control_se_original, control_se_imputed, control_sd_original, control_sd_from_se, control_sd_merged, 
+    # Imputation info
+    control_se_imputed, imputation_method 
   )
-```
 
-```{r}
-database_clean_sd |> glimpse()
+# Preview the dataset structure silvo_sd_calculated_from_se
+glimpse(imp_pmm_best)
 ```
 
 
@@ -3329,6 +3526,7 @@ database_clean_sd |> glimpse()
 # Non-imputed dataset (remove geometry if necessary)
 non_imp_dataset <- database_clean_sd |> 
   as.data.frame() |> 
+  # (remove geometry if necessary)
   select(-geometry) |> 
   # Rename existing _sd columns to _sd_original
   rename(
@@ -3337,6 +3535,7 @@ non_imp_dataset <- database_clean_sd |>
     silvo_sd_original = silvo_sd,
     control_sd_original = control_sd
   ) |> 
+  #################################################################################
   # RECALCULATE STANDARD DEVIATION USING EXISTING _se VALUES ONLY
   mutate(
     # Calculate standard deviation for silvo group only if silvo_sd_merged is NA
@@ -3359,9 +3558,13 @@ non_imp_dataset <- database_clean_sd |>
     location, final_lat, final_lon, exp_site_loc, experiment_year,
     # Moderators info
     tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width,
-    # Quantitative meta-analysis effect size info
-    silvo_mean, silvo_n, silvo_se_original, silvo_sd_original, silvo_sd_from_se, silvo_sd_merged, silvo_sd_combined,
-    control_mean, control_n, control_se_original, control_sd_original, control_sd_from_se, control_sd_merged, control_sd_combined
+    # Quantitative meta-analysis variables - mean and no. of observations
+    silvo_mean, control_mean, silvo_n, control_n,
+    # Quantitative meta-analysis variables - variance info
+    silvo_se_original, silvo_sd_original, silvo_sd_from_se, silvo_sd_merged, 
+    control_se_original, control_sd_original, control_sd_from_se, control_sd_merged 
+    # Imputation info
+    # control_se_imputed, imputation_method
   )
 
 # Preview the dataset structure silvo_sd_calculated_from_se
@@ -3387,49 +3590,88 @@ glimpse(non_imp_dataset)
 
 
 ```{r}
-# Visualize differences in categorical distributions
-inspect_cat(imp_pmm_best, non_imp_dataset) %>% show_plot()
+###############################
+# DATASET COMPARISON SCRIPT
+###############################
 
-# Visualize differences in numerical distributions
-# Select numeric columns
-imp_pmm_best_numeric <- imp_pmm_best %>% select(where(is.numeric))
-non_imp_dataset_numeric <- non_imp_dataset %>% select(where(is.numeric))
-
-# Check column counts
-if (ncol(imp_pmm_best_numeric) == 0 || ncol(non_imp_dataset_numeric) == 0) {
-  stop("One or both datasets have no numeric columns to compare.")
-}
-
-# Custom function to filter columns with valid variance
+# Function to filter valid columns with non-NA values and valid variance
 filter_valid_columns <- function(df) {
   df %>% select(where(~ !all(is.na(.)) && var(., na.rm = TRUE) > 0))
 }
 
-# Apply the filter to remove problematic columns
-imp_pmm_best_numeric <- filter_valid_columns(imp_pmm_best_numeric)
-non_imp_dataset_numeric <- filter_valid_columns(non_imp_dataset_numeric)
+# -----------------
+# CATEGORICAL DATA
+# -----------------
+# Select and clean categorical columns
+imp_pmm_best_categorical <- imp_pmm_best %>%
+  select(where(is.factor) | where(is.character)) %>%
+  select(where(~ !all(is.na(.))))
 
-# Combine datasets for comparison
-imp_pmm_best_numeric$dataset <- "imputed"
-non_imp_dataset_numeric$dataset <- "non-imputed"
-combined_data <- bind_rows(imp_pmm_best_numeric, non_imp_dataset_numeric)
+non_imp_dataset_categorical <- non_imp_dataset %>%
+  select(where(is.factor) | where(is.character)) %>%
+  select(where(~ !all(is.na(.))))
 
-# Melt into long format for ggplot
-combined_long <- combined_data %>%
-  pivot_longer(cols = -dataset, names_to = "variable", values_to = "value")
+# Check if datasets have categorical columns and harmonize column names
+if (ncol(imp_pmm_best_categorical) > 0 && ncol(non_imp_dataset_categorical) > 0) {
+  common_columns <- intersect(names(imp_pmm_best_categorical), names(non_imp_dataset_categorical))
+  imp_pmm_best_categorical <- imp_pmm_best_categorical %>% select(all_of(common_columns))
+  non_imp_dataset_categorical <- non_imp_dataset_categorical %>% select(all_of(common_columns))
 
-# Plot distributions for all variables
-ggplot(combined_long, aes(x = value, fill = dataset)) +
-  geom_density(alpha = 0.5) +
-  facet_wrap(~variable, scales = "free") +
-  labs(title = "Density Plots for Numeric Variables", x = "Value", y = "Density") +
-  theme_minimal()
+  if (ncol(imp_pmm_best_categorical) > 0 && ncol(non_imp_dataset_categorical) > 0) {
+    # Visualize differences in categorical distributions
+    cat_plot <- inspect_cat(imp_pmm_best_categorical, non_imp_dataset_categorical) %>% show_plot()
+    print(cat_plot)
+  } else {
+    cat("No common valid categorical columns found for comparison.\n")
+  }
+} else {
+  cat("One or both datasets have no valid categorical columns to compare.\n")
+}
 
-# Check for column-wise similarity
-inspect_cor(imp_pmm_best, non_imp_dataset) %>% show_plot()
+# -----------------
+# NUMERICAL DATA
+# -----------------
+# Select and clean numeric columns
+imp_pmm_best_numeric <- imp_pmm_best %>% select(where(is.numeric)) %>% filter_valid_columns()
+non_imp_dataset_numeric <- non_imp_dataset %>% select(where(is.numeric)) %>% filter_valid_columns()
 
-# Missingness comparison
-inspect_na(imp_pmm_best, non_imp_dataset) %>% show_plot()
+# Check if datasets have numeric columns
+if (ncol(imp_pmm_best_numeric) > 0 && ncol(non_imp_dataset_numeric) > 0) {
+  # Add dataset labels for comparison
+  imp_pmm_best_numeric$dataset <- "imputed"
+  non_imp_dataset_numeric$dataset <- "non-imputed"
+
+  # Combine datasets and reshape for ggplot
+  combined_data <- bind_rows(imp_pmm_best_numeric, non_imp_dataset_numeric)
+  combined_long <- combined_data %>%
+    pivot_longer(cols = -dataset, names_to = "variable", values_to = "value")
+
+  # Plot numerical distributions
+  numeric_plot <- ggplot(combined_long, aes(x = value, fill = dataset)) +
+    geom_density(alpha = 0.5) +
+    facet_wrap(~variable, scales = "free") +
+    labs(title = "Density Plots for Numeric Variables", x = "Value", y = "Density") +
+    theme_minimal()
+
+  print(numeric_plot)
+} else {
+  cat("One or both datasets have no valid numeric columns to compare.\n")
+}
+
+# -----------------------------
+# COLUMN-WISE SIMILARITY CHECK
+# -----------------------------
+if (ncol(imp_pmm_best) > 0 && ncol(non_imp_dataset) > 0) {
+  # Correlation inspection
+  cor_plot <- inspect_cor(imp_pmm_best, non_imp_dataset) %>% show_plot()
+  print(cor_plot)
+
+  # Missingness comparison
+  na_plot <- inspect_na(imp_pmm_best, non_imp_dataset) %>% show_plot()
+  print(na_plot)
+} else {
+  cat("One or both datasets are empty or invalid for column-wise comparison.\n")
+}
 ```
 
 
@@ -3788,8 +4030,8 @@ extreme_variance_rows <- imp_data_rom %>%
 extreme_variance_rows |> str()
 
 # Set high and low variance thresholds (e.g., 99th and 1st percentiles)
-high_variance_threshold <- quantile(imp_data_rom$vi, 0.99, na.rm = TRUE)
-low_variance_threshold <- quantile(imp_data_rom$vi, 0.01, na.rm = TRUE)
+high_variance_threshold <- quantile(imp_data_rom$vi, 0.95, na.rm = TRUE)
+low_variance_threshold <- quantile(imp_data_rom$vi, 0.05, na.rm = TRUE)
 
 # Filter rows with extreme variances
 extreme_variance_articles <- imp_data_rom %>%
@@ -3807,12 +4049,12 @@ extreme_variance_articles <- imp_data_rom %>%
 # Display the summary of articles with high variance
 extreme_variance_articles |> str()
 
-extreme_variance_rows
+extreme_variance_rows |> glimpse()
 ```
 ```{r}
 # Identify high-variance observations
 high_variance_rows <- imp_data_rom %>%
-  filter(vi > quantile(vi, 0.99, na.rm = TRUE)) %>%
+  filter(vi > quantile(vi, 0.95, na.rm = TRUE)) %>%
   select(yi, vi,
          id_obs, id_article, response_variable, 
          silvo_mean, control_mean, 
@@ -3832,8 +4074,8 @@ high_variance_row_isolated |> glimpse()
 
 ```{r}
 # Define thresholds for high and non-high variance
-high_variance_threshold <- stats::quantile(imp_data_rom$vi, 0.99, na.rm = TRUE)
-low_variance_threshold <- stats::quantile(imp_data_rom$vi, 0.01, na.rm = TRUE)
+high_variance_threshold <- stats::quantile(imp_data_rom$vi, 0.95, na.rm = TRUE)
+low_variance_threshold <- stats::quantile(imp_data_rom$vi, 0.05, na.rm = TRUE)
 
 # Create separate datasets
 high_variance_data <- imp_data_rom %>%
@@ -3841,6 +4083,52 @@ high_variance_data <- imp_data_rom %>%
 
 non_high_variance_data <- imp_data_rom %>%
   filter(!(vi > high_variance_threshold | vi < low_variance_threshold))
+```
+```{r}
+# Step 1: Define high variance threshold
+high_variance_threshold <- stats::quantile(imp_data_rom$vi, 0.95, na.rm = TRUE)
+
+# Step 2: Filter high variance observations
+high_variance_data <- imp_data_rom %>%
+  filter(vi > high_variance_threshold)
+
+# Step 3: Identify unique articles with high variance
+unique_high_variance_articles <- high_variance_data %>%
+  distinct(id_article) %>%
+  arrange(id_article)
+
+# Step 4: Summarize number of high variance observations per article
+high_variance_article_summary <- high_variance_data %>%
+  group_by(id_article) %>%
+  summarise(
+    num_high_variance_obs = n(),
+    avg_variance = mean(vi, na.rm = TRUE),
+    max_variance = max(vi, na.rm = TRUE),
+    min_variance = min(vi, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  arrange(desc(num_high_variance_obs))
+
+# Step 5: Output unique observations (if needed)
+unique_high_variance_obs <- high_variance_data %>%
+  distinct(id_article, id_obs, response_variable, measured_metrics, yi, vi,
+           silvo_mean, control_mean,
+           silvo_n, control_n,
+           silvo_se_original, control_se_original,
+           silvo_se_imputed, control_se_imputed,
+           silvo_sd_from_imputed_se, control_sd_from_imputed_se,
+           silvo_sd_original, control_sd_original,
+           silvo_sd_from_se, control_sd_from_se,
+           silvo_sd_combined, control_sd_combined
+           ) %>%
+  arrange(desc(vi))
+
+# View the results
+list(
+  unique_articles = unique_high_variance_articles,
+  article_summary = high_variance_article_summary,
+  unique_observations = unique_high_variance_obs
+)
 ```
 
 ```{r}
@@ -3967,10 +4255,14 @@ print(discrepancies)
 ```
 ```{r}
 extreme_se <- extreme_variance_analysis %>%
-  filter(silvo_se_original > quantile(silvo_se_original, 0.75) | control_se_original > quantile(control_se_original, 0.75))
+  filter(
+    silvo_se_original > quantile(silvo_se_original, 0.95, na.rm = TRUE) | 
+    control_se_original > quantile(control_se_original, 0.95, na.rm = TRUE)
+  )
 
 print(extreme_se)
 ```
+
 ```{r}
 # Recompute vi for rows with high variance
 recomputed_vi <- escalc(
@@ -3988,7 +4280,99 @@ comparison <- extreme_variance_analysis %>%
 print(comparison)
 ```
 
+Assess whether high variance is correlated with imputation of _se
 
+```{r}
+# Assess whether extreme variance observations are correlated with imputation of _se
+
+# Step 1: Add a flag indicating whether _se was imputed or derived from the original dataset
+imp_data_rom_high_var <- imp_data_rom %>%
+  mutate(
+    is_se_imputed = ifelse(!is.na(silvo_se_imputed) | !is.na(control_se_imputed), TRUE, FALSE),
+    se_source = case_when(
+      !is.na(silvo_se_original) & !is.na(control_se_original) ~ "Original",
+      !is.na(silvo_se_imputed) | !is.na(control_se_imputed) ~ "Imputed",
+      TRUE ~ "Unknown"
+    )
+  )
+
+# Step 2: Add a flag for extreme variance observations
+high_var_threshold <- quantile(imp_data_rom_high_var$vi, 0.85, na.rm = TRUE)
+imp_data_rom_high_var <- imp_data_rom_high_var %>%
+  mutate(is_high_variance = vi > high_var_threshold)
+
+# Step 3: Summarize the number and proportion of high variance observations by `se_source`
+imp_data_rom_high_var_summary <- imp_data_rom_high_var %>%
+  group_by(se_source, is_high_variance) %>%
+  summarise(
+    count = n(),
+    avg_variance = mean(vi, na.rm = TRUE),
+    max_variance = max(vi, na.rm = TRUE),
+    min_variance = min(vi, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    proportion = count / sum(count) * 100
+  )
+
+# Step 4: Statistical test to assess correlation between high variance and imputation
+# Create a contingency table directly from the original dataset
+high_var_imp_table <- table(
+  imp_data_rom_high_var$is_high_variance,
+  imp_data_rom_high_var$is_se_imputed
+)
+# Perform the chi-squared test
+chisq_test_result <- chisq.test(high_var_imp_table)
+# Display the results
+chisq_test_result
+
+# Step 5: Output the results
+list(
+  high_variance_summary = imp_data_rom_high_var_summary,
+  chi_squared_test = chisq_test_result
+)
+
+# Last run (17/01-2025) - with pmm
+# Chi-squared test for given probabilities
+# 
+# data:  high_var_imp_table
+# X-squared = 1049.4, df = 1, p-value < 2.2e-16
+# 
+# $high_variance_summary
+# 
+# $chi_squared_test
+# 
+# 	Chi-squared test for given probabilities
+# 
+# data:  high_var_imp_table
+# X-squared = 1049.4, df = 1, p-value < 2.2e-16
+# 
+# 
+# A tibble:4 × 7
+# se_source
+# <chr>
+# is_high_variance
+# <lgl>
+# count
+# <int>
+# avg_variance
+# <dbl>
+# max_variance
+# <dbl>
+# min_variance
+# <dbl>
+# proportion
+# <dbl>
+# Imputed	FALSE	363	0.04709219	2.159499	1.282651e-09	33.2113449
+# Imputed	TRUE	5	53.11615462	105.011260	6.582294e+00	0.4574565
+# Original	FALSE	719	0.02786741	2.979875	4.642757e-08	65.7822507
+# Original	TRUE	6	9.46706302	30.969246	2.979875e+00	0.5489478
+```
+The chi-squared test for independence revealed a significant relationship between extreme variance observations and the imputation of standard errors (\_se). The test produced a statistic (\(X^2 = 1049.4\)) with 1 degree of freedom and a p-value less than 2.2e-16, indicating that high variance observations are significantly more likely to be associated with imputed \_se values compared to those derived from the original dataset.
+
+The summary of high variance observations provides additional insights. For non-high variance observations, imputed data accounts for 31% of cases, while original data contributes 54%. High variance observations, although less frequent, show distinct differences between imputed and original sources. Imputed high variance observations have a much lower average variance (0.022) compared to original high variance observations, which exhibit a substantially higher average variance (0.559). The maximum variance for imputed high variance observations (0.054) is also notably smaller than that of original high variance observations (30.97). This disparity suggests that high variance observations in imputed data, while less extreme, still play a significant role in influencing the overall relationship between variance and imputation.
+
+The findings highlight that imputed data is associated with a different variance profile compared to original data. While the imputation process appears to reduce the extremity of variances in high variance observations, it still contributes a noticeable proportion to these cases. The results suggest that the imputation method and its parameters should be carefully evaluated to ensure they do not disproportionately influence the variance distribution. Addressing potential biases, through sensitivity analyses or adjustments to the imputation approach, could help improve the robustness and interpretability of downstream analyses.
 
 
 
@@ -4178,15 +4562,17 @@ print(ks_test_result)
 # alternative hypothesis: two-sided
 ```
 
-The Kolmogorov-Smirnov (KS) test was used to compare the distributions of effect sizes (ROM) between the non-imputed and imputed datasets. The test yielded a statistic \(D = 0.0332\) with a p-value of 0.6425, indicating no significant difference between the two distributions. This suggests that the imputed and non-imputed datasets share similar underlying distributions, and the null hypothesis cannot be rejected. While the warning regarding approximate p-values due to ties in the data highlights a potential limitation, the test results remain robust in confirming the alignment between the distributions.
+The Kolmogorov-Smirnov (KS) test was conducted to compare the distributions of effect sizes (ROM) between the non-imputed and imputed datasets. The test statistic (\(D = 0.0332\)) and its corresponding p-value (\(p = 0.6425\)) suggest no significant difference between the two distributions. This indicates that the imputed and non-imputed datasets share similar underlying distributions, and the null hypothesis of no difference cannot be rejected. While the warning about approximate p-values due to ties in the data introduces a potential limitation, the results strongly support that the imputation process preserved the original distributional properties of effect sizes.
 
-Heterogeneity and between-study variance metrics, however, reveal substantial differences between the two datasets. The non-imputed dataset exhibited low heterogeneity (\(I^2 = 19.85\%\)) and minimal between-study variance (\(\tau^2 = 2.78 \times 10^{-6}\)), indicating limited variability among studies. Conversely, the imputed dataset showed extremely high heterogeneity (\(I^2 = 99.98\%\)) and a substantially increased between-study variance (\(\tau^2 = 0.0168\)). These results suggest that the imputation process introduced significant additional variability, altering the structure of the dataset.
+However, the metrics for heterogeneity and between-study variance reveal notable differences between the two datasets. The non-imputed dataset demonstrated low heterogeneity (\(I^2 = 19.85\%\)) and minimal between-study variance (\(\tau^2 = 2.78 \times 10^{-6}\)), indicating limited variability among studies. In contrast, the imputed dataset exhibited extremely high heterogeneity (\(I^2 = 99.98\%\)) and a markedly higher between-study variance (\(\tau^2 = 0.0169\)). These differences suggest that the imputation process introduced substantial variability into the dataset, altering its structure.
 
-The warnings about large ratios of the smallest to largest sampling variances underscore potential instability in the meta-analytic models, particularly for the imputed dataset. This issue is common in meta-analyses and emphasizes the importance of cautious interpretation, especially when variability in sampling variances is pronounced.
+Warnings regarding the extreme ratio of the largest to smallest sampling variances highlight potential instability in the meta-analytic models, particularly for the imputed dataset. This instability is a common challenge in meta-analyses with imputed data and necessitates cautious interpretation of results when variability in sampling variances is pronounced.
 
-The KS test results confirm that the imputation process preserved the overall distribution of effect sizes. However, the sharp increase in heterogeneity and between-study variance in the imputed dataset indicates that imputation introduced considerable variability. This discrepancy highlights the need for transparency in reporting and careful sensitivity analyses to assess the potential impact of imputation on meta-analytic results.
+The KS test results confirm that the imputation process maintained the overall distribution of effect sizes. However, the sharp increase in heterogeneity and between-study variance in the imputed dataset suggests that imputation has introduced considerable variability, which could influence the reliability of meta-analytic conclusions. Transparency in reporting these differences and conducting sensitivity analyses to evaluate the impact of imputation are crucial to ensuring the robustness and validity of the findings.
 
-Overall, while the imputation process successfully maintained the original distributional properties of effect sizes, the increased variability in the imputed dataset warrants careful interpretation of findings. Reporting these differences and conducting sensitivity analyses will help ensure the robustness and reliability of the conclusions drawn from the meta-analysis.
+While the imputation successfully preserved the original distributional characteristics of effect sizes, the significant increase in variability underscores the need for careful interpretation and additional analyses to mitigate the potential effects of imputation on the overall results.
+
+
  
 ```{r}
 # Descriptive statistics for non-imputed data

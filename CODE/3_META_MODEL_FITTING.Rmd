@@ -576,10 +576,10 @@ summary(imp_dataset$vi)
 
 # Identify rows with extreme variances
 extreme_variance_rows <- imp_dataset %>%
-  filter(vi > quantile(vi, 0.95) | vi < quantile(vi, 0.05)) %>%
+  filter(vi > quantile(vi, 0.99) | vi < quantile(vi, 0.01)) %>%
   arrange(desc(vi))
 
-extreme_variance_rows
+extreme_variance_rows |> glimpse()
 ```
 
 
@@ -591,6 +591,10 @@ FITTING MODELS (SUB-GROUP) FOR EACH RESPONSE VARIABLE USING PRECOMPUTED V_MATRIC
 Protocol with Four Models Fit Meta-Analysis
 
 ```{r}
+##########################################################################################################################################
+# FITTING MODELS (SUB-GROUP) FOR EACH RESPONSE VARIABLE USING PRECOMPUTED V_MATRICES WITH `-1` INTERCEPT REMOVAL APPROACH
+##########################################################################################################################################
+
 ##########################################################################
 # Set up the parallel processing plan
 plan(multisession, workers = parallel::detectCores() - 1)
@@ -598,89 +602,33 @@ plan(multisession, workers = parallel::detectCores() - 1)
 # Start time tracking
 start.time <- Sys.time()
 ##########################################################################
-# Protocol to Fit and Save Five Suggested Models for Meta-Analysis
+# Protocol to Fit and Save Models for Meta-Analysis with Intercept Removal Approach
 
 ##########################################################################
-# Model 1: Null Model (Intercept-Only, No Random Effects)
+# Function: Fit Models with Custom Moderator Formulas (Including `-1` for Intercept Removal)
 ##########################################################################
-fit_null_model <- function(data_subset, response_variable) {
-  cat("\nFitting null model for response variable:", response_variable, "...\n")
-
-  model <- tryCatch({
-    rma.mv(
-      yi = yi,                           # Dependent variable: effect size
-      V = diag(data_subset$vi),          # Variance matrix: diagonal from vi
-      mods = ~ 1,                        # Intercept-only model
-      data = data_subset,                # Data used for model fitting
-      method = "REML",                   # Restricted Maximum Likelihood estimation
-      control = list(
-        optimizer = "optim",             # Optimizer function
-        optim.method = "BFGS",           # Optimization algorithm
-        iter.max = 1000,                 # Maximum iterations
-        rel.tol = 1e-8                   # Convergence tolerance
-      )
-    )
-  }, error = function(e) {
-    cat("Error in null model fitting for", response_variable, ":", e$message, "\n")
-    return(NULL)
-  })
-
-  if (!is.null(model)) {
-    cat("Null model fitting completed for response variable:", response_variable, ".\n")
-    return(model)
+fit_model <- function(data_subset, response_variable, v_matrix, moderators, random_effects = NULL, intercept = TRUE) {
+  cat("\nFitting model for response variable:", response_variable, "...\n")
+  
+  # Ensure moderators are valid
+  if (is.null(moderators) || length(moderators) == 0) {
+    moderator_formula <- ~ 1  # Intercept-only model
   } else {
-    return(NULL)
+    # Build moderator formula with or without intercept
+    moderator_formula <- if (intercept) {
+      as.formula(paste("yi ~", paste(moderators, collapse = " + ")))
+    } else {
+      as.formula(paste("yi ~", paste(moderators, collapse = " + "), "- 1"))
+    }
   }
-}
 
-##########################################################################
-# Model 2: Minimal Random Effects Model (Intercept-Only)
-##########################################################################
-fit_minimal_model <- function(data_subset, response_variable, v_matrix) {
-  cat("\nFitting minimal model for response variable:", response_variable, "...\n")
-
-  model <- tryCatch({
-    rma.mv(
-      yi = yi,                           # Dependent variable: effect size
-      V = v_matrix,                      # Variance-covariance matrix
-      mods = ~ 1,                        # Intercept-only model
-      random = ~ 1 | exp_id,             # Random effect at the experiment level
-      data = data_subset,                # Data used for model fitting
-      method = "REML",                   # Restricted Maximum Likelihood estimation
-      control = list(
-        optimizer = "optim",             # Optimizer function
-        optim.method = "BFGS",           # Optimization algorithm
-        iter.max = 1000,                 # Maximum iterations
-        rel.tol = 1e-8                   # Convergence tolerance
-      )
-    )
-  }, error = function(e) {
-    cat("Error in minimal model fitting for", response_variable, ":", e$message, "\n")
-    return(NULL)
-  })
-
-  if (!is.null(model)) {
-    cat("Minimal model fitting completed for response variable:", response_variable, ".\n")
-    return(model)
-  } else {
-    return(NULL)
-  }
-}
-
-##########################################################################
-# Model 3: Fixed Effects Only Model (With Moderators)
-##########################################################################
-fit_fixed_effects_model <- function(data_subset, response_variable, v_matrix, moderators) {
-  cat("\nFitting fixed effects model for response variable:", response_variable, "...\n")
-
-  data_subset <- data_subset %>% mutate(across(all_of(moderators), as.factor)) %>% as.data.frame()
-  moderator_formula <- as.formula(paste("yi ~", paste(moderators, collapse = " + ")))
-
+  # Fit the model
   model <- tryCatch({
     rma.mv(
       yi = yi,
       V = v_matrix,
       mods = moderator_formula,
+      random = random_effects,
       data = data_subset,
       method = "REML",
       control = list(
@@ -691,98 +639,22 @@ fit_fixed_effects_model <- function(data_subset, response_variable, v_matrix, mo
       )
     )
   }, error = function(e) {
-    cat("Error in fixed effects model fitting for", response_variable, ":", e$message, "\n")
+    cat("Error in model fitting for", response_variable, ":", e$message, "\n")
     return(NULL)
   })
 
   if (!is.null(model)) {
-    cat("Fixed effects model fitting completed for response variable:", response_variable, ".\n")
+    cat("Model fitting completed for response variable:", response_variable, ".\n")
     return(model)
   } else {
     return(NULL)
   }
 }
 
-##########################################################################
-# Model 4: Moderately Simplified Model
-##########################################################################
-fit_simplified_model <- function(data_subset, response_variable, v_matrix, moderators) {
-  cat("\nFitting simplified model for response variable:", response_variable, "...\n")
-
-  data_subset <- data_subset %>% mutate(across(all_of(moderators), as.factor)) %>% as.data.frame()
-  moderator_formula <- as.formula(paste("yi ~", paste(moderators, collapse = " + ")))
-
-  model <- tryCatch({
-    rma.mv(
-      yi = yi,
-      V = v_matrix,
-      mods = moderator_formula,
-      random = ~ 1 | exp_id,
-      data = data_subset,
-      method = "REML",
-      control = list(
-        optimizer = "optim",
-        optim.method = "BFGS",
-        iter.max = 1000,
-        rel.tol = 1e-8
-      )
-    )
-  }, error = function(e) {
-    cat("Error in simplified model fitting for", response_variable, ":", e$message, "\n")
-    return(NULL)
-  })
-
-  if (!is.null(model)) {
-    cat("Simplified model fitting completed for response variable:", response_variable, ".\n")
-    return(model)
-  } else {
-    return(NULL)
-  }
-}
 
 ##########################################################################
-# Model 5: Comprehensive (Full) Model
-##########################################################################
-fit_full_model <- function(data_subset, response_variable, v_matrix, moderators) {
-  cat("\nFitting full model for response variable:", response_variable, "...\n")
-
-  data_subset <- data_subset %>% mutate(across(all_of(moderators), as.factor)) %>% as.data.frame()
-  moderator_formula <- as.formula(paste("yi ~", paste(moderators, collapse = " + ")))
-
-  model <- tryCatch({
-    rma.mv(
-      yi = yi,
-      V = v_matrix,
-      mods = moderator_formula,
-      random = list(
-        ~ 1 | id_article/response_variable, 
-        ~ 1 | exp_id
-        ),
-      data = data_subset,
-      method = "REML",
-      control = list(
-        optimizer = "optim",
-        optim.method = "BFGS",
-        iter.max = 1000,
-        rel.tol = 1e-8
-      )
-    )
-  }, error = function(e) {
-    cat("Error in full model fitting for", response_variable, ":", e$message, "\n")
-    return(NULL)
-  })
-
-  if (!is.null(model)) {
-    cat("Full model fitting completed for response variable:", response_variable, ".\n")
-    return(model)
-  } else {
-    return(NULL)
-  }
-}
-
-####################################################################################################################################################
 # Fit and Evaluate All Models
-####################################################################################################################################################
+##########################################################################
 model_results <- list()
 for (response in names(v_matrices)) {
   cat("\nProcessing response variable:", response, "\n")
@@ -792,11 +664,10 @@ for (response in names(v_matrices)) {
   moderators <- c("tree_type", "crop_type", "age_system", "season", "soil_texture")
 
   model_results[[response]] <- list(
-    null = fit_null_model(data_subset, response),
-    minimal = fit_minimal_model(data_subset, response, v_matrix),
-    fixed = fit_fixed_effects_model(data_subset, response, v_matrix, moderators),
-    simplified = fit_simplified_model(data_subset, response, v_matrix, moderators),
-    full = fit_full_model(data_subset, response, v_matrix, moderators)
+    null = fit_model(data_subset, response, v_matrix, moderators = NULL, intercept = TRUE),
+    fixed_no_intercept = fit_model(data_subset, response, v_matrix, moderators, intercept = FALSE),
+    random_effects = fit_model(data_subset, response, v_matrix, moderators, random_effects = ~ 1 | exp_id, intercept = TRUE),
+    full_no_intercept = fit_model(data_subset, response, v_matrix, moderators, random_effects = list(~ 1 | id_article/response_variable, ~ 1 | exp_id), intercept = FALSE)
   )
 }
 
@@ -810,17 +681,14 @@ saveRDS(model_results, file = file.path(output_dir, "fitted_models_all.rds"))
 cat("\nAll models have been saved successfully in a single file!\n")
 
 ##########################################################################
-# Save All Fitted Models In Seperate Files
+# Save All Fitted Models In Separate Files
 ##########################################################################
-output_dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
-
 saveRDS(lapply(model_results, `[[`, "null"), file = file.path(output_dir, "fitted_models_null.rds"))
-saveRDS(lapply(model_results, `[[`, "minimal"), file = file.path(output_dir, "fitted_models_minimal.rds"))
-saveRDS(lapply(model_results, `[[`, "fixed"), file = file.path(output_dir, "fitted_models_fixed_effects.rds"))
-saveRDS(lapply(model_results, `[[`, "simplified"), file = file.path(output_dir, "fitted_models_simplified.rds"))
-saveRDS(lapply(model_results, `[[`, "full"), file = file.path(output_dir, "fitted_models_full.rds"))
+saveRDS(lapply(model_results, `[[`, "fixed_no_intercept"), file = file.path(output_dir, "fitted_models_fixed_no_intercept.rds"))
+saveRDS(lapply(model_results, `[[`, "random_effects"), file = file.path(output_dir, "fitted_models_random_effects.rds"))
+saveRDS(lapply(model_results, `[[`, "full_no_intercept"), file = file.path(output_dir, "fitted_models_full_no_intercept.rds"))
 
-cat("\nAll models have been saved successfully in seperate files!\n")
+cat("\nAll models have been saved successfully in separate files!\n")
 
 ##########################################################################
 # End time tracking
@@ -828,88 +696,17 @@ end.time <- Sys.time()
 time.taken <- end.time - start.time
 cat("\nTotal time taken:", time.taken, "\n")
 ##########################################################################
-# Last go (12/01-2025)
-# Processing response variable: Biodiversity 
-# Fitting null model for response variable: Biodiversity ...
-# Null model fitting completed for response variable: Biodiversity .
-# Fitting minimal model for response variable: Biodiversity ...
-# Minimal model fitting completed for response variable: Biodiversity .
-# Fitting fixed effects model for response variable: Biodiversity ...
-# Advarsel: 14 rows with NAs omitted from model fitting.Advarsel: Redundant predictors dropped from the model.Fixed effects model fitting completed for response variable: Biodiversity .
-# Fitting simplified model for response variable: Biodiversity ...
-# Advarsel: 14 rows with NAs omitted from model fitting.Advarsel: Redundant predictors dropped from the model.Simplified model fitting completed for response variable: Biodiversity .
-# Fitting full model for response variable: Biodiversity ...
-# Advarsel: 14 rows with NAs omitted from model fitting.Advarsel: Redundant predictors dropped from the model.Full model fitting completed for response variable: Biodiversity .
-# Processing response variable: Greenhouse gas emission 
-# Fitting null model for response variable: Greenhouse gas emission ...
-# Null model fitting completed for response variable: Greenhouse gas emission .
-# Fitting minimal model for response variable: Greenhouse gas emission ...
-# Minimal model fitting completed for response variable: Greenhouse gas emission .
-# Fitting fixed effects model for response variable: Greenhouse gas emission ...
-# Advarsel: Redundant predictors dropped from the model.Fixed effects model fitting completed for response variable: Greenhouse gas emission .
-# Fitting simplified model for response variable: Greenhouse gas emission ...
-# Advarsel: Redundant predictors dropped from the model.Simplified model fitting completed for response variable: Greenhouse gas emission .
-# Fitting full model for response variable: Greenhouse gas emission ...
-# Advarsel: Redundant predictors dropped from the model.Full model fitting completed for response variable: Greenhouse gas emission .
-# Processing response variable: Product quality 
-# Fitting null model for response variable: Product quality ...
-# Null model fitting completed for response variable: Product quality .
-# Fitting minimal model for response variable: Product quality ...
-# Minimal model fitting completed for response variable: Product quality .
-# Fitting fixed effects model for response variable: Product quality ...
-# Advarsel: Redundant predictors dropped from the model.Fixed effects model fitting completed for response variable: Product quality .
-# Fitting simplified model for response variable: Product quality ...
-# Advarsel: Redundant predictors dropped from the model.Simplified model fitting completed for response variable: Product quality .
-# Fitting full model for response variable: Product quality ...
-# Advarsel: Redundant predictors dropped from the model.Full model fitting completed for response variable: Product quality .
-# Processing response variable: Crop yield 
-# Fitting null model for response variable: Crop yield ...
-# Null model fitting completed for response variable: Crop yield .
-# Fitting minimal model for response variable: Crop yield ...
-# Minimal model fitting completed for response variable: Crop yield .
-# Fitting fixed effects model for response variable: Crop yield ...
-# Fixed effects model fitting completed for response variable: Crop yield .
-# Fitting simplified model for response variable: Crop yield ...
-# Simplified model fitting completed for response variable: Crop yield .
-# Fitting full model for response variable: Crop yield ...
-# Full model fitting completed for response variable: Crop yield .
-# Processing response variable: Pest and Disease 
-# Fitting null model for response variable: Pest and Disease ...
-# Null model fitting completed for response variable: Pest and Disease .
-# Fitting minimal model for response variable: Pest and Disease ...
-# Minimal model fitting completed for response variable: Pest and Disease .
-# Fitting fixed effects model for response variable: Pest and Disease ...
-# Advarsel: Redundant predictors dropped from the model.Fixed effects model fitting completed for response variable: Pest and Disease .
-# Fitting simplified model for response variable: Pest and Disease ...
-# Advarsel: Redundant predictors dropped from the model.Simplified model fitting completed for response variable: Pest and Disease .
-# Fitting full model for response variable: Pest and Disease ...
-# Advarsel: Redundant predictors dropped from the model.Full model fitting completed for response variable: Pest and Disease .
-# Processing response variable: Soil quality 
-# Fitting null model for response variable: Soil quality ...
-# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Null model fitting completed for response variable: Soil quality .
-# Fitting minimal model for response variable: Soil quality ...
-# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Minimal model fitting completed for response variable: Soil quality .
-# Fitting fixed effects model for response variable: Soil quality ...
-# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Redundant predictors dropped from the model.Fixed effects model fitting completed for response variable: Soil quality .
-# Fitting simplified model for response variable: Soil quality ...
-# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Redundant predictors dropped from the model.Simplified model fitting completed for response variable: Soil quality .
-# Fitting full model for response variable: Soil quality ...
-# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Redundant predictors dropped from the model.Full model fitting completed for response variable: Soil quality .
-# Processing response variable: Water quality 
-# Fitting null model for response variable: Water quality ...
-# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Null model fitting completed for response variable: Water quality .
-# Fitting minimal model for response variable: Water quality ...
-# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Minimal model fitting completed for response variable: Water quality .
-# Fitting fixed effects model for response variable: Water quality ...
-# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Redundant predictors dropped from the model.Fixed effects model fitting completed for response variable: Water quality .
-# Fitting simplified model for response variable: Water quality ...
-# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Redundant predictors dropped from the model.Simplified model fitting completed for response variable: Water quality .
-# Fitting full model for response variable: Water quality ...
-# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Redundant predictors dropped from the model.Advarsel: Single-level factor(s) found in 'random' argument. Corresponding 'sigma2' value(s) fixed to 0.Full model fitting completed for response variable: Water quality .
-# All models have been saved successfully in a single file!
-# All models have been saved successfully in seperate files!
-# Total time taken: 19.71101 
+
+# Last go (17/01-2025)
+
 ```
+
+
+
+
+
+
+
 
 ```{r}
 ####################################################################################################################################################

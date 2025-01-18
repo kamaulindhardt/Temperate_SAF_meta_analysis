@@ -16210,3 +16210,143 @@ cat("\nTotal time taken:", time.taken, "\n")
 
 # Last run (16/01-25)
 ```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+##############
+# MERGING IMPUTED DATA BACK TO THE ORIGINAL DATASET AND VISUALIZING
+############################################################################
+# Objective:
+# Combine the original dataset (`database_clean_sd`) with the imputed dataset 
+# (using the PMM imputation method, selected as the most robust approach).
+# This allows for a comparison of original vs. imputed values and ensures clarity by keeping columns distinct.
+
+# Merging process
+merged_data <- database_clean_sd_df %>%
+  full_join(
+    # Selecting the PMM imputed dataset:
+    imputed_datasets$upper_quartile %>%
+      # Keep only relevant imputed columns
+      select(id_article, id_obs, silvo_se, control_se), 
+    # Merge based on unique identifiers
+    by = c("id_article", "id_obs"), 
+    # Suffix to distinguish original vs. imputed columns
+    suffix = c("_original", "_imputed") 
+  ) |> 
+  # Relocate columns to the desired order
+  relocate(
+    # Overall ID info
+    id_article, id_obs, treat_id, exp_id,
+    # Response variable info
+    response_variable, sub_response_variable,
+    # Geographic and temporal info
+    location, climate_zone, bioclim_sub_regions, final_lat, final_lon, exp_site_loc, experiment_year,
+    # Moderators info
+    tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width,
+    # Quantitative mata-analysis effect size info
+    silvo_mean, silvo_sd, silvo_n, silvo_sd_from_se, silvo_sd_merged, 
+    control_mean, control_sd, control_n, control_sd_from_se, control_sd_merged
+  )
+
+# Preview the structure of the merged dataset to ensure the merge was successful
+glimpse(merged_data)
+
+# Dataset Summary:
+# - Rows: 1,126
+# - Columns: Updated based on merged dataset
+
+# Additional Context:
+# - The PMM method was selected as the most robust imputation method based on:
+#   - The lowest total relative differences (31.29%) across silvo and control SEs.
+#   - Strong performance in Jensen-Shannon Divergence (JSD) values, with 0.08 for control SEs and 0.44 for silvo SEs, 
+#     indicating excellent alignment with the original distribution.
+#   - Consistent preservation of key metrics like variance, standard deviation, and range.
+#   - A balanced approach that minimizes distortion while preserving the statistical properties of the original data.
+
+
+# Note:
+# The evaluations/assessments of the imputation methods, including relative differences, variance comparisons, 
+# and Jensen-Shannon Divergence (JSD), are performed in the subsequent sections below. These assessments 
+# substantiate the selection of the PMM method as the best approach for this dataset.
+
+# The merged dataset is now ready for further analysis and visualization, allowing for transparent comparisons between the original and imputed values.
+```
+
+
+
+
+
+
+
+#############
+# STEP 6
+##########################################################################################################################################
+SAVING TWO VERSIONS OF PREPROCESSED DATA FOR FURTHER ANALYSIS AND VISUALIZATION - RECALCULATION OF _SD WHERE THE ORIGINAL _SD IS MISSING
+##########################################################################################################################################
+
+```{r}
+# Imputed dataset where _se is imputed and then subsequently used to calculate _sd
+imp_pmm_best <- merged_data |> 
+  as.data.frame() |> 
+  # Modify the imp_pmm_best dataset before saving
+  # Remove existing columns
+  select(-c(control_se, silvo_se)) |>  
+  rename(
+    # Rename control_sd to control_sd_original
+    control_sd_original = control_sd,
+    # Rename silvo_sd to silvo_sd_original
+    silvo_sd_original = silvo_sd,
+    # Rename control_se_imputed to control_se
+    control_se_imputed = control_se_imputed, 
+    # Rename silvo_se_imputed to silvo_se
+    silvo_se_imputed = silvo_se_imputed      
+  ) |> 
+  as.data.frame()|> 
+  #################################################################################
+# RECALCULATE STANDARD DEVIATION FOR IMPUTED DATASET WITH CONDITIONAL RULE
+mutate(
+  # Calculate standard deviation for silvo group only if silvo_sd_merged is NA
+  silvo_sd_from_imputed_se = ifelse(is.na(silvo_sd_merged), silvo_se_imputed * sqrt(silvo_n), NA),
+  # Calculate standard deviation for control group only if control_sd_merged is NA
+  control_sd_from_imputed_se = ifelse(is.na(control_sd_merged), control_se_imputed * sqrt(control_n), NA),
+) |> 
+  # COMBINE _sd_final AND _sd_from_imputed_se WITH _sd_final TAKING PRECEDENCE
+  mutate(
+    silvo_sd_combined = ifelse(is.na(silvo_sd_merged), silvo_sd_from_imputed_se, silvo_sd_merged),
+    control_sd_combined = ifelse(is.na(control_sd_merged), control_sd_from_imputed_se, control_sd_merged)
+  ) |> 
+  # Relocate columns to the desired order 
+  relocate(
+    # Overall ID info
+    id_article, id_obs, treat_id, exp_id,
+    # Response variable info
+    response_variable, sub_response_variable,
+    # Geographic and temporal info
+    location, final_lat, final_lon, exp_site_loc, experiment_year,
+    # Moderators info
+    tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width,
+    # Quantitative mata-analysis effect size info
+    silvo_mean, silvo_n, silvo_se_original, silvo_sd_original, 
+    silvo_sd_from_se, silvo_sd_merged, silvo_sd_from_imputed_se, silvo_sd_combined,
+    control_mean, control_n, control_se_original, control_sd_original, 
+    control_sd_from_se, control_sd_merged, control_sd_from_imputed_se, control_sd_combined, 
+  )
+```
