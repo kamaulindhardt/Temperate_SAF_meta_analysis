@@ -587,9 +587,6 @@ extreme_variance_rows |> glimpse()
 FITTING MODELS (SUB-GROUP) FOR EACH RESPONSE VARIABLE USING PRECOMPUTED V_MATRICES
 ##########################################################################################################################################
 
-
-Protocol with Four Models Fit Meta-Analysis
-
 ```{r}
 ##########################################################################################################################################
 # FITTING MODELS (SUB-GROUP) FOR EACH RESPONSE VARIABLE USING PRECOMPUTED V_MATRICES WITH `-1` INTERCEPT REMOVAL APPROACH
@@ -604,21 +601,33 @@ start.time <- Sys.time()
 ##########################################################################
 # Protocol to Fit and Save Models for Meta-Analysis with Intercept Removal Approach
 
-##########################################################################
-# Function: Fit Models with Custom Moderator Formulas (Including `-1` for Intercept Removal)
-##########################################################################
-fit_model <- function(data_subset, response_variable, v_matrix, moderators, random_effects = NULL, intercept = TRUE) {
+##########################################################################################################################################
+# Fit Models with Increasing Complexity
+##########################################################################################################################################
+
+# Function to fit models
+fit_model <- function(data_subset, response_variable, v_matrix, moderators, random_effects = NULL, intercept = TRUE, include_interaction = FALSE) {
   cat("\nFitting model for response variable:", response_variable, "...\n")
-  
+
   # Ensure moderators are valid
   if (is.null(moderators) || length(moderators) == 0) {
     moderator_formula <- ~ 1  # Intercept-only model
   } else {
-    # Build moderator formula with or without intercept
-    moderator_formula <- if (intercept) {
-      as.formula(paste("yi ~", paste(moderators, collapse = " + ")))
+    # Build moderator formula with or without interactions
+    if (include_interaction) {
+      # Include all interactions among moderators
+      moderator_formula <- if (intercept) {
+        as.formula(paste("yi ~", paste(moderators, collapse = " * ")))
+      } else {
+        as.formula(paste("yi ~", paste(moderators, collapse = " * "), "- 1"))
+      }
     } else {
-      as.formula(paste("yi ~", paste(moderators, collapse = " + "), "- 1"))
+      # Build moderator formula with or without intercept
+      moderator_formula <- if (intercept) {
+        as.formula(paste("yi ~", paste(moderators, collapse = " + ")))
+      } else {
+        as.formula(paste("yi ~", paste(moderators, collapse = " + "), "- 1"))
+      }
     }
   }
 
@@ -651,45 +660,126 @@ fit_model <- function(data_subset, response_variable, v_matrix, moderators, rand
   }
 }
 
+##########################################################################################################################################
+# Fit Models with Hierarchical Complexity
+##########################################################################################################################################
 
-##########################################################################
-# Fit and Evaluate All Models
-##########################################################################
 model_results <- list()
+
 for (response in names(v_matrices)) {
+  # Display the response variable being processed
   cat("\nProcessing response variable:", response, "\n")
 
+  # Subset the metadata to include only rows relevant to the current response variable
   data_subset <- meta_data[meta_data$response_variable == response, ]
+
+  # Extract the corresponding variance-covariance matrix for the response variable
   v_matrix <- v_matrices[[response]]
+
+  # Define the list of moderators to be included in the model
   moderators <- c("tree_type", "crop_type", "age_system", "season", "soil_texture")
 
+  # Fit various models for the response variable and store results in a nested list
   model_results[[response]] <- list(
-    null = fit_model(data_subset, response, v_matrix, moderators = NULL, intercept = TRUE),
-    fixed_no_intercept = fit_model(data_subset, response, v_matrix, moderators, intercept = FALSE),
-    random_effects = fit_model(data_subset, response, v_matrix, moderators, random_effects = ~ 1 | exp_id, intercept = TRUE),
-    full_no_intercept = fit_model(data_subset, response, v_matrix, moderators, random_effects = list(~ 1 | id_article/response_variable, ~ 1 | exp_id), intercept = FALSE)
+    
+    # Null model: Intercept-only model, no random effects, no moderators
+    A_null = fit_model(
+      data_subset = data_subset,
+      response_variable = response,
+      v_matrix = v_matrix,
+      moderators = NULL,                    # No moderators
+      intercept = TRUE                      # Include intercept
+    ),
+
+    # Minimal random effects model: Includes random effect at the experiment level, no moderators
+    B_minimal_random = fit_model(
+      data_subset = data_subset,
+      response_variable = response,
+      v_matrix = v_matrix,
+      moderators = NULL,                    # No moderators
+      random_effects = ~ 1 | exp_id,        # Random effect at the experiment level
+      intercept = TRUE                      # Include intercept
+    ),
+
+    # Fixed effects model: Includes specified moderators, no random effects
+    C_fixed_effects = fit_model(
+      data_subset = data_subset,
+      response_variable = response,
+      v_matrix = v_matrix,
+      moderators = moderators,              # Include specified moderators
+      intercept = TRUE                      # Include intercept
+    ),
+
+    # Random effects model: Includes specified moderators and a random effect at the experiment level
+    D_random_effects = fit_model(
+      data_subset = data_subset,
+      response_variable = response,
+      v_matrix = v_matrix,
+      moderators = moderators,              # Include specified moderators
+      random_effects = ~ 1 | exp_id,        # Random effect at the experiment level
+      intercept = TRUE                      # Include intercept
+    ),
+
+    # Random effects model with interaction: Includes interactions among moderators and a random effect at the experiment level
+    E_random_effects_interaction = fit_model(
+      data_subset = data_subset,
+      response_variable = response,
+      v_matrix = v_matrix,
+      moderators = moderators,              # Include specified moderators
+      random_effects = ~ 1 | exp_id,        # Random effect at the experiment level
+      intercept = TRUE,                     # Include intercept
+      include_interaction = TRUE            # Include all interactions
+    ),
+
+    # Full model: Includes specified moderators and multiple random effects
+    F_full = fit_model(
+      data_subset = data_subset,
+      response_variable = response,
+      v_matrix = v_matrix,
+      moderators = moderators,              # Include specified moderators
+      random_effects = list(                # Include multiple random effects
+        ~ 1 | id_article/response_variable, # Random effect for nested structure of articles and variables
+        ~ 1 | exp_id                        # Random effect at the experiment level
+      ),
+      intercept = TRUE                      # Include intercept
+    ),
+
+    # Full interaction model: Includes all interactions among moderators and multiple random effects
+    G_full_interaction = fit_model(
+      data_subset = data_subset,
+      response_variable = response,
+      v_matrix = v_matrix,
+      moderators = moderators,              # Include specified moderators
+      random_effects = list(                # Include multiple random effects
+        ~ 1 | id_article/response_variable, # Random effect for nested structure of articles and variables
+        ~ 1 | exp_id                        # Random effect at the experiment level
+      ),
+      intercept = TRUE,                     # Include intercept
+      include_interaction = TRUE            # Include all interactions
+    )
   )
 }
 
-##########################################################################
-# Save All Fitted Models In One File
-##########################################################################
+##########################################################################################################################################
+# Save All Fitted Models
+##########################################################################################################################################
+
 output_dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
 
+# Save all models in one file
 saveRDS(model_results, file = file.path(output_dir, "fitted_models_all.rds"))
-
 cat("\nAll models have been saved successfully in a single file!\n")
 
-##########################################################################
-# Save All Fitted Models In Separate Files
-##########################################################################
-saveRDS(lapply(model_results, `[[`, "null"), file = file.path(output_dir, "fitted_models_null.rds"))
-saveRDS(lapply(model_results, `[[`, "fixed_no_intercept"), file = file.path(output_dir, "fitted_models_fixed_no_intercept.rds"))
-saveRDS(lapply(model_results, `[[`, "random_effects"), file = file.path(output_dir, "fitted_models_random_effects.rds"))
-saveRDS(lapply(model_results, `[[`, "full_no_intercept"), file = file.path(output_dir, "fitted_models_full_no_intercept.rds"))
+# Save individual models in separate files
+saveRDS(lapply(model_results, `[[`, "A_null"), file = file.path(output_dir, "fitted_models_A_null.rds"))
+saveRDS(lapply(model_results, `[[`, "B_minimal_random"), file = file.path(output_dir, "fitted_models_B_minimal_random.rds"))
+saveRDS(lapply(model_results, `[[`, "C_fixed_effects"), file = file.path(output_dir, "fitted_models_C_fixed_effects.rds"))
+saveRDS(lapply(model_results, `[[`, "D_random_effects"), file = file.path(output_dir, "fitted_models_D_random_effects.rds"))
+saveRDS(lapply(model_results, `[[`, "E_random_effects_interaction"), file = file.path(output_dir, "fitted_models_E_random_effects_interaction.rds"))
+saveRDS(lapply(model_results, `[[`, "F_full"), file = file.path(output_dir, "fitted_models_F_full.rds"))
+saveRDS(lapply(model_results, `[[`, "G_full_interaction"), file = file.path(output_dir, "fitted_models_G_full_interaction.rds"))
 
 cat("\nAll models have been saved successfully in separate files!\n")
-
 ##########################################################################
 # End time tracking
 end.time <- Sys.time()
@@ -697,12 +787,15 @@ time.taken <- end.time - start.time
 cat("\nTotal time taken:", time.taken, "\n")
 ##########################################################################
 
-# Last go (17/01-2025)
-
+# Last go (18/01-2025)
+# Total time taken: 23.19483 secs
 ```
 
+The code functions as intended, effectively fitting multiple models for each response variable using precomputed variance matrices and handling variations in intercept inclusion and random effects specifications. The use of parallel processing enhances efficiency, while error handling ensures robustness during model fitting. Output messages indicate some expected issues, such as missing data leading to omitted rows, multicollinearity resulting in redundant predictors, and high variance ratios that could compromise stability in certain cases. Warnings about single-level factors in random effects suggest limited variability, which may require adjustments to the random-effects structure.
 
+To improve the analysis, it is important to address missing data, potentially through imputation, and to examine multicollinearity among moderators using diagnostic measures like variance inflation factors. Stabilizing large variance ratios with transformations or alternative modeling approaches could enhance result reliability. Single-level random effects should be removed or reorganized to avoid redundancy.
 
+Performance-wise, the total runtime of approximately 23 seconds is reasonable, and the successful saving of models in both single and separate files ensures accessibility for further analysis. Future efforts should prioritize debugging high variance ratios and redundant predictors, document the handling of omitted rows, and thoroughly evaluate the fitted models for each response variable. Diagnostic plots can provide additional insights into model fit and variability, ensuring the outputs are robust and interpretable.
 
 
 
@@ -710,725 +803,152 @@ cat("\nTotal time taken:", time.taken, "\n")
 
 ```{r}
 ####################################################################################################################################################
-# Load and Inspect Saved Models
+# Load the Saved Models and Inspect Results
 ####################################################################################################################################################
+
 # Load the saved models
-dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
+output_dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
 
 # Load models for all complexity levels
-null_model_results <- readRDS(file.path(dir, "fitted_models_null.rds"))
-minimal_model_results <- readRDS(file.path(dir, "fitted_models_minimal.rds"))
-fixed_effects_model_results <- readRDS(file.path(dir, "fitted_models_fixed_effects.rds"))
-simplified_model_results <- readRDS(file.path(dir, "fitted_models_simplified.rds"))
-full_model_results <- readRDS(file.path(dir, "fitted_models_full.rds"))
+null_model_results <- readRDS(file.path(output_dir, "fitted_models_A_null.rds"))
+minimal_random_results <- readRDS(file.path(output_dir, "fitted_models_B_minimal_random.rds"))
+fixed_effects_results <- readRDS(file.path(output_dir, "fitted_models_C_fixed_effects.rds"))
+random_effects_results <- readRDS(file.path(output_dir, "fitted_models_D_random_effects.rds"))
+random_effects_interaction_results <- readRDS(file.path(output_dir, "fitted_models_E_random_effects_interaction.rds"))
+full_results <- readRDS(file.path(output_dir, "fitted_models_F_full.rds"))
+full_interaction_results <- readRDS(file.path(output_dir, "fitted_models_G_full_interaction.rds"))
 
 # Inspect the names of the response variables available
-names(full_model_results)
+names(full_results)
 
 # Check the structure of the model results for a specific response variable (e.g., "Biodiversity")
-full_model_results[["Biodiversity"]] |> str()
+full_results[["Biodiversity"]] |> str()
 
-# Identify response variables with failed model fits
-all_model_results <- list(
-  null = null_model_results,
-  minimal = minimal_model_results,
-  fixed = fixed_effects_model_results,
-  simplified = simplified_model_results,
-  full = full_model_results
+##########################################################################################################################################
+# Identify Response Variables with Failed Model Fits
+##########################################################################################################################################
+
+# Combine all model results into a single list for checking
+failed_fits <- list(
+  A_null = sapply(null_model_results, is.null),
+  B_minimal_random = sapply(minimal_random_results, is.null),
+  C_fixed_effects = sapply(fixed_effects_results, is.null),
+  D_random_effects = sapply(random_effects_results, is.null),
+  E_random_effects_interaction = sapply(random_effects_interaction_results, is.null),
+  F_full = sapply(full_results, is.null),
+  G_full_interaction = sapply(full_interaction_results, is.null)
 )
-
-detected_errors <- lapply(all_model_results, function(models) {
-  sapply(models, is.null)
-})
 
 # Response variables with any failed models
-# failed_responses <- names(detected_errors$full)[apply(detected_errors$full, 2, any)]
-# cat("\nFailed model fits detected for the following response variables:", failed_responses, "\n")
-# 
-# # Specific errors for failed fits (if stored during model fitting)
-# if (any(apply(detected_errors$full, 2, any))) {
-#   for (response in failed_responses) {
-#     cat("\nErrors for response variable:", response, "\n")
-#     failed_models <- names(all_model_results$full[[response]])[sapply(all_model_results$full[[response]], is.null)]
-#     cat("Failed models:", failed_models, "\n")
-#   }
-# }
-
-# Example: Analyze successful Full Models
-successful_full_models <- full_model_results[!sapply(full_model_results, is.null)]
-names(successful_full_models)
-successful_full_models[["Biodiversity"]] |> str()
-```
-
-```{r}
-model_results$Biodiversity$minimal$fit.stats
-
-model_results$Biodiversity$minimal$fit.stats["ll", "REML"]
-
-logLik(model_results$Biodiversity$minimal)
-```
-
-
-```{r}
-##########################################################################
-# Extract AIC and Fit Statistics for Each Response Variable
-##########################################################################
-
-# Initialize a data frame to store fit statistics results
-fit_stats_results <- data.frame(
-  Response = character(),
-  Model = character(),
-  AIC = numeric(),
-  BIC = numeric(),
-  REML = numeric(),
-  ML = numeric(),
-  LogLikelihood = numeric(),
-  stringsAsFactors = FALSE
-)
-
-# Loop through each response variable
-for (response in names(model_results)) {
-  cat("\nExtracting fit statistics for response variable:", response, "\n")
-  
-  # Retrieve models for the current response variable
-  models <- model_results[[response]]
-  
-  # Loop through each model type
-  for (model_type in names(models)) {
-    model <- models[[model_type]]
-    
-    # Skip if the model is NULL
-    if (is.null(model)) {
-      next
-    }
-    
-    # Extract fit statistics
-    if (!is.null(model$fit.stats)) {
-      fit_stats <- model$fit.stats
-      aic <- fit_stats["AIC", "REML"]
-      bic <- fit_stats["BIC", "REML"]
-      reml <- fit_stats["REML", "REML"]
-      ml <- fit_stats["ML", "REML"]
-      
-      # Extract log-likelihood
-      log_likelihood <- tryCatch({
-        if (!is.null(fit_stats["ll", "REML"])) {
-          fit_stats["ll", "REML"]
-        } else {
-          logLik(model)  # Use logLik if not in fit.stats
-        }
-      }, error = function(e) {
-        NA  # Return NA if log-likelihood cannot be extracted
-      })
-      
-      # Append results to the data frame
-      fit_stats_results <- rbind(
-        fit_stats_results,
-        data.frame(
-          Response = response,
-          Model = model_type,
-          AIC = aic,
-          BIC = bic,
-          REML = reml,
-          ML = ml,
-          LogLikelihood = log_likelihood,
-          stringsAsFactors = FALSE
-        )
-      )
-    } else {
-      cat("Fit statistics not available for model:", model_type, "of response:", response, "\n")
-    }
-  }
-}
-
-##########################################################################
-# Save Fit Statistics Results to File
-##########################################################################
-write.csv(fit_stats_results, "fit_stats_results_with_log_likelihood.csv", row.names = FALSE)
-cat("Fit statistics with log-likelihood results saved to 'fit_stats_results_with_log_likelihood.csv'\n")
-
-##########################################################################
-# Print Fit Statistics Results
-##########################################################################
-print(fit_stats_results)
-
-
-print(fit_stats_results)
-fit_stats_results |> str()
-```
-```{r}
-# Ensure data is in the correct format
-fit_stats_results$Model <- factor(
-  fit_stats_results$Model,
-  levels = c("null", "minimal", "fixed", "simplified", "full")
-)
-
-# Pivot the data to long format for ggplot (optional if already long format)
-fit_stats_long <- fit_stats_results |> 
-  pivot_longer(
-    cols = c("AIC", "BIC", "LogLikelihood"),
-    names_to = "Metric",
-    values_to = "Value"
-  )
-
-all_model_fit_stats_aic_bic_loglik_plot <- fit_stats_long |> 
-  ggplot(aes(x = Response, y = Value, fill = Metric)) +
-  geom_bar(stat = "identity", position = "dodge") +
-  facet_wrap(~ Model, scales = "free_y", nrow = 2) +  # Free y-axis scaling for each model
-  theme_minimal(base_size = 14) +
-  theme(
-    axis.text.x = element_text(angle = 45, hjust = 1),
-    legend.position = "top"
-  ) +
-  labs(
-    title = "Fit Statistics by Model and Response Variable",
-    x = "Response Variable",
-    y = "Fit Metric Value",
-    fill = "Metric"
-  )
-
-all_model_fit_stats_aic_bic_loglik_plot
-```
-
-Save plot of all fitted models with diagnostics (AIC, BIC, LogLikelihood)
-
-```{r}
-# Increase base text size and adjust all styling for the plots
-theme_custom <- theme_minimal(base_size = 30) + 
-  theme(
-    plot.title = element_text(size = 120),        # Increase title size
-    plot.subtitle = element_text(size = 70),
-    axis.text = element_text(size = 50),        # Increase axis text size
-    axis.title = element_text(size = 100),       # Increase axis title size
-    strip.text = element_text(size = 50),       # Increase facet text size
-    axis.text.y = element_text(size = 100),
-    legend.title = element_text(size = 50),
-    legend.position = "top",
-    legend.text = element_text(size = 50),
-    axis.text.x = element_text(size = 100,
-                               angle = 45, hjust = 1) # Rotate x-axis text
-  )
-
-# Apply theme modifications to each plot
-all_model_fit_stats_aic_bic_loglik_plot <- all_model_fit_stats_aic_bic_loglik_plot + theme_custom
-
-
-# Save the enhanced plot
-output_dir <- here::here("DATA", "OUTPUT_FROM_R", "FIGURES")
-ggsave(
-  filename = file.path(output_dir, "all_model_fit_stats_aic_bic_loglik_plot.png"),
-  plot = all_model_fit_stats_aic_bic_loglik_plot,
-  width = 16, height = 10, dpi = 600,
-  bg = "white"
-)
-```
-
-
-```{r}
-# Ensure Model is a factor with the correct order
-fit_stats_results$Model <- factor(
-  fit_stats_results$Model,
-  levels = c("null", "minimal", "fixed", "simplified", "full")
-)
-
-# Pivot the data to long format for ggplot
-fit_stats_long <- fit_stats_results |> 
-  pivot_longer(
-    cols = c("AIC", "BIC", "LogLikelihood"),
-    names_to = "Metric",
-    values_to = "Value"
-  )
-
-# Create grouped bar charts
-ggplot(fit_stats_long, aes(x = Response, y = Value, fill = Model)) +
-  geom_bar(stat = "identity", position = "dodge") +
-  #scale_y_log10() +
-  facet_wrap(~ Metric, scales = "free", nrow = 1) +
-  theme_minimal(base_size = 14) +
-  theme(
-    axis.text.x = element_text(angle = 45, hjust = 1),
-    legend.position = "top"
-  ) +
-  labs(
-    title = "Model Fit Metrics (AIC and BIC) by Response Variable and Model",
-    x = "Response Variable",
-    y = "Metric Value",
-    fill = "Model"
-  )
-
-```
-
-```{r}
-# Ensure Model is a factor with the correct order
-fit_stats_results$Model <- factor(
-  fit_stats_results$Model,
-  levels = c("null", "minimal", "fixed", "simplified", "full")
-)
-
-# Pivot the data to long format for ggplot
-fit_stats_long <- fit_stats_results |> 
-  pivot_longer(
-    cols = c("AIC", "BIC", "LogLikelihood"),
-    names_to = "Metric",
-    values_to = "Value"
-  )
-
-# Create lower range plot (excluding high values)
-p1 <- ggplot(fit_stats_long, aes(x = Response, y = Value, fill = Model)) +
-  geom_bar(stat = "identity", position = "dodge") +
-  facet_wrap(~ Metric, scales = "free", nrow = 1) +
-  coord_cartesian(ylim = c(0, 5000)) + # Lower range
-  theme_minimal(base_size = 14) +
-  theme(
-    axis.text.x = element_text(angle = 45, hjust = 1),
-    legend.position = "bottom",
-    strip.text = element_blank() # Remove facet labels (Metric labels)
-  ) +
-  labs(
-    title = NULL,
-    x = NULL,
-    y = "Metric Value (Lower Range)",
-    fill = "Model"
-  )
-
-# Create upper range plot (zoom into higher values)
-p2 <- ggplot(fit_stats_long, aes(x = Response, y = Value, fill = Model)) +
-  geom_bar(stat = "identity", position = "dodge") +
-  facet_wrap(~ Metric, scales = "free", nrow = 1) +
-  coord_cartesian(ylim = c(200000, 250000)) + # Upper range
-  theme_minimal(base_size = 14) +
-  theme(
-    axis.text.x = element_blank(),
-    axis.ticks.x = element_blank(),
-    legend.position = "none"
-  ) +
-  labs(
-    title = "Model Fit Metrics (AIC and BIC) by Response Variable and Model",
-    x = NULL,
-    y = "Metric Value (Upper Range)"
-  )
-
-# Combine plots with a gap
-p_combined <- p2 / plot_spacer() / p1 + 
-  plot_layout(heights = c(1, 0.1, 2))
-
-# Display the combined plot
-p_combined
-```
-
-```{r}
-# Calculate the average AIC for each model type across all response variables
-average_aic <- fit_stats_results %>%
-  group_by(Model) %>%
-  summarise(Average_AIC = mean(AIC, na.rm = TRUE)) %>%
-  arrange(Average_AIC)
-
-# Identify the model type with the lowest average AIC
-best_model_type <- average_aic %>%
-  slice(1) %>%
-  pull(Model)
-
-cat("The best model type based on average AIC is:", best_model_type, "\n")
-
-
-# Identify the best model for each response variable based on AIC
-best_models <- fit_stats_results %>%
-  group_by(Response) %>%
-  filter(AIC == min(AIC, na.rm = TRUE)) %>%
-  ungroup()
-
-
-####################################################################################################################
-average_aic
-best_models
-best_model_type
-cat("The best model type based on average AIC is:", best_model_type, "\n")
-```
-```{r}
-# Create a gt table for average AIC by model
-average_aic_table <- average_aic %>%
-  gt() %>%
-  tab_header(
-    title = "Average AIC by Model Type",
-    subtitle = "Comparison of Model Performance Across All Response Variables"
-  ) %>%
-  cols_label(
-    Model = "Model Type",
-    Average_AIC = "Average AIC"
-  ) %>%
-  fmt_number(
-    columns = vars(Average_AIC),
-    decimals = 2
-  ) %>%
-  tab_style(
-    style = cell_text(weight = "bold"),
-    locations = cells_column_labels(everything())
-  ) %>%
-  tab_options(
-    table.font.size = 14,
-    heading.title.font.size = 20,
-    heading.subtitle.font.size = 16
-  )
-
-# Save the table as an HTML file
-gtsave(
-  data = average_aic_table,
-  filename = file.path(here::here("DATA", "OUTPUT_FROM_R", "TABLES"), "average_aic_table.html")
-)
-
-# Create a gt table for the best models by response variable
-best_models_gt_table <- best_models %>%
-  gt() %>%
-  tab_header(
-    title = "Best Models by Response Variable",
-    subtitle = "Model Performance Comparison Based on AIC"
-  ) %>%
-  cols_label(
-    Response = "Response Variable",
-    Model = "Best Model",
-    AIC = "AIC",
-    BIC = "BIC",
-    REML = "REML",
-    ML = "ML",
-    LogLikelihood = "Log-Likelihood"
-  ) %>%
-  fmt_number(
-    columns = vars(AIC, BIC, REML, ML, LogLikelihood),
-    decimals = 2
-  ) %>%
-  tab_style(
-    style = cell_text(weight = "bold"),
-    locations = cells_column_labels(everything())
-  ) %>%
-  tab_options(
-    table.font.size = 14,
-    heading.title.font.size = 20,
-    heading.subtitle.font.size = 16
-  )
-
-best_models_gt_table
-```
-
-```{r}
-# Save the table as an HTML file
-gtsave(
-  data = best_models_table,
-  filename = file.path(here::here("DATA", "OUTPUT_FROM_R", "TABLES"), "best_models_table.html")
-)
-```
-
-
-
-
-
-```{r}
-# Calculate the average AIC for each model type across all response variables
-average_aic <- fit_stats_results %>%
-  group_by(Model) %>%
-  summarise(Average_AIC = mean(AIC, na.rm = TRUE)) %>%
-  arrange(Average_AIC)
-
-
-average_aic |> str()
-
-################################################################################################
-
-# Calculate average metrics for each model type
-average_metrics <- fit_stats_results %>%
-  group_by(Model) %>%
-  summarise(
-    Average_AIC = mean(AIC, na.rm = TRUE),
-    Average_BIC = mean(BIC, na.rm = TRUE),
-    Average_LogLikelihood = mean(LogLikelihood, na.rm = TRUE)
-  ) %>%
-  arrange(Average_AIC)
-
-# Combine metrics for each response variable-model combination
-metrics_table <- fit_stats_results %>%
-  select(Response, Model, AIC, BIC, LogLikelihood) %>%
-  arrange(Response, Model) %>%
-  left_join(average_metrics, by = "Model")
-
-# Add a column to indicate the best model for each response variable
-metrics_table <- metrics_table %>%
-  group_by(Response) %>%
-  mutate(Best_Model = ifelse(AIC == min(AIC, na.rm = TRUE), "✓", "")) %>%
-  ungroup()
-
-# Add a column to indicate the overall best model based on average AIC
-metrics_table <- metrics_table %>%
-  mutate(Overall_Best = ifelse(Model == average_metrics$Model[1], "✓", ""))
-
-# Create the gt table
-model_comparison_gt_table <- metrics_table %>%
-  gt(groupname_col = "Response") %>%
-  tab_header(
-    title = "Model Comparison by Response Variable and Average Metrics",
-    subtitle = "Summary of AIC, BIC, and Log-Likelihood values for each model-response combination and averaged across all responses"
-  ) %>%
-  cols_label(
-    Model = "Model Type",
-    AIC = "AIC",
-    BIC = "BIC",
-    LogLikelihood = "Log-Likelihood",
-    Average_AIC = "Average AIC (All Responses)",
-    Average_BIC = "Average BIC (All Responses)",
-    Average_LogLikelihood = "Average Log-Likelihood (All Responses)",
-    Best_Model = "Best Model (Per Response)",
-    Overall_Best = "Overall Best Model"
-  ) %>%
-  fmt_number(
-    columns = vars(AIC, BIC, LogLikelihood, Average_AIC, Average_BIC, Average_LogLikelihood),
-    decimals = 2
-  ) %>%
-  tab_style(
-    style = cell_text(weight = "bold"),
-    locations = cells_column_labels(everything())
-  ) %>%
-  tab_style(
-    style = cell_text(weight = "bold", color = "green"),
-    locations = cells_body(columns = vars(Best_Model, Overall_Best), rows = Best_Model == "✓" | Overall_Best == "✓")
-  ) %>%
-  tab_style(
-    style = cell_fill(color = "lightgreen"),
-    locations = cells_body(
-      columns = vars(Average_AIC, Average_BIC, Average_LogLikelihood),
-      rows = Overall_Best == "✓"
-    )
-  ) %>%
-  tab_options(
-    table.font.size = 14,
-    heading.title.font.size = 20,
-    heading.subtitle.font.size = 16,
-    row_group.font.size = 16
-  ) %>%
-  opt_table_font(
-    font = list(
-      google_font("Lato"),
-      default_fonts()
-    )
-  )
-
-
-model_comparison_gt_table
-```
-
-Save the model_comparison_gt_table table as an HTML file
-
-```{r}
-# Save the table as an HTML file
-output_dir <- here::here("DATA", "OUTPUT_FROM_R", "TABLES")
-gtsave(
-  data = model_comparison_gt_table,
-  filename = file.path(output_dir, "overall_model_comparison_gt_table.html")
-)
-```
-
-
-
-A more concise version
-
-```{r}
-# Summarize data by model type
-concise_gt_table_data <- average_metrics %>%
-  left_join(
-    fit_stats_results %>%
-      group_by(Model) %>%
-      summarise(
-        Best_Per_Response = sum(AIC == min(AIC, na.rm = TRUE)), # Count how many responses selected this model
-        .groups = "drop"
-      ),
-    by = "Model"
-  ) %>%
-  mutate(
-    Overall_Best = ifelse(Model == average_metrics$Model[1], "✓", "") # Mark the overall best model
-  ) %>%
-  select(Model, Average_AIC, Average_BIC, Average_LogLikelihood, Best_Per_Response, Overall_Best)
-
-# Create a concise gt table
-model_comparison_gt_table_concise <- concise_gt_table_data %>%
-  gt() %>%
-  tab_header(
-    title = "Model Comparison: Summary of Metrics Across Responses",
-    subtitle = "Average AIC, BIC, and Log-Likelihood for each model type and their performance across response variables"
-  ) %>%
-  cols_label(
-    Model = "Model Type",
-    Average_AIC = "Avg. AIC",
-    Average_BIC = "Avg. BIC",
-    Average_LogLikelihood = "Avg. Log-Likelihood",
-    Best_Per_Response = "Best Fit (Per Response)",
-    Overall_Best = "Overall Best"
-  ) %>%
-  fmt_number(
-    columns = vars(Average_AIC, Average_BIC, Average_LogLikelihood),
-    decimals = 2
-  ) %>%
-  tab_style(
-    style = cell_text(weight = "bold", color = "green"),
-    locations = cells_body(columns = vars(Overall_Best), rows = Overall_Best == "✓")
-  ) %>%
-  tab_options(
-    table.font.size = 14,
-    heading.title.font.size = 18,
-    heading.subtitle.font.size = 14
-  ) %>%
-  opt_table_font(
-    font = list(
-      google_font("Lato"),
-      default_fonts()
-    )
-  )
-
-model_comparison_gt_table_concise
-```
-
-```{r}
-# Save the concise table
-output_dir <- here::here("DATA", "OUTPUT_FROM_R", "TABLES")
-gtsave(
-  data = model_comparison_gt_table_concise,
-  filename = file.path(output_dir, "model_comparison_gt_table_concise.html")
-)
-```
-
-
-
-The updated interpretation of the model-fitting process incorporates insights from the plots and the average AIC values for the tested models. The "simplified" model, which has the lowest average AIC value (1316.68), emerges as the best-performing model across response variables. This suggests that the simplified model strikes an optimal balance between complexity and fit quality, making it the most effective for generalizing across diverse response variables while minimizing overfitting.
-
-The "full" model, with an average AIC of 1319.28, performs comparably to the simplified model but involves greater complexity by including additional interaction terms and moderators. The slight increase in AIC for the full model implies diminishing returns in predictive accuracy compared to the simpler structure of the simplified model. In contrast, the "fixed" and "minimal" models demonstrate higher AIC values (1697.50 and 1752.20, respectively), indicating less efficient fits and suggesting that these models may omit important moderators or over-simplify the relationships among variables.
-
-The "null" model, with an extraordinarily high average AIC (36211.86), serves as a baseline and clearly underperforms, confirming that the inclusion of moderators is critical to capturing meaningful variability in the response variables. This underscores the value of incorporating explanatory factors into the meta-analysis framework.
-
-The plots also highlight the challenges encountered with certain response variables. For example, "Greenhouse gas emissions," "Soil quality," and "Water quality" experienced failures in more complex models due to insufficient factor levels in categorical variables. These failures suggest that data preprocessing, including the consolidation of categories or increasing sample sizes, is essential for robust model fitting. Conversely, "Biodiversity" and "Product quality" performed well across all model types, suggesting these datasets are well-structured and exhibit sufficient variability in moderators to support stable fits.
-
-For "Crop yield," warnings about extreme variance ratios across sampling variances indicate potential instability in the results, even when models are successfully fitted. This calls for closer scrutiny of outlier variances and potential data transformations to stabilize the estimates.
-
-In conclusion, the "simplified" model is recommended for reporting and interpreting results due to its optimal trade-off between simplicity and explanatory power. However, the variability in model performance across response variables highlights the need for tailored preprocessing and additional methodological adjustments to address data limitations in specific cases. This refined approach ensures that model outcomes are robust, interpretable, and applicable to diverse response variables in the meta-analysis.
-
-
-#############
-# STEP 4
-##########################################################################################################################################
-MODEL COMPARISONS, EVALUATION AND DIAGNOSTICS
-##########################################################################################################################################
-
-```{r}
-# Define a vector of response variables
-response_variables <- c(
-  "Biodiversity", "Greenhouse gas emission", "Product quality", 
-  "Crop yield", "Pest and Disease", "Soil quality", "Water quality"
-)
-
-# Step 1: Generic extraction of datasets for each response variable
-extract_datasets <- function(model_results, response_vars) {
-  datasets <- lapply(response_vars, function(rv) {
-    if (!is.null(model_results[[rv]])) {
-      model_results[[rv]]$data
-    } else {
-      NULL
-    }
-  })
-  names(datasets) <- response_vars
-  return(datasets)
-}
-
-# Extract datasets for simplified and full models
-simplified_model_datasets <- extract_datasets(simplified_model_results, response_variables)
-full_model_datasets <- extract_datasets(full_model_results, response_variables)
-```
-
-```{r}
-# Step 2: Combine all response variable datasets into one for each model
-combine_datasets <- function(model_datasets) {
-  combined_data <- do.call(rbind, model_datasets)
-  return(as.data.frame(combined_data))
-}
-
-simplified_model_data <- combine_datasets(simplified_model_datasets)
-full_model_data <- combine_datasets(full_model_datasets)
-
-# Step 3: Check the structure of the final datasets
-str(simplified_model_data)
-str(full_model_data)
-```
-```{r}
-# Step 4: Refit the "simplified" model using ML
-simplified_ml <- rma.mv(
-  yi = yi,
-  V = simplified_model_data$vi,  # Variance structure
-  mods = ~ tree_type + crop_type + age_system + season + soil_texture,  # Simplified model moderators
-  random = ~ 1 | exp_id,          # Random effects structure
-  data = simplified_model_data,   # Dataset for simplified model
-  method = "ML"                   # Maximum Likelihood method
-)
-
-# Step 5: Refit the "full" model using ML
-full_ml <- rma.mv(
-  yi = yi,
-  V = full_model_data$vi,         # Variance structure
-  mods = ~ tree_type * crop_type * age_system * season * soil_texture,  # Full model with interactions
-  random = ~ 1 | exp_id,          # Random effects structure
-  data = full_model_data,         # Dataset for full model
-  method = "ML"                   # Maximum Likelihood method
-)
-
-# Step 6: Perform a likelihood ratio test to compare the models
-lrt <- anova(simplified_ml, full_ml)
-print(lrt)
-
-# Step 7: Interpret the results
-if (lrt$pval < 0.05) {
-  cat("The full model significantly improves the fit compared to the simplified model (p =", lrt$pval, ").\n")
+failed_responses <- unique(unlist(lapply(failed_fits, function(x) names(x)[x])))
+if (length(failed_responses) > 0) {
+  cat("\nFailed model fits detected for the following response variables:", failed_responses, "\n")
 } else {
-  cat("The simplified model is sufficient; the full model does not significantly improve the fit (p =", lrt$pval, ").\n")
+  cat("\nNo failed model fits detected.\n")
 }
+
+##########################################################################################################################################
+# Analyze Successful Models (Example)
+##########################################################################################################################################
+
+# Extract successful Full Models
+successful_random_effects_models <- random_effects_results[!sapply(random_effects_results, is.null)]
+successful_random_effects_models
 ```
 
 
-The likelihood ratio test compared two key models, the simplified and full, to evaluate how well each explains the variability in effect sizes using moderators such as tree type, crop type, age system, season, and soil texture. The results highlight that the full model, which includes both main effects and interaction terms between moderators, offers a significantly better fit than the simplified model. The full model has a substantially lower AIC (3959.58) and AICc (3966.02) compared to the simplified model’s AIC (4853.19) and AICc (4853.43), demonstrating its ability to explain more variability in the data. Additionally, the full model’s higher log-likelihood value (-1922.79 compared to -2415.59) indicates it is more likely to represent the observed data accurately.
-
-The likelihood ratio test statistic (LRT) was 985.61 with a p-value less than 0.0001, confirming that the improvement in fit observed with the full model is statistically significant and not due to chance. This suggests that the interactions between moderators are essential for capturing the complexity of the relationships in the dataset. Moreover, the residual heterogeneity (QE) is considerably lower in the full model (14476.65) compared to the simplified model (20090.59). This reduction indicates that the full model explains a greater portion of the variability in effect sizes, leaving less unexplained heterogeneity.
-
-Different model setups reveal incremental complexity in addressing the variability in effect sizes. The null model, serving as the simplest baseline, assumes no variability due to moderators or random effects. It has the poorest fit with the highest AIC, failing to capture key variations in the data. The minimal model, which incorporates random effects at the experiment level, captures some variability across experiments but lacks explanatory power since it does not include moderators. The fixed-effects model focuses solely on the impact of moderators, improving fit compared to the minimal model, but it overlooks random variability across experiments. The simplified model strikes a balance, including both fixed and random effects, and performs significantly better than the minimal model by explaining part of the heterogeneity. However, it does not include interaction terms, which limits its ability to fully capture the complexity of relationships among moderators.
-
-The full model incorporates all fixed effects, interaction terms, and nested random effects, offering the most comprehensive explanation of variability in the data. It accounts for dependencies within articles and response variables and captures the combined influence of moderators and their interactions. While the full model’s complexity provides superior explanatory power, it requires careful interpretation, particularly for interaction terms, to ensure the findings are clearly communicated. The simplified model may still be useful in cases where simplicity and interpretability are prioritized, but it sacrifices the nuanced understanding provided by the full model.
-
-Overall, the significant improvement in fit offered by the full model justifies its use in reporting and interpreting results. It highlights the importance of considering interaction effects and nested dependencies to fully capture the complexity of relationships in meta-analytical data. However, balancing clarity and complexity in reporting is crucial to making the findings accessible and actionable.
 
 
-######################################
 
-This assessment, comparing simplified and full models in the meta-analysis, highlights several important limitations and implications for model fitting, the overall analysis process, and the reporting and communication of results.
 
-One key limitation is the **complexity of the full model**, which includes interaction terms and nested random effects. While this complexity significantly improves the model's fit, it also increases the risk of overfitting, particularly when the sample size or the number of independent observations is limited. Overfitting can lead to inflated estimates of model performance and reduced generalizability, making it crucial to ensure that the dataset supports the level of complexity introduced by the full model.
 
-The reliance on interaction terms in the full model presents another challenge. Interaction terms often provide valuable insights into the combined effects of moderators but can be difficult to interpret, especially in large and complex datasets. For example, explaining the simultaneous influence of tree type, crop type, soil texture, season, and their interactions on the response variable requires careful communication to avoid misinterpretation or oversimplification of results. Additionally, the inclusion of many interaction terms increases the risk of multicollinearity, which may compromise the stability and reliability of model coefficients.
 
-From a model-fitting perspective, the likelihood ratio test (LRT) indicates that the full model significantly improves the fit compared to the simplified model. However, this improvement may come at the cost of interpretability and computational efficiency. The time and resources required to fit and evaluate complex models can be prohibitive, especially when multiple response variables are analyzed across diverse datasets. Simplified models, while less precise, may offer a more practical and interpretable alternative in contexts where resource constraints or audience understanding are priorities.
 
-In terms of reporting and communication, the results emphasize the importance of transparency and clarity. The full model provides the best explanation of variability, but the increased complexity requires careful reporting to ensure that findings are accessible and meaningful to both technical and non-technical audiences. Interaction effects, for example, need to be clearly illustrated, perhaps using visualization tools, to show how different combinations of moderators influence the response variable. The assumptions, limitations, and potential risks of overfitting should also be explicitly discussed to provide context for the results.
 
-Another implication relates to the heterogeneity in the data, as evidenced by residual heterogeneity (QE) values. Even the full model, despite its better fit, leaves a substantial amount of unexplained variability. This highlights the possibility that other moderators or unmeasured factors not included in the analysis may be influencing the response variable. Future meta-analyses should consider incorporating additional covariates or employing alternative modeling frameworks, such as Bayesian approaches, to address this limitation.
 
-Finally, the assessment underscores the need for flexibility in model selection. While the full model is statistically superior, there may be contexts where a simplified model is more appropriate. For example, when communicating findings to stakeholders or decision-makers who value clarity over technical detail, a simplified model may strike a better balance between interpretability and statistical rigor.
 
-In summary, the assessment reveals the trade-offs between complexity, explanatory power, and interpretability in meta-analytic modeling. The results highlight the importance of aligning model choice with research objectives, audience needs, and resource constraints while maintaining transparency and rigor in reporting. Future efforts should focus on addressing unexplained heterogeneity, improving interpretability of complex models, and tailoring communication strategies to diverse audiences.
+
+
+
+
+
+
+
+
+
+##########################################################################################################################################
+# FITTING MODELS (SUB-GROUP) FOR EACH RESPONSE VARIABLE USING PRECOMPUTED V_MATRICES
+##########################################################################################################################################
+
+# Redefining the workflow to integrate the 'cabbage approach' for incremental inclusion of moderators
+
+
+
+
+
+The updated meta-analysis workflow integrates the "cabbage approach" by incrementally adding moderators to assess their individual contributions systematically. This ensures a thorough evaluation of each moderator's role in explaining heterogeneity while providing flexibility to compare models with and without random effects. 
+
+### Key Workflow Components:
+1. **Null Model**: This intercept-only model estimates the global average effect size without moderators or random effects, serving as a baseline for each response variable.
+2. **Minimal Random Effects Model**: Captures between-experiment variability by including a random effect at the experiment level, providing insight into dataset heterogeneity.
+3. **Incremental Models**: Moderators are added stepwise:
+   - **Without Random Effects**: Evaluates isolated moderator impacts.
+   - **With Random Effects**: Accounts for experimental variability while testing moderator contributions.
+4. **Base Model with Fixed and Random Effects**: A benchmark model that includes both fixed and random effects without moderators to assess the baseline effect size and heterogeneity.
+
+### Intercept Inclusion in the Workflow:
+- **Including the Intercept**: Estimates the global mean effect size, serving as a baseline for comparing deviations due to moderators. This approach is critical for understanding overall trends and relative impacts of moderators.
+- **Omitting the Intercept**: Focuses on estimating direct effects of moderators, bypassing the global mean, which may be useful for categorical variables.
+
+### Practical Considerations:
+Including the intercept improves model stability and interpretability, especially when estimating overall effects. Omitting it may introduce bias or overfitting but can clarify moderator-specific effects. The choice depends on the research question—whether to assess global trends or focus on within-moderator comparisons. This workflow balances interpretability, flexibility, and systematic evaluation of moderators, aligning well with the cabbage approach for incremental analysis.
+
+
+
+This approach ensures systematic, transparent evaluation of moderators, random effects, and their combined influence on effect sizes.
 
 ```{r}
-# Define a function to refit models with Maximum Likelihood (ML) for each response variable
-refit_models_with_ml <- function(response_variable, simplified_data, full_data, v_matrix_simplified, v_matrix_full, moderators) {
-  cat("\nRefitting models with ML for response variable:", response_variable, "...\n")
+##########################################################################################################################################
+# FITTING MODELS (SUB-GROUP) FOR EACH RESPONSE VARIABLE USING PRECOMPUTED V_MATRICES
+##########################################################################################################################################
 
-  # Refit the simplified model using ML
-  simplified_ml <- tryCatch({
+# Redefining the workflow to integrate the 'cabbage approach' for incremental inclusion of moderators
+
+##########################################################################
+# Set up the parallel processing plan
+plan(multisession, workers = parallel::detectCores() - 1)
+##########################################################################
+# Start time tracking
+start.time <- Sys.time()
+##########################################################################
+# Protocol to Fit and Save Models for Meta-Analysis with Stepwise Moderator Inclusion
+
+##########################################################################################################################################
+# Function to fit models with one moderator at a time
+fit_model_incremental <- function(data_subset, response_variable, v_matrix, moderator, random_effects = NULL, intercept = TRUE) {
+  # Print progress message
+  cat("\nFitting model for response variable:", response_variable, "with moderator:", moderator, "...\n")
+
+  # Build the formula for the moderator
+  moderator_formula <- if (!is.null(moderator)) {
+    if (intercept) {
+      as.formula(paste("yi ~", moderator))  # Include global intercept
+    } else {
+      as.formula(paste("yi ~", moderator, "- 1"))  # Exclude global intercept
+    }
+  } else {
+    ~ 1  # Intercept-only model
+  }
+
+  # Fit the model
+  model <- tryCatch({
     rma.mv(
       yi = yi,
-      V = v_matrix_simplified,
-      mods = as.formula(paste("yi ~", paste(moderators, collapse = " + "))),
-      random = ~ 1 | exp_id,
-      data = simplified_data,
-      method = "ML",
+      V = v_matrix,
+      mods = moderator_formula,
+      random = random_effects,
+      data = data_subset,
+      method = "REML",
       control = list(
         optimizer = "optim",
         optim.method = "BFGS",
@@ -1437,288 +957,483 @@ refit_models_with_ml <- function(response_variable, simplified_data, full_data, 
       )
     )
   }, error = function(e) {
-    cat("Error in simplified model refitting for", response_variable, ":", e$message, "\n")
+    cat("Error in model fitting for", response_variable, "with moderator", moderator, ":", e$message, "\n")
     return(NULL)
   })
 
-  # Refit the full model using ML
-  full_ml <- tryCatch({
-    rma.mv(
-      yi = yi,
-      V = v_matrix_full,
-      mods = as.formula(paste("yi ~", paste(moderators, collapse = " * "))),
-      random = ~ 1 | exp_id,
-      data = full_data,
-      method = "ML",
-      control = list(
-        optimizer = "optim",
-        optim.method = "BFGS",
-        iter.max = 1000,
-        rel.tol = 1e-8
-      )
-    )
-  }, error = function(e) {
-    cat("Error in full model refitting for", response_variable, ":", e$message, "\n")
-    return(NULL)
-  })
-
-  list(simplified_ml = simplified_ml, full_ml = full_ml)
-}
-```
-
-```{r}
-# Perform likelihood ratio test to compare simplified and full models
-compare_models <- function(simplified_ml, full_ml, response_variable) {
-  if (is.null(simplified_ml) || is.null(full_ml)) {
-    cat("\nCannot perform LRT for", response_variable, "due to missing models.\n")
+  # Return fitted model or NULL if fitting failed
+  if (!is.null(model)) {
+    cat("Model fitting completed for response variable:", response_variable, "with moderator:", moderator, ".\n")
+    return(model)
+  } else {
     return(NULL)
   }
-
-  lrt <- tryCatch({
-    anova(simplified_ml, full_ml)
-  }, error = function(e) {
-    cat("Error performing LRT for", response_variable, ":", e$message, "\n")
-    return(NULL)
-  })
-
-  if (!is.null(lrt)) {
-    cat("\nLRT for", response_variable, ":\n")
-    print(lrt)
-  }
-  lrt
 }
-```
 
+##########################################################################################################################################
+# Fit Models for Each Response Variable with Incremental Moderator Inclusion
+##########################################################################################################################################
 
-```{r}
-# Define response variables and moderators
-response_variables <- c(
-  "Biodiversity", "Greenhouse gas emission", "Product quality", 
-  "Crop yield", "Pest and Disease", "Soil quality", "Water quality"
-)
-moderators <- c("tree_type", "crop_type", "age_system", "season", "soil_texture")
+# Initialize an empty list to store model results
+model_results <- list()
 
-# Initialize a list to store results for each response variable
-ml_results <- list()
-
-# Loop through each response variable to refit models and perform LRT
-for (response in response_variables) {
+# Loop through each response variable to fit models
+for (response in names(v_matrices)) {
+  # Display the response variable being processed
   cat("\nProcessing response variable:", response, "\n")
 
-  # Extract data and variance matrices for the response variable
-  simplified_data <- simplified_model_datasets[[response]]
-  full_data <- full_model_datasets[[response]]
-  v_matrix_simplified <- simplified_data$vi  # Replace with the actual variance structure
-  v_matrix_full <- full_data$vi              # Replace with the actual variance structure
+  # Subset the metadata to include only rows relevant to the current response variable
+  data_subset <- meta_data[meta_data$response_variable == response, ]
 
-  # Refit models using ML
-  models <- refit_models_with_ml(
-    response,
-    simplified_data,
-    full_data,
-    v_matrix_simplified,
-    v_matrix_full,
-    moderators
-  )
+  # Extract the corresponding variance-covariance matrix for the response variable
+  v_matrix <- v_matrices[[response]]
 
-  # Perform LRT and store results
-  lrt_result <- compare_models(models$simplified_ml, models$full_ml, response)
-  ml_results[[response]] <- list(models = models, lrt = lrt_result)
-}
+  # Define the list of moderators to be included in the model
+  moderators <- c("tree_type", "crop_type", "age_system", "season", "soil_texture")
 
-# Save results as .rds
-saveRDS(ml_results, file = "ml_model_comparison_results.rds")
-cat("Model comparison results saved to 'ml_model_comparison_results.rds'.\n")
+  # Fit models step-by-step for the response variable
+  model_results[[response]] <- list(
+    
+    # Null model: Intercept-only model, no random effects, no moderators
+    A_null = fit_model_incremental(
+      data_subset = data_subset,
+      response_variable = response,
+      v_matrix = v_matrix,
+      moderator = NULL,                     # No moderators
+      intercept = TRUE                      # Include intercept
+    ),
 
-ml_results
-```
+    # Minimal random effects model: Includes random effect at the experiment level, no moderators
+    B_minimal_random_incremental = fit_model_incremental(
+      data_subset = data_subset,
+      response_variable = response,
+      v_matrix = v_matrix,
+      moderator = NULL,                     # No moderators
+      random_effects = ~ 1 | exp_id,        # Random effect at the experiment level
+      intercept = TRUE                      # Include intercept
+    ),
 
-```{r}
-# ml_results |> str()
-```
-
-
-```{r}
-# Load results from .rds
-#ml_comparison_results <- readRDS("ml_model_comparison_results.rds")
-#ml_comparison_results |> str()
-# Function to compute AIC if not stored in the model
-get_aic <- function(model) {
-  tryCatch({
-    if (!is.null(model)) {
-      return(as.numeric(AIC(model)))
-    } else {
-      return(NA)
-    }
-  }, error = function(e) {
-    return(NA)
-  })
-}
-
-# Function to manually extract LRT stats
-get_lrt_manual <- function(result) {
-  tryCatch({
-    if (!is.null(result$lrt)) {
-      list(
-        statistic = if (!is.null(result$lrt$LRT)) as.numeric(result$lrt$LRT) else NA,
-        pval = if (!is.null(result$lrt$pval)) as.numeric(result$lrt$pval) else NA
+    # Incremental model without random effects: Adds moderators incrementally
+    C_incremental_no_random_incremental = lapply(moderators, function(moderator) {
+      fit_model_incremental(
+        data_subset = data_subset,
+        response_variable = response,
+        v_matrix = v_matrix,
+        moderator = moderator,             # Add one moderator
+        random_effects = NULL,             # No random effects
+        intercept = TRUE                   # Include intercept
       )
-    } else {
-      list(statistic = NA, pval = NA)
-    }
-  }, error = function(e) {
-    list(statistic = NA, pval = NA)
-  })
+    }),
+
+    # Incremental model with random effects: Adds moderators incrementally
+    D_incremental_random_incremental = lapply(moderators, function(moderator) {
+      fit_model_incremental(
+        data_subset = data_subset,
+        response_variable = response,
+        v_matrix = v_matrix,
+        moderator = moderator,             # Add one moderator
+        random_effects = ~ 1 | exp_id,     # Random effect at the experiment level
+        intercept = TRUE                   # Include intercept
+      )
+    }),
+
+    # Base intercept-only model with both fixed and random effects (new model for testing)
+    E_intercept_fixed_random_incremental = fit_model_incremental(
+      data_subset = data_subset,
+      response_variable = response,
+      v_matrix = v_matrix,
+      moderator = NULL,                    # No moderators
+      random_effects = ~ 1 | exp_id,       # Random effect at the experiment level
+      intercept = TRUE                     # Include intercept
+    )
+  )
 }
 
-# Updated loop
-comparison_df <- data.frame(
-  Response = character(),
-  Simplified_AIC = numeric(),
-  Full_AIC = numeric(),
-  LRT_Statistic = numeric(),
-  LRT_pval = numeric(),
+##########################################################################################################################################
+# Save All Fitted Models
+##########################################################################################################################################
+
+# Define the output directory for saving model results
+output_dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
+
+# Save all models in one file
+saveRDS(model_results, file = file.path(output_dir, "fitted_models_all_incremental.rds"))
+cat("\nAll models have been saved successfully in a single file!\n")
+
+# Save individual models in separate files
+for (response in names(model_results)) {
+  saveRDS(model_results[[response]], file = file.path(output_dir, paste0("fitted_models_", response, "_incremental.rds")))
+}
+
+cat("\nAll models have been saved successfully in separate files!\n")
+##########################################################################
+# End time tracking
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+cat("\nTotal time taken:", time.taken, "\n")
+##########################################################################
+# Last go (19/01-2025)
+# Total time taken: 45.41972 secs
+```
+
+```{r}
+####################################################################################################################################################
+# Load and Inspect Saved Meta-Analysis Models
+####################################################################################################################################################
+
+# Define output directory where models are saved
+output_dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
+
+####################################################################################################################################################
+# Load Saved Models for All Response Variables
+####################################################################################################################################################
+
+# List all saved model files for each response variable
+response_variable_files <- list.files(output_dir, pattern = "fitted_models_.*_incremental.rds", full.names = TRUE)
+
+# Extract response variable names from file names
+response_variable_names <- gsub("fitted_models_|_incremental.rds", "", basename(response_variable_files))
+
+# Load all models into a named list
+model_results <- lapply(response_variable_files, function(file) {
+  tryCatch({
+    readRDS(file)
+  }, error = function(e) {
+    cat("\nError loading file:", file, "\nMessage:", e$message, "\n")
+    return(NULL)
+  })
+})
+
+# Assign response variable names to the list for clarity
+names(model_results) <- response_variable_names
+
+# model_results |> str()
+
+model_results$`Crop yield`$B_minimal_random_incremental$data
+```
+
+
+```{r}
+# Extracting and displaying model summaries
+model_summaries <- lapply(model_results, function(response_models) {
+  # Create a summary for each model
+  lapply(response_models, function(model) {
+    if (!is.null(model)) {
+      summary(model)  # Summarize the model
+    }
+  })
+})
+
+# To view summaries for a specific model, you can access like this:
+print(model_summaries[["Biodiversity"]][["A_null"]])  # Example for a model summary
+
+# To save the summary outputs as a list, you can also save them to files if needed
+# For instance, for "Biodiversity" response models:
+# write.csv(as.data.frame(model_summaries[["Biodiversity"]]), file = "biodiversity_model_summary.csv")
+```
+
+```{r}
+# Model Summaries for A_null (Intercept-only model)
+
+model_summaries$`Crop yield`$A_null                        # Crop Yield Model
+model_summaries$Biodiversity$A_null                        # Biodiversity Model
+model_summaries$`Greenhouse gas emission`$A_null           # Greenhouse Gas Emission Model
+model_summaries$`Product quality`$A_null                   # Product Quality Model
+model_summaries$`Pest and Disease`$A_null                  # Pest and Disease Model
+model_summaries$`Soil quality`$A_null                      # Soil Quality Model
+model_summaries$`Water quality`$A_null                     # Water Quality Model
+
+
+# Model Summaries for B_minimal_random_incremental (Minimal random effects model)
+
+model_summaries$`Crop yield`$B_minimal_random_incremental   # Crop Yield Model
+model_summaries$Biodiversity$B_minimal_random_incremental   # Biodiversity Model
+model_summaries$`Greenhouse gas emission`$B_minimal_random_incremental  # Greenhouse Gas Emission Model
+model_summaries$`Product quality`$B_minimal_random_incremental    # Product Quality Model
+model_summaries$`Pest and Disease`$B_minimal_random_incremental   # Pest and Disease Model
+model_summaries$`Soil quality`$B_minimal_random_incremental       # Soil Quality Model
+model_summaries$`Water quality`$B_minimal_random_incremental      # Water Quality Model
+
+
+# # Model Summaries for C_incremental_no_random_incremental (Incremental model without random effects)
+# 
+# model_summaries$`Crop yield`$C_incremental_no_random_incremental   # Crop Yield Model
+# model_summaries$Biodiversity$C_incremental_no_random_incremental   # Biodiversity Model
+# model_summaries$`Greenhouse gas emission`$C_incremental_no_random_incremental  # Greenhouse Gas Emission Model
+# model_summaries$`Product quality`$C_incremental_no_random_incremental    # Product Quality Model
+# model_summaries$`Pest and Disease`$C_incremental_no_random_incremental   # Pest and Disease Model
+# model_summaries$`Soil quality`$C_incremental_no_random_incremental       # Soil Quality Model
+# model_summaries$`Water quality`$C_incremental_no_random_incremental      # Water Quality Model
+# 
+# 
+# # Model Summaries for D_incremental_random_incremental (Incremental model with random effects)
+# 
+# model_summaries$`Crop yield`$D_incremental_random_incremental          # Crop Yield Model
+# model_summaries$Biodiversity$D_incremental_random_incremental          # Biodiversity Model
+# model_summaries$`Greenhouse gas emission`$D_incremental_random_incremental  # Greenhouse Gas Emission Model
+# model_summaries$`Product quality`$D_incremental_random_incremental     # Product Quality Model
+# model_summaries$`Pest and Disease`$D_incremental_random_incremental    # Pest and Disease Model
+# model_summaries$`Soil quality`$D_incremental_random_incremental        # Soil Quality Model
+# model_summaries$`Water quality`$D_incremental_random_incremental       # Water Quality Model
+
+
+# Model Summaries for E_intercept_fixed_random_incremental (Intercept-fixed with random effects)
+
+model_summaries$`Crop yield`$E_intercept_fixed_random_incremental      # Crop Yield Model
+model_summaries$Biodiversity$E_intercept_fixed_random_incremental      # Biodiversity Model
+model_summaries$`Greenhouse gas emission`$E_intercept_fixed_random_incremental # Greenhouse Gas Emission Model
+model_summaries$`Product quality`$E_intercept_fixed_random_incremental # Product Quality Model
+model_summaries$`Pest and Disease`$E_intercept_fixed_random_incremental # Pest and Disease Model
+model_summaries$`Soil quality`$E_intercept_fixed_random_incremental    # Soil Quality Model
+model_summaries$`Water quality`$E_intercept_fixed_random_incremental   # Water Quality Model
+```
+
+```{r}
+logLik_ml <- model_summaries$`Water quality`$E_intercept_fixed_random_incremental$fit.stats$ML
+logLik_reml <- model_summaries$`Water quality`$E_intercept_fixed_random_incremental$fit.stats$REML
+
+k <- model_summaries$`Water quality`$E_intercept_fixed_random_incremental$parms
+
+n <- model_summaries$`Water quality`$E_intercept_fixed_random_incremental$data$id_article
+sample_size <- length(unique(n))  # Or directly use n if it's stored elsewhere
+
+
+# For AIC (Maximum Likelihood or REML)
+AIC_ml <- 2 * k - 2 * logLik_ml
+AIC_reml <- 2 * k - 2 * logLik_reml
+
+# For BIC (Maximum Likelihood or REML)
+BIC_ml <- log(sample_size) * k - 2 * logLik_ml
+BIC_reml <- log(sample_size) * k - 2 * logLik_reml
+
+logLik_ml <- model_summaries$`Water quality`$E_intercept_fixed_random_incremental$fit.stats$ML
+logLik_reml <- model_summaries$`Water quality`$E_intercept_fixed_random_incremental$fit.stats$REML
+k <- model_summaries$`Water quality`$E_intercept_fixed_random_incremental$parms
+n <- length(model_summaries$`Water quality`$E_intercept_fixed_random_incremental$data$id_article)
+
+# Calculate AIC and BIC for both ML and REML
+AIC_ml <- 2 * k - 2 * logLik_ml
+AIC_reml <- 2 * k - 2 * logLik_reml
+
+BIC_ml <- log(n) * k - 2 * logLik_ml
+BIC_reml <- log(n) * k - 2 * logLik_reml
+
+# Display AIC and BIC for both methods
+list(AIC_ml = AIC_ml, AIC_reml = AIC_reml, BIC_ml = BIC_ml, BIC_reml = BIC_reml)
+
+```
+```{r}
+# Define the function
+extract_model_metrics <- function(model_summaries, response_vars, models = c("A_null", "B_minimal_random_incremental", "E_intercept_fixed_random_incremental")) {
+  
+  # Initialize an empty list to store metrics
+  metrics_list <- list()
+
+  # Loop over all response variables and models
+  for (response in response_vars) {
+    metrics_list[[response]] <- list()  # Create an entry for each response variable
+
+    for (model in models) {
+      model_key <- paste(response, model, sep = "$")
+      
+      # Extract necessary components from model summaries
+      logLik_ml <- model_summaries[[response]][[model]]$fit.stats$ML
+      logLik_reml <- model_summaries[[response]][[model]]$fit.stats$REML
+      k <- model_summaries[[response]][[model]]$parms
+      n <- length(model_summaries[[response]][[model]]$data$id_article)
+      
+      # Calculate AIC and BIC for both ML and REML
+      AIC_ml <- 2 * k - 2 * logLik_ml
+      AIC_reml <- 2 * k - 2 * logLik_reml
+      BIC_ml <- log(n) * k - 2 * logLik_ml
+      BIC_reml <- log(n) * k - 2 * logLik_reml
+
+      # Store the metrics in the response model entry
+      metrics_list[[response]][[model]] <- list(
+        AIC_ml = AIC_ml,
+        AIC_reml = AIC_reml,
+        BIC_ml = BIC_ml,
+        BIC_reml = BIC_reml
+      )
+    }
+  }
+  
+  return(metrics_list)
+}
+
+# Example usage:
+response_vars <- c("Biodiversity", "Greenhouse gas emission", "Product quality", "Crop yield", "Pest and Disease", "Soil quality", "Water quality")
+
+# Call the function with your model summaries
+model_metrics <- extract_model_metrics(model_summaries, response_vars)
+
+model_metrics
+```
+```{r}
+# Create an empty dataframe to store the results
+metrics_df <- data.frame(
+  Category = character(),
+  Model = character(),
+  AIC_ml_first = numeric(),
+  AIC_reml_first = numeric(),
+  BIC_ml_first = numeric(),
+  BIC_reml_first = numeric(),
   stringsAsFactors = FALSE
 )
 
-for (response in names(ml_results)) {
-  result <- ml_results[[response]]
+# Define the categories to extract
+categories <- c("Biodiversity", "Greenhouse gas emission", "Product quality", 
+                "Crop yield", "Pest and Disease", "Soil quality", "Water quality")
 
-  if (!is.null(result) && !is.null(result$models)) {
-    # Compute AIC values
-    simplified_aic <- get_aic(result$models$simplified_ml)
-    full_aic <- get_aic(result$models$full_ml)
-
-    # Manually extract LRT values
-    lrt_values <- get_lrt_manual(result)
-    lrt_stat <- lrt_values$statistic
-    lrt_pval <- lrt_values$pval
-
-    # Append to the dataframe
-    comparison_df <- rbind(
-      comparison_df,
-      data.frame(
-        Response = response,
-        Simplified_AIC = simplified_aic,
-        Full_AIC = full_aic,
-        LRT_Statistic = lrt_stat,
-        LRT_pval = lrt_pval,
-        stringsAsFactors = FALSE
-      )
-    )
-  } else {
-    cat("Skipping response variable:", response, "- Missing or invalid result structure.\n")
+# Loop through each category to extract the first number of each metric
+for (category in categories) {
+  # Access the nested metrics within each category
+  category_metrics <- model_metrics[[category]]
+  
+  # Loop through each model within the category
+  for (model_name in names(category_metrics)) {
+    # Extract the first number for each metric
+    AIC_ml_first <- category_metrics[[model_name]]$AIC_ml[1]
+    AIC_reml_first <- category_metrics[[model_name]]$AIC_reml[1]
+    BIC_ml_first <- category_metrics[[model_name]]$BIC_ml[1]
+    BIC_reml_first <- category_metrics[[model_name]]$BIC_reml[1]
+    
+    # Add the extracted values along with the model name to the dataframe
+    metrics_df <- rbind(metrics_df, data.frame(
+      Category = category,
+      Model = model_name,
+      AIC_ml_first = AIC_ml_first,
+      AIC_reml_first = AIC_reml_first,
+      BIC_ml_first = BIC_ml_first,
+      BIC_reml_first = BIC_reml_first
+    ))
   }
 }
 
-# Display the final dataframe
-print(comparison_df)
+metrics_df <- metrics_df |> 
+  mutate(Response = Category,
+         Model_Type = Model,
+         AIC = AIC_reml_first,
+         BIC = BIC_reml_first) |> 
+  relocate(Response, Model_Type) |> 
+  select(!c(Category, Model, AIC_reml_first, BIC_reml_first, BIC_ml_first, AIC_ml_first))
+
+# View the resulting dataframe
+print(metrics_df)
+
+metrics_df |> str()
 ```
 
 
 ```{r}
-# str(ml_results[[1]]$models$simplified_ml)
-```
+# Initialize an empty list to store the model metrics
+model_metrics <- list()
 
+# Loop through the different response variables
+response_vars <- c("Biodiversity", "Greenhouse gas emission", "Product quality", "Crop yield", "Pest and Disease", "Soil quality", "Water quality")  # Adjust as needed)
 
-```{r}
-# Visualization 1: AIC Comparison
-
-
-# Transform the data for AIC comparison
-aic_long <- comparison_df %>%
-  pivot_longer(cols = c(Simplified_AIC, Full_AIC),
-               names_to = "Model",
-               values_to = "AIC") %>%
-  mutate(Model = factor(Model, levels = c("Simplified_AIC", "Full_AIC"),
-                        labels = c("Simplified", "Full")))
-
-# AIC Comparison Plot (without x-axis labels and text)
-aic_plot <- ggplot(aic_long, aes(x = Response, y = AIC, fill = Model)) +
-  geom_bar(stat = "identity", position = position_dodge(width = 0.8)) +
-  scale_fill_manual(values = c("Simplified" = "#FF9999", "Full" = "#66C2A5")) +
-  labs(
-    title = "AIC Comparison for Simplified and Full Models",
-    y = "AIC Value",
-    fill = "Model Type"
-  ) +
-  theme_minimal() +
-  theme(
-    axis.text.x = element_blank(),   # Remove x-axis text
-    axis.ticks.x = element_blank(), # Remove x-axis ticks
-    plot.title = element_text(size = 14, face = "bold")
-  )
-
-
-
-# LRT Statistics Plot
-lrt_plot <- ggplot(comparison_df, aes(x = Response, y = LRT_Statistic)) +
-  geom_bar(stat = "identity", fill = "#8DA0CB") +
-  geom_text(aes(label = ifelse(!is.na(LRT_pval) & LRT_pval < 0.05, paste0("p=", signif(LRT_pval, 2)), "")),
-            vjust = -0.5, color = "black", size = 3) +
-  labs(title = "Likelihood Ratio Test Statistics",
-       x = "Response Variable",
-       y = "LRT Statistic") +
-  theme_minimal() +
-  theme(
-    axis.text.x = element_text(angle = 45, hjust = 1),
-    plot.title = element_text(size = 14, face = "bold")
-  )
-
-# Combine the updated plots without the "Response" label
-final_plot <- aic_plot / lrt_plot + 
-  plot_layout(heights = c(1, 1), guides = "collect") + # Equal heights for both plots
-  plot_annotation(
-    title = "Model Comparison: AIC and LRT Statistics",
-    theme = theme(
-      plot.title = element_text(size = 16, face = "bold", hjust = 0.5)
+# Loop through response variables and models
+for (response in response_vars) {
+  
+  # C_incremental_no_random_incremental models
+  for (i in 1:length(model_results[[response]]$C_incremental_no_random_incremental)) {
+    model <- model_results[[response]]$C_incremental_no_random_incremental[[i]]
+    
+    # Extract logLik, AIC, BIC
+    logLik_val <- logLik(model)
+    AIC_val <- AIC(model)
+    BIC_val <- BIC(model)
+    
+    # Manually calculate AIC and BIC
+    n <- length(model$yi)  # Assuming model$yi is the response variable vector
+    k <- length(coef(model))  # Number of parameters
+    AIC_calc <- 2 * k - 2 * logLik_val
+    BIC_calc <- k * log(n) - 2 * logLik_val
+    
+    # Store the results in the list
+    model_metrics[[length(model_metrics) + 1]] <- data.frame(
+      Model = paste(response, "C", i, sep = "_"),
+      Response = response,
+      Model_Type = "C_incremental_no_random_incremental",
+      AIC = AIC_val,
+      BIC = BIC_val,
+      AIC_Manual = AIC_calc,
+      BIC_Manual = BIC_calc
     )
-  ) & 
-  theme(axis.title.x = element_blank()) # Remove shared x-axis label
+  }
+  
+  # D_incremental_random_incremental models
+  for (i in 1:length(model_results[[response]]$D_incremental_random_incremental)) {
+    model <- model_results[[response]]$D_incremental_random_incremental[[i]]
+    
+    # Extract logLik, AIC, BIC
+    logLik_val <- logLik(model)
+    AIC_val <- AIC(model)
+    BIC_val <- BIC(model)
+    
+    # Manually calculate AIC and BIC
+    n <- length(model$yi)  # Assuming model$yi is the response variable vector
+    k <- length(coef(model))  # Number of parameters
+    AIC_calc <- 2 * k - 2 * logLik_val
+    BIC_calc <- k * log(n) - 2 * logLik_val
+    
+    # Store the results in the list
+    model_metrics[[length(model_metrics) + 1]] <- data.frame(
+      Model = paste(response, "D", i, sep = "_"),
+      Response = response,
+      Model_Type = "D_incremental_random_incremental",
+      AIC = AIC_val,
+      BIC = BIC_val,
+      AIC_Manual = AIC_calc,
+      BIC_Manual = BIC_calc
+    )
+  }
+}
 
-# Display the combined plot
-print(final_plot)
+model_metrics_df <- model_metrics_df |> 
+  select(!c(Model, AIC_Manual, BIC_Manual)) |> 
+    relocate(Response, Model_Type)
 
+# Combine all results into a single dataframe
+model_metrics_df <- do.call(rbind, model_metrics)
+
+# View the dataframe
+model_metrics_df |> str()
 ```
 
-
-The comparison of Simplified and Full models provides valuable insights into the performance, validity, and implications of the meta-analysis results. The AIC values and Likelihood Ratio Test (LRT) statistics reveal that the Full model often provides a better fit for the data, as evidenced by lower AIC values and significant LRT results for key response variables. For outcomes such as greenhouse gas emissions, crop yield, product quality, and soil quality, the Full model captures more variance and provides statistically significant improvements in fit. This suggests that these outcomes benefit from the additional complexity and parameters of the Full model, which better account for heterogeneity and underlying moderators.
-
-However, for certain response variables such as biodiversity, pest and disease, and water quality, the results indicate that the Simplified model is sufficient. In these cases, the differences in AIC between the Simplified and Full models are negligible, and the LRT results are not statistically significant. This implies that adding complexity does not substantially improve the model’s explanatory power and that a simpler, more parsimonious approach is adequate. 
-
-These findings highlight the importance of tailoring model selection to each response variable. While the Full model is necessary for outcomes with significant LRT results, simpler models should be favored when they provide comparable fit, as this avoids overfitting and enhances interpretability. For variables where the residual variance remains high and AIC values are identical, such as pest and disease and water quality, the models may not fully capture the variability in the data. This could reflect limitations in the data, such as insufficient moderator information or high heterogeneity among studies.
-
-In reporting these findings, it is essential to emphasize the response-specific approach to model selection, balancing simplicity and performance. The significant improvements observed for some variables underscore the importance of including additional parameters when warranted, while non-significant results for others highlight the value of parsimony. Addressing the limitations of unexplained variance and the assumptions underlying the models will further strengthen the transparency and robustness of the meta-analysis. Overall, this approach ensures a nuanced interpretation of the results, aligning the modeling strategy with the unique characteristics of each response variable.
-
-The results provide a strong justification for the use of the Simplified model in certain contexts within the meta-analysis, particularly for response variables where the Full model does not significantly improve the model fit. For response variables such as biodiversity, pest and disease, and water quality, the Simplified model performs comparably to the Full model. This is evident from the minimal differences in AIC values and non-significant Likelihood Ratio Test (LRT) results, indicating that the additional complexity of the Full model does not enhance explanatory power or reduce residual variance. 
-
-The justification for the Simplified model lies in its parsimony. Simpler models are easier to interpret, less prone to overfitting, and require fewer assumptions. In cases where the Full model does not yield statistically significant improvements, the Simplified model strikes a balance between analytical rigor and practical interpretability, ensuring that the findings remain accessible and communicable to a broader audience.
-
-This approach also aligns with the principles of meta-analysis, where heterogeneity is a key concern. For variables like pest and disease or water quality, where residual variance remains high and the models fail to fully explain the variability, the Simplified model avoids unnecessary complexity while acknowledging the limitations of the available data. It allows for a transparent presentation of findings without overcomplicating the narrative or misrepresenting the robustness of the analysis.
-
-In summary, the Simplified model is justified when it performs as well as the Full model, as seen in specific response variables. Its use ensures clarity, avoids overfitting, and maintains interpretability, all of which are essential for drawing actionable conclusions from the meta-analysis while recognizing and communicating the inherent limitations of the data.
-
-
-
-The variability in Likelihood Ratio Test (LRT) p-values across response variables reflects differences in how well the Full model improves model fit compared to the Simplified model. The LRT evaluates whether the additional parameters in the Full model explain significantly more variation, with a significant p-value supporting the use of the more complex model. Non-significant p-values suggest that the added complexity does not yield meaningful improvement, indicating that the Simplified model may suffice.
-
-This variability can be attributed to several factors. The characteristics of the response variables themselves play a role. For instance, response variables such as "Greenhouse Gas Emission" and "Crop Yield" may involve complex relationships with covariates that the Full model captures more effectively, resulting in significant LRT p-values. In contrast, variables like "Pest and Disease" or "Water Quality" may either have simpler underlying processes or exhibit greater uncertainty, leading to non-significant results.
-
-Data structure and sample size are also critical. Response variables with larger, higher-quality datasets, as seen with "Greenhouse Gas Emission," provide greater statistical power for detecting improvements in model fit. Conversely, sparse or highly variable datasets may limit the ability to discern meaningful differences between the Simplified and Full models.
-
-Residual variance, or heterogeneity, further influences LRT outcomes. When unexplained variance remains high, even the Full model may fail to significantly outperform the Simplified model. This highlights cases where neither model fully captures the complexity of the underlying processes. Additionally, the degree of complexity introduced by the Full model affects its ability to improve model fit. If the increase in parameters is marginal, the difference between models may not be pronounced, while substantial additions to the model's structure can lead to more significant improvements.
-
-The variability in LRT p-values underscores the importance of context and domain-specific insights in interpreting these results. It reveals the interplay between the nature of the response variables, the quality of the data, the extent of residual heterogeneity, and the complexity of the models being compared. This highlights the need for careful consideration of whether the Full model's complexity is justified in each case.
-
-
-
-
-
-
-
-
-
 ```{r}
+# Perform a full join to merge the datasets based on Response and Model_Type
+merged_df <- merge(model_metrics_df, 
+                   metrics_df, 
+                   by = c("Response", "Model_Type"), 
+                   all = TRUE)
+
+# Check the structure of the merged dataframe
+str(merged_df)
+
+
+# Create a new dataframe with combined AIC and BIC columns
+final_merged_df <- merged_df %>%
+  mutate(
+    AIC = coalesce(AIC.x, AIC.y),   # Combine AIC columns, prefer non-NA values
+    BIC = coalesce(BIC.x, BIC.y)    # Combine BIC columns, prefer non-NA values
+  ) %>%
+  select(Response, Model_Type, AIC, BIC)  # Keep only the necessary columns
+
+# Check the structure of the new dataframe
+str(final_merged_df)
+
+# View the first few rows of the final dataframe
+final_merged_df
+```
+```{r}
+# Reshape the data from wide to long format for easier plotting
+final_df_long <- final_merged_df |> 
+  pivot_longer(cols = c("AIC", "BIC"), 
+               names_to = "Metric", 
+               values_to = "Value")
+
+
 custom_colors <- c(
   "Biodiversity" = "#FF9999",
   "Greenhouse gas emission" = "#66C266",
@@ -1728,7 +1443,174 @@ custom_colors <- c(
   "Soil quality" = "#9966CC",
   "Water quality" = "#9999FF"
 )
+
+
+# Create a ggplot with bar chart for AIC and BIC metrics
+ggplot(final_df_long, aes(x = Model_Type, y = Value, fill = Response)) +
+  geom_bar(stat = "identity", position = "dodge") +  # Change to bar chart
+  facet_wrap(~ Response, scales = "free_y") +  # facet by Response and free y-axis
+  labs(
+    title = "AIC and BIC Metrics by Response and Model Type",
+    x = "Model Type",
+    y = "Metric Value"
+  ) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +  # Rotate x-axis labels
+  scale_fill_manual(values = custom_colors)  # Apply custom colors for Response
 ```
+
+
+
+
+
+
+```{r}
+# Calculate average AIC and BIC for each Model_Type across all response variables
+average_metrics <- final_merged_df %>%
+  group_by(Model_Type) %>%
+  summarise(
+    Average_AIC = mean(AIC, na.rm = TRUE),
+    Average_BIC = mean(BIC, na.rm = TRUE)
+  ) %>%
+  arrange(Average_AIC)
+
+# Create a named vector to map old model names to meaningful names
+model_rename_map <- c(
+  "D_incremental_random_incremental" = "Incremental Model with Random Effects",
+  "B_minimal_random_incremental" = "Minimal Random Effects Model",
+  "E_intercept_fixed_random_incremental" = "Intercept with Fixed and Random Effects Model",
+  "C_incremental_no_random_incremental" = "Incremental Model without Random Effects",
+  "A_null" = "Null Model"
+)
+
+# Rename the model types in the average_metrics dataframe
+average_metrics <- average_metrics %>%
+  mutate(Model_Type = recode(Model_Type, !!!model_rename_map))
+
+# View the calculated averages
+average_metrics |> str()
+```
+
+```{r}
+# Create a publication-ready gt table
+model_comparison_gt_table <- average_metrics %>%
+  gt() %>%
+  tab_header(
+    title = "Model Comparison: Average AIC and BIC Values",
+    subtitle = "Average AIC and BIC for each model type across all response variables"
+  ) %>%
+  cols_label(
+    Model_Type = "Model Type",
+    Average_AIC = "Average AIC",
+    Average_BIC = "Average BIC"
+  ) %>%
+  fmt_number(
+    columns = vars(Average_AIC, Average_BIC),
+    decimals = 2
+  ) %>%
+  tab_style(
+    style = cell_text(weight = "bold"),
+    locations = cells_column_labels(everything())
+  ) %>%
+  tab_options(
+    table.font.size = 14,
+    heading.title.font.size = 20,
+    heading.subtitle.font.size = 16
+  ) %>%
+  opt_table_font(
+    font = list(
+      google_font("Lato"),
+      default_fonts()
+    )
+  )
+
+# View the table
+model_comparison_gt_table
+```
+
+Model Comparison Interpretation:
+
+The model comparison assesses the impact of increasing complexity on explaining variability across different response variables. The models range from the simplest (null model) to more complex models that incorporate random effects and fixed effects. The metrics used to balance model fit and complexity are AIC (Akaike Information Criterion) and BIC (Bayesian Information Criterion), with lower values indicating better performance.
+
+Null Model (A_null): The null model serves as the baseline and consistently underperforms across all response variables, with the highest AIC (134,882.43) and BIC (134,885.34). This suggests that the null model offers poor explanatory power, confirming the need for more sophisticated models to capture variability in the data.
+
+Minimal Random Effects Model (B_minimal_random_incremental): Introducing random effects through the minimal random effects model significantly improves the model fit, reducing the AIC to 9,795.85 and the BIC to 9,805.82. This model captures some variability across experiments, showing its superiority over the null model.
+
+Intercept with Fixed and Random Effects Model (E_intercept_fixed_random_incremental): Adding moderators with both fixed and random effects results in the same AIC and BIC values (9,879.92 and 9,885.74, respectively) as the minimal random effects model. This suggests that, in this case, adding fixed effects did not provide a significant improvement in model fit, likely due to the complexity already captured by random effects.
+
+Incremental Model without Random Effects (C_incremental_no_random_incremental): This model, which does not incorporate random effects, has a notably higher AIC (103,759.01) and BIC (103,766.10), indicating a significant reduction in model fit compared to models that include random effects. This suggests that random effects are important in capturing variability across the experiments.
+
+Incremental Model with Random Effects (D_incremental_random_incremental): This model, which incorporates random effects, provides an improved fit compared to the models without random effects. It shows a substantial reduction in both AIC (9,795.85) and BIC (9,805.82), demonstrating its capacity to capture the complexity in the data without introducing unnecessary complexity.
+
+Conclusion: The model comparison highlights that more complex models, especially those that incorporate random effects, provide better model fit and explanatory power. The minimal random effects model offers a good balance of complexity and performance, while models that do not include random effects (like the Incremental Model without Random Effects) are far less effective in explaining variability. For datasets with high variability and complexity, such as those involving multiple experiments, random effects are crucial for improving model performance. The results underscore the importance of selecting the right model complexity based on the dataset at hand, ensuring robust and interpretable insights.
+
+
+
+We now focus on the Incremental Model with Random Effects (D_incremental_random_incremental):
+Because it shows the best AIC. Now We need to look into the random effects:
+
+################################################################################################################################################################
+RANDOM EFFECTS 
+################################################################################################################################################################
+
+```{r}
+# Initialize an empty dataframe to store the random effects
+combined_random_effects <- data.frame(
+  model = character(),
+  sigma2 = numeric(),
+  sqrt = numeric(),
+  nlvls = integer(),
+  fixed = character(),
+  factor = character(),
+  stringsAsFactors = FALSE
+)
+
+# Define a function to extract random effects
+extract_random_effects <- function(model, model_name, factor_name = "exp_id") {
+  if (!is.null(model$sigma2)) {
+    # Extract the unique levels of exp_id or other factors from the data
+    unique_levels <- length(unique(model$data[[factor_name]]))
+    random_effects <- data.frame(
+      model = model_name,
+      sigma2 = model$sigma2,
+      sqrt = sqrt(model$sigma2),
+      nlvls = unique_levels,  # Use unique levels of exp_id
+      fixed = "no",
+      factor = factor_name
+    )
+    return(random_effects)
+  }
+  return(NULL)
+}
+
+# Extract random effects from model_b_minimal_random_incremental
+model_b_minimal_random <- model_results$`Crop yield`$B_minimal_random_incremental
+random_effects_b <- extract_random_effects(model_b_minimal_random, "B_minimal_random_incremental")
+if (!is.null(random_effects_b)) {
+  combined_random_effects <- rbind(combined_random_effects, random_effects_b)
+}
+
+# Extract random effects from model_d_incremental_random_incremental
+model_d_incremental_random <- model_results$`Crop yield`$D_incremental_random_incremental
+moderator_names <- c("tree_type", "crop_type", "age_system", "season", "soil_texture")  # Assuming these are the moderators
+for (i in 1:length(model_d_incremental_random)) {
+  model_level <- model_d_incremental_random[[i]]
+  random_effects_d <- extract_random_effects(model_level, paste("D_incremental_random_incremental_", moderator_names[i], sep = ""))
+  if (!is.null(random_effects_d)) {
+    combined_random_effects <- rbind(combined_random_effects, random_effects_d)
+  }
+}
+
+# Extract random effects from model_e_intercept_fixed_random_incremental
+model_e_intercept_fixed_random <- model_results$`Crop yield`$E_intercept_fixed_random_incremental
+random_effects_e <- extract_random_effects(model_e_intercept_fixed_random, "E_intercept_fixed_random_incremental")
+if (!is.null(random_effects_e)) {
+  combined_random_effects <- rbind(combined_random_effects, random_effects_e)
+}
+
+# View the combined random effects dataframe
+print(combined_random_effects)
+```
+
 
 
 
@@ -1741,1022 +1623,161 @@ custom_colors <- c(
 MODEL DIAGNOSTICS ON EACH SUBSET MODEL FITTING 
 ##########################################################################################################################################
 
-```{r}
-# Load the saved models
-full_model_results <- readRDS(file.path(dir, "fitted_models_full.rds"))
-simplified_model_results <- readRDS(file.path(dir, "fitted_models_simplified.rds"))
-minimal_model_results <- readRDS(file.path(dir, "fitted_models_minimal.rds"))
-fixed_effects_model_results <- readRDS(file.path(dir, "fitted_models_fixed_effects.rds"))
 
+```{r}
+####################################################################################################################################################
+# Load and Inspect Saved Meta-Analysis Models
+####################################################################################################################################################
+
+# Define output directory where models are saved
+output_dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
+
+# Load all models into a list
+model_results <- readRDS(file.path(output_dir, "fitted_models_all_incremental.rds"))
+
+# model_results |> str()
 ```
 
-```{r}
-summary(full_model_results$Biodiversity)
-```
+ 
+##########################################################################################################################################
+Variance Components (Tau2) and Heterogeneity (I²)
+##########################################################################################################################################
 
 ```{r}
-# Function to extract key diagnostics from a fitted model
-extract_model_diagnostics <- function(model, response_variable) {
-  if (is.null(model)) {
-    return(data.frame(
-      ResponseVariable = response_variable,
-      AIC = NA,
-      BIC = NA,
-      LogLikelihood = NA,
-      Tau2 = NA,
-      I2 = NA,
-      QM = NA,
-      QMp = NA
-    ))
+str(model_results$Biodiversity$A_null)
+```
+```{r}
+# Check sigma2 for problematic models
+model_results$Biodiversity$C_incremental_no_random_incremental
+model_results$Biodiversity$D_incremental_random_incremental
+```
+```{r}
+model_results$Biodiversity$D_incremental_random_incremental
+
+model_bio_d <- model_results$Biodiversity$D_incremental_random_incremental[[1]]
+model_bio_d |> str()
+```
+
+
+```{r}
+# Initialize an empty data frame to store the heterogeneity and variance results
+heterogeneity_results <- data.frame(
+  response = character(),
+  model = character(),
+  sigma2 = numeric(),
+  tau2 = numeric(),
+  rho = numeric(),
+  gamma2 = numeric(),
+  phi = numeric(),
+  QE = numeric(),
+  QM = numeric(),
+  Qp = numeric(),
+  k = integer(),
+  stringsAsFactors = FALSE
+)
+
+# Loop through each response variable and extract heterogeneity components for all models
+for (response in names(model_results)) {
+  cat("\nProcessing response variable:", response, "\n")
+  
+  # Loop through each model in the current response
+  for (model_name in names(model_results[[response]])) {
+    model <- model_results[[response]][[model_name]]
+    
+    # Check if model is valid and contains necessary fields
+    if (!is.null(model)) {
+      # Safely extract variance components, handle NULLs gracefully
+      sigma2 <- ifelse(!is.null(model$sigma2), model$sigma2, NA)
+      tau2 <- ifelse(!is.null(model$tau2), model$tau2, NA)
+      rho <- ifelse(!is.null(model$rho), model$rho, NA)
+      gamma2 <- ifelse(!is.null(model$gamma2), model$gamma2, NA)
+      phi <- ifelse(!is.null(model$phi), model$phi, NA)
+      
+      # Safely extract heterogeneity test results, handle NULLs gracefully
+      QE <- ifelse(!is.null(model$QE), model$QE, NA)
+      QM <- ifelse(!is.null(model$QM), model$QM, NA)
+      Qp <- ifelse(!is.null(model$QMp), model$QMp, NA)
+      k <- ifelse(!is.null(model$k), model$k, NA)
+      
+      # Append the model data to the heterogeneity_results
+      heterogeneity_results <- rbind(heterogeneity_results, data.frame(
+        response = response,  # Add the response variable dynamically here
+        model = model_name,
+        sigma2 = sigma2,
+        tau2 = tau2,
+        rho = rho,
+        gamma2 = gamma2,
+        phi = phi,
+        QE = QE,
+        QM = QM,
+        Qp = Qp,
+        k = k
+      ))
+    }
   }
 
-  # Extract diagnostics
-  aic <- AIC(model)
-  bic <- BIC(model)
-  log_likelihood <- as.numeric(logLik(model))
-  tau2 <- sum(model$sigma2)
-  i2 <- round((tau2 / (tau2 + mean(model$vi))) * 100, 1)
-  qm <- model$QM
-  qmp <- model$QMp
+  # Extract the variance components for D_incremental_random_incremental for each response
+  model_d <- model_results[[response]]$D_incremental_random_incremental[[1]]  # Extract the first model in the list
+  
+  # Extract the variance components for D_incremental_random_incremental
+  sigma2_d <- ifelse(!is.null(model_d$sigma2), model_d$sigma2, NA)
+  tau2_d <- ifelse(!is.null(model_d$tau2), model_d$tau2, NA)
+  rho_d <- ifelse(!is.null(model_d$rho), model_d$rho, NA)
+  gamma2_d <- ifelse(!is.null(model_d$gamma2), model_d$gamma2, NA)
+  phi_d <- ifelse(!is.null(model_d$phi), model_d$phi, NA)
 
-  data.frame(
-    ResponseVariable = response_variable,
-    AIC = aic,
-    BIC = bic,
-    LogLikelihood = log_likelihood,
-    Tau2 = tau2,
-    I2 = i2,
-    QM = qm,
-    QMp = qmp
-  )
+  # Heterogeneity and model fit stats for D_incremental_random_incremental
+  QE_d <- ifelse(!is.null(model_d$QE), model_d$QE, NA)
+  QM_d <- ifelse(!is.null(model_d$QM), model_d$QM, NA)
+  Qp_d <- ifelse(!is.null(model_d$QMp), model_d$QMp, NA)
+  k_d <- ifelse(!is.null(model_d$k), model_d$k, NA)
+
+  # Manually add the results for D_incremental_random_incremental
+  heterogeneity_results <- rbind(heterogeneity_results, data.frame(
+    response = response,  # Add the response variable dynamically here
+    model = "D_incremental_random_incremental",
+    sigma2 = sigma2_d,
+    tau2 = tau2_d,
+    rho = rho_d,
+    gamma2 = gamma2_d,
+    phi = phi_d,
+    QE = QE_d,
+    QM = QM_d,
+    Qp = Qp_d,
+    k = k_d
+  ))
 }
 
-# Function to systematically extract diagnostics for all models in a set
-extract_diagnostics_for_all <- function(model_set, model_type) {
-  bind_rows(
-    lapply(names(model_set), function(response) {
-      extract_model_diagnostics(model_set[[response]], response)
-    })
-  ) %>%
-    mutate(ModelType = model_type)
-}
+# View the updated heterogeneity results
+print(heterogeneity_results)
+heterogeneity_results |> str()
 
-# Extract diagnostics for each model set
-model_diagnostics_full <- extract_diagnostics_for_all(full_model_results, "Full")
-model_diagnostics_simplified <- extract_diagnostics_for_all(simplified_model_results, "Simplified")
-model_diagnostics_minimal <- extract_diagnostics_for_all(minimal_model_results, "Minimal")
-model_diagnostics_fixed <- extract_diagnostics_for_all(fixed_effects_model_results, "Fixed")
-
-# Combine diagnostics into a single data frame
-all_meta_analysis_model_diagnostics <- bind_rows(
-  model_diagnostics_full,
-  model_diagnostics_simplified,
-  model_diagnostics_minimal,
-  model_diagnostics_fixed
-)
-
-# Save the combined diagnostics for future use
-output_dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
-saveRDS(all_meta_analysis_model_diagnostics, file.path(output_dir, "all_meta_analysis_model_diagnostics.rds"))
-
-# View summary of diagnostics
-all_meta_analysis_model_diagnostics
-all_meta_analysis_model_diagnostics |> str()
 ```
 
-
 ```{r}
-# Visualize AIC, BIC, and Log-Likelihood
-diag_plot <- all_meta_analysis_model_diagnostics %>%
-  pivot_longer(cols = c(AIC, BIC, LogLikelihood), names_to = "Metric", values_to = "Value") %>%
-  ggplot(aes(x = ResponseVariable, y = Value, fill = Metric)) +
+# Melt the heterogeneity results to make it long-format for ggplot
+long_data <- melt(heterogeneity_results, id.vars = "model", 
+                  measure.vars = c("sigma2", "tau2", "rho", "gamma2", "phi", "QE", "QM", "Qp", "k"))
+
+# Plotting the data with facets for each metric
+ggplot(long_data, aes(x = model, y = value, fill = variable)) +
   geom_bar(stat = "identity", position = "dodge") +
-  facet_wrap(~ ModelType, scales = "free_y") +
-  labs(
-    title = "Model Fit Diagnostics by Metric and Model Type",
-    x = "Response Variable",
-    y = "Metric Value",
-    fill = "Metric"
-  ) +
-  theme_minimal(base_size = 14) +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-
-# Print the diagnostics plot
-print(diag_plot)
-
+  labs(title = "Heterogeneity and Variance Results Across Models",
+       x = "Model",
+       y = "Value") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "none") +
+  facet_wrap(~ variable, scales = "free_y")  # Facet for each metric
+  
 ```
-
-AIC (Red) and BIC (Green): Lower values generally indicate a better fit while penalizing model complexity. Models with significantly lower AIC/BIC for a response variable are likely better.
-Log-Likelihood (Blue): Higher values indicate a better likelihood of the model fitting the observed data. A noticeable difference in this metric across models could highlight where certain models are less suitable.
-Trends and Insights:
-
-If the bars for a specific response variable are much higher in one model type (e.g., "Full") compared to others, it suggests that model type may overfit or is not optimal for that variable.
-The presence of similar AIC, BIC, and Log-Likelihood values across models for a variable may suggest that the simpler models (e.g., "Simplified" or "Minimal") are sufficient, avoiding unnecessary complexity.
-
-```{r}
-all_meta_analysis_model_diagnostics |> str()
-all_meta_analysis_model_diagnostics |> glimpse()
-```
-
-
-
-```{r}
-# export the data as excel to this path output_dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
-# library(writexl)
-# write_xlsx(all_meta_analysis_model_diagnostics, path = file.path(output_dir, "all_meta_analysis_model_diagnostics_uq.xlsx"))
-```
-
-
-```{r}
-# Load the saved model diagnostics using the relative path
-# library(readxl)
-all_meta_analysis_model_diagnostics_relative_to_full_model <- read_excel(
-  here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R", "all_meta_analysis_model_diagnostics_uq.xlsx"), 
-  sheet = "relative_model_metrics"
-)
-
-# Verify the loaded data
-str(all_meta_analysis_model_diagnostics_relative_to_full_model)
-```
-
-```{r}
-# Prepare the data for plotting with ModelType
-plot_data_metrics_relative_to_full_model <- all_meta_analysis_model_diagnostics_relative_to_full_model %>%
-  select(ResponseVariable, ModelType, AIC_Relative_Difference_To_Full_Model,
-         BIC_Relative_Difference_To_Full_Model, LogLikelihood_Relative_Difference_To_Full_Model) %>%
-  pivot_longer(
-    cols = starts_with("AIC_Relative_Difference_To_Full_Model") : starts_with("LogLikelihood_Relative_Difference_To_Full_Model"),
-    names_to = "Metric",
-    values_to = "RelativeValue"
-  ) %>%
-  mutate(
-    Metric = case_when(
-      grepl("AIC", Metric) ~ "AIC",
-      grepl("BIC", Metric) ~ "BIC",
-      grepl("LogLikelihood", Metric) ~ "Log-Likelihood"
-    ),
-    RelativeValue = as.numeric(RelativeValue) # Convert to numeric for plotting
-  ) %>%
-  filter(!is.na(RelativeValue)) # Remove rows with NA values
-
-# Separate the data for Soil Quality and other response variables
-soil_quality_data <- plot_data_metrics_relative_to_full_model %>% filter(ResponseVariable == "Soil quality")
-other_response_variables_data <- plot_data_metrics_relative_to_full_model %>% filter(ResponseVariable != "Soil quality")
-
-# Plot for all response variables except Soil Quality
-other_response_variables_metrics_plot <- other_response_variables_data |> 
-  ggplot(aes(x = ResponseVariable, y = RelativeValue, fill = ModelType)) +
-  geom_bar(stat = "identity", position = "dodge") +
-  scale_y_log10() +  # Use log scale for y-axis
-  facet_wrap(~ Metric, scales = "free_y") +
-  labs(
-    title = "Relative Metrics (AIC, BIC, Log-Likelihood) Compared to Full Model (Excluding Soil Quality)",
-    x = "Response Variable",
-    y = "Relative Difference (%)",
-    fill = "Model Type"
-  ) +
-  theme_minimal(base_size = 14) +
-  theme(
-    #axis.text.x = element_blank(),   # Remove x-axis text
-    #axis.ticks.x = element_blank(), # Remove x-axis ticks
-    axis.text.x = element_text(angle = 45, hjust = 1),
-    legend.position = "none"
-  ) 
-
-# Plot for Soil Quality
-soil_quality_metrics_plot <- soil_quality_data |> 
-  ggplot(aes(x = Metric, y = RelativeValue, fill = ModelType)) +
-  geom_bar(stat = "identity", position = "dodge") +
-  scale_y_log10() +  # Use log scale for y-axis
-  labs(
-    title = "Relative Metrics (AIC, BIC, Log-Likelihood) for Soil Quality",
-    x = "Metric",
-    y = "Relative Difference (%)",
-    fill = "Model Type"
-  ) +
-  theme_minimal(base_size = 14)
-
-# Combine the plots into a stylish multiplot
-combined_plot <- other_response_variables_metrics_plot / soil_quality_metrics_plot +
-  plot_layout(heights = c(3, 1)) + # Adjust layout heights
-  plot_annotation(
-    title = "Comparison of Model Performance Across Metrics",
-    caption = "Metrics relative to the Full Model for each Response Variable"
-  )
-
-# Print the combined plot
-print(combined_plot)
-```
-
-```{r}
-# Identify the model with the overall lowest relative difference for each metric and select best performing model based on AIC
-
-# Convert relevant columns to numeric
-summary_data_for_best_model_aic <- all_meta_analysis_model_diagnostics_relative_to_full_model %>%
-  mutate(
-    AIC_Relative_Difference_To_Full_Model = as.numeric(AIC_Relative_Difference_To_Full_Model),
-    BIC_Relative_Difference_To_Full_Model = as.numeric(BIC_Relative_Difference_To_Full_Model),
-    LogLikelihood_Relative_Difference_To_Full_Model = as.numeric(LogLikelihood_Relative_Difference_To_Full_Model)
-  )
-
-# Identify the model with the lowest relative difference for AIC
-best_model_by_aic <- summary_data_for_best_model_aic %>%
-  group_by(ResponseVariable) %>%
-  filter(AIC_Relative_Difference_To_Full_Model == min(AIC_Relative_Difference_To_Full_Model, na.rm = TRUE)) %>%
-  select(ResponseVariable, ModelType, AIC_Relative_Difference_To_Full_Model, AIC)
-
-# Display the best models
-best_model_by_aic
-```
-
-```{r}
-# Calculate the average relative AIC difference for each model type across all response variables
-best_overall_model <- summary_data_for_best_model_aic %>%
-  group_by(ModelType) %>%
-  summarize(
-    Avg_AIC_Relative_Difference = mean(AIC_Relative_Difference_To_Full_Model, na.rm = TRUE),
-    .groups = "drop"
-  ) %>%
-  arrange(Avg_AIC_Relative_Difference) 
-
-# Display the best overall model
-best_best_best <- best_overall_model %>%
-  slice(1)  # Select the model with the lowest average relative AIC difference
-
-best_overall_model
-best_best_best
-```
-
-##########################################################################
-# Model 1: Comprehensive (Full) Model
-# Incorporates the most complex structure with nested random effects and all moderators.
-##########################################################################
-##########################################################################
-# Model 2: Moderately Simplified Model
-# Simplifies random effects and removes interaction terms.
-##########################################################################
-##########################################################################
-# Model 3: Minimal Random Effects Model
-# Focuses on intercept-only model with minimal random effects.
-##########################################################################
-##########################################################################
-# Model 4: Fixed Effects Only Model
-# Removes random effects entirely and focuses solely on fixed effects.
-##########################################################################
-
-
-Based on the model evaluations provided, the **Simplified model** stands out as the most effective choice for your meta-analysis, balancing performance and simplicity. It consistently demonstrated the lowest average relative AIC difference across response variables, indicating strong explanatory power while avoiding overfitting. This aligns with the principles of parsimony, which advocate for selecting models that are as simple as possible while adequately capturing the essential data patterns.
-
-The use of **relative AIC** in this context is valid, as it facilitates direct comparisons of model performance. However, it is crucial to emphasize that AIC measures relative model fit and does not provide absolute information about model adequacy. Supplementary evaluation metrics, such as residual diagnostics and likelihood ratio tests, can help confirm the robustness of the Simplified model and ensure that its reduced complexity does not compromise its ability to represent the data accurately.
-
-The Simplified model is particularly noteworthy for its generalizability across diverse response variables, including biodiversity, greenhouse gas emissions, and crop yield. These results suggest that the Simplified model effectively balances essential patterns while excluding excessive complexity, making it well-suited for both interpretation and communication of meta-analytic findings. However, for specific response variables like "Pest and Disease" and "Soil Quality," where alternative models occasionally performed better, further investigation into variable-specific dynamics might be warranted.
-
-In reporting these findings, it is essential to underscore that the Simplified model's selection reflects a deliberate effort to streamline analysis without sacrificing explanatory power. This choice enhances the interpretability of the meta-analysis results and supports meaningful insights for broader audiences, including researchers and policymakers. Nonetheless, the limitations inherent in relying solely on relative AIC should be transparently communicated, highlighting the importance of complementary evaluations to ensure the robustness and validity of the conclusions drawn.
-
-
-
-
-
-##########################################################################################################################################
-Testing model assumptions using diagnostic plots such as:
-* QQ plots for normality 
-* Residuals vs. fitted values for homoscedasticity. 
-##########################################################################################################################################
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
- 
- 
- 
-```{r}
-# null_model_results <- readRDS(file.path(dir, "fitted_models_null.rds"))
-# minimal_model_results <- readRDS(file.path(dir, "fitted_models_minimal.rds"))
-# fixed_effects_model_results <- readRDS(file.path(dir, "fitted_models_fixed_effects.rds"))
-# simplified_model_results <- readRDS(file.path(dir, "fitted_models_simplified.rds"))
-# full_model_results <- readRDS(file.path(dir, "fitted_models_full.rds"))
-
-```
-
- 
- 
- 
-##########################################################################################################################################
-Visualization 3: Heterogeneity (I²) Comparison
-Visualize Variance Components (Tau2) and Heterogeneity (I²)
-##########################################################################################################################################
-
-```{r}
-# Prepare the data for plotting heterogeneity (I²)
-i2_plot_data <- all_meta_analysis_model_diagnostics_relative_to_full_model %>%
-  select(ResponseVariable, ModelType, I2) %>%
-  mutate(I2 = as.numeric(I2)) %>%
-  filter(!is.na(I2)) |>
-  # Adjust the data for pseudo-logarithmic transformation
-  # Replace zeros with small positive values
-  mutate(I2_transformed = ifelse(I2 == 0, 0.01, I2))  |> 
-  # Adjust the data for visualization with offsets
-  # Add a small offset to prevent zero distortion
-  mutate(I2_offset = I2 + 0.01)  |>
-  # Adjust the data for better visualization
-  # Scale and offset I² values for better visibility
-  mutate(I2_scaled = I2 * 10 + 0.1)  |> 
-  as.data.frame()
-
-
-
-i2_plot_data |> glimpse()
-
-# Create the plot with a linear scale for better bar visualization
-i2_comparison_plot_linear <- i2_plot_data |> 
-  ggplot(aes(x = ResponseVariable, y = I2_transformed, fill = ModelType)) +
-  geom_bar(stat = "identity", position = "dodge") +
-  scale_y_log10() +
-  labs(
-    title = "Heterogeneity (I²) Comparison Across Models (Linear Scale)",
-    x = "Response Variable",
-    y = "I² (%)",
-    fill = "Model Type"
-  ) +
-  theme_minimal(base_size = 14) +
-  theme(
-    axis.text.x = element_text(angle = 45, hjust = 1)
-  )
-
-# Print the plot
-i2_comparison_plot_linear
-```
-```{r}
-# Prepare the data for plotting heterogeneity (I²)
-i2_plot_data <- all_meta_analysis_model_diagnostics_relative_to_full_model %>%
-  select(ResponseVariable, ModelType, I2) %>%
-  mutate(I2 = as.numeric(I2)) %>%
-  filter(!is.na(I2)) |>
-  # Adjust the data for pseudo-logarithmic transformation
-  # Replace zeros with small positive values
-  mutate(I2_transformed = ifelse(I2 == 0, 0.01, I2))  |> 
-  # Adjust the data for visualization with offsets
-  # Add a small offset to prevent zero distortion
-  mutate(I2_offset = I2 + 0.01)  |>
-  # Adjust the data for better visualization
-  # Scale and offset I² values for better visibility
-  mutate(I2_scaled = I2 * 10 + 0.1)  |> 
-  as.data.frame()
-
-
-# Plot for lower range (0–1%)
-p1 <- ggplot(data = i2_plot_data, aes(x = ResponseVariable, y = I2_transformed, fill = ModelType)) +
-  geom_bar(stat = "identity", position = "dodge") +
-  coord_cartesian(ylim = c(0, 0.1)) +
-  labs(
-    x = "Response Variable",
-    y = "I² (%)",
-    title = NULL
-  ) +
-  theme_classic() +
-  theme(
-    axis.text.x = element_text(angle = 45, hjust = 1),
-    legend.position = "right"
-  )
-
-# Plot for upper range (>5%)
-p2 <- ggplot(data = i2_plot_data, aes(x = ResponseVariable, y = I2_transformed, fill = ModelType)) +
-  geom_bar(stat = "identity", position = "dodge") +
-  coord_cartesian(ylim = c(5, 10)) +
-  labs(
-    x = NULL,
-    y = NULL,
-    title = "Heterogeneity (I²) Comparison Across Models (Broken Y-Axis)"
-  ) +
-  theme_classic() +
-    theme(
-    axis.text.x = element_blank(),
-    axis.ticks.x = element_blank(),
-    legend.position = "none"
-  )
-
-# Add whitespace between the plots
-p_combined <- p2 / plot_spacer() / p1 + 
-  plot_layout(heights = c(2, 0.3, 4))
-
-# Display the combined plot
-p_combined
-```
-
-The heterogeneity (I²) comparison plot illustrates the proportion of variability in effect sizes across studies that is due to heterogeneity rather than sampling error. Lower I² values indicate more consistent effect sizes across studies, while higher values reflect greater heterogeneity, potentially due to study differences or unmeasured factors.
-
-The **Full Model** often shows higher I² values for certain response variables, such as biodiversity and greenhouse gas emissions. This suggests the model captures substantial variability, including nested random effects and experiment-level differences. However, these high I² values can sometimes reflect overfitting, where the model explains noise rather than meaningful patterns in the data.
-
-The **Simplified Model** balances complexity and consistency, with moderate I² values that effectively capture key patterns in response variables like crop yield and product quality, which show low inherent heterogeneity. By excluding interaction terms and focusing on experiment-level variability, this model reduces excess variability, making it robust and interpretable.
-
-The **Minimal Model**, which includes only a single intercept as a random effect, has very low I² values across most variables, making it ideal for those with low heterogeneity, such as product quality. However, for response variables with greater heterogeneity, like biodiversity, this model risks oversimplification and loss of critical information.
-
-The **Fixed Effects Model**, which excludes random effects, also demonstrates low I² values. It is suitable for datasets with negligible between-study variability but may fail to account for variability in more complex datasets.
-
-The comparison shows how model complexity impacts heterogeneity estimates. While the Full Model captures broader variability, it may overcomplicate analyses for datasets with consistent patterns. In contrast, the Simplified and Minimal Models are better at reducing variability and highlighting key trends. Aligning model complexity with the level of heterogeneity in the data ensures robust and meaningful meta-analytic insights.
-
-Implications for Meta-Analysis
-The choice of model significantly affects the results and conclusions of a meta-analysis. The Full Model, while comprehensive, may overstate heterogeneity and lead to conservative or overly complicated conclusions. The Simplified Model strikes a balance, providing robust and interpretable results for variables with moderate heterogeneity. Minimal and Fixed Effects Models, with their low I² values, work well for highly consistent datasets but may oversimplify heterogeneous data.
-
-Reporting and Communication
-When reporting results, it’s essential to present I² values alongside model fit metrics like AIC and BIC to transparently show the trade-offs between complexity and consistency. Justifying model selection based on these metrics and heterogeneity patterns ensures defensible conclusions. Simplified Models, in particular, facilitate clearer communication by focusing on key trends and avoiding overinterpretation of noise.
-
-Conclusions
-The Simplified Model’s consistent performance across most response variables suggests it is the optimal choice for balancing parsimony and explanatory power. This model supports generalizable and actionable insights, particularly when heterogeneity is moderate. However, for highly heterogeneous variables, further refinements may be needed to fully capture underlying complexity. By aligning model choice with the characteristics of each response variable, meta-analysis results can remain robust, interpretable, and meaningful.
-
-
-
-
-```{r}
-# Summarize model diagnostics into a table
-summary_table_meta_data_all_models_data <- all_meta_analysis_model_diagnostics_relative_to_full_model %>%
-  select(ResponseVariable, ModelType, AIC, BIC, LogLikelihood, Tau2, I2) %>%
-  group_by(ResponseVariable, ModelType) %>%
-  summarise(
-    AIC = round(mean(AIC, na.rm = TRUE), 2),
-    BIC = round(mean(BIC, na.rm = TRUE), 2),
-    LogLikelihood = round(mean(LogLikelihood, na.rm = TRUE), 2),
-    Tau2 = round(mean(Tau2, na.rm = TRUE), 2),
-    I2 = round(mean(I2, na.rm = TRUE), 2),
-    .groups = "drop"
-  )
-
-summary_table_meta_data_all_models_data
-```
-
-```{r}
-# Create a formatted summary table using `gt`
-diagnostics_table_meta_data_all_models <- summary_table_meta_data_all_models_data %>%
-  gt() %>%
-  gt::tab_header(
-    title = "Model Diagnostics Summary",
-    subtitle = "Comparison of Key Metrics Across Models by Response Variable"
-  ) %>%
-  gt::cols_label(
-    ResponseVariable = "Response Variable",
-    ModelType = "Model Type",
-    AIC = "AIC",
-    BIC = "BIC",
-    LogLikelihood = "Log-Likelihood",
-    Tau2 = "Tau²",
-    I2 = "I² (%)"
-  ) %>%
-  gt::fmt_number(
-    columns = c(AIC, BIC, LogLikelihood, Tau2, I2),
-    decimals = 2
-  ) %>%
-  gt::tab_options(
-    table.font.size = "small",
-    column_labels.font.size = "medium",
-    heading.align = "center"
-  ) %>%
-  gt::tab_style(
-    style = cell_text(weight = "bold"),
-    locations = cells_column_labels(everything())
-  )
-
-# Display the gt table
-diagnostics_table_meta_data_all_models
-```
-
-```{r}
-# Save table to an HTML file
-gtsave(diagnostics_table_meta_data_all_models, file.path(output_dir, "diagnostics_table_meta_data_all_models.html"))
-```
-
 
 
 ##########################################################################
 Model Diagnostics: Heterogeneity also called Residual Heterogeneity Partitioning
 ##########################################################################
-```{r}
-##########################################################################
-# Extract heterogeneity from the model_results object
-##########################################################################
 
-model_results |> str()
 
-```
-
-```{r}
-# Define a function to compute heterogeneity partitioning
-compute_heterogeneity_partitioning <- function(model_results, response_variable, model_type) {
-  # Extract QE and QM, handle cases where they might be missing
-  QE <- model_results$QE
-  QM <- model_results$QM
-  
-  if (!is.null(QE) && !is.null(QM)) {
-    residual_heterogeneity <- QE - QM  # Calculate Residual Heterogeneity
-    explained_proportion <- (QM / QE) * 100  # Proportion Explained
-    residual_proportion <- (residual_heterogeneity / QE) * 100  # Residual Proportion
-    
-    return(data.frame(
-      ResponseVariable = response_variable,
-      ModelType = model_type,
-      TotalHeterogeneity = QE,
-      ExplainedHeterogeneity = QM,
-      ResidualHeterogeneity = residual_heterogeneity,
-      ExplainedProportion = explained_proportion,
-      ResidualProportion = residual_proportion
-    ))
-  } else {
-    return(data.frame(
-      ResponseVariable = response_variable,
-      ModelType = model_type,
-      TotalHeterogeneity = NA,
-      ExplainedHeterogeneity = NA,
-      ResidualHeterogeneity = NA,
-      ExplainedProportion = NA,
-      ResidualProportion = NA
-    ))
-  }
-}
-```
-
-```{r}
-# Combine all models into a named list for iteration
-all_models <- list(
-  null = null_model_results,
-  minimal = minimal_model_results,
-  fixed = fixed_effects_model_results,
-  simplified = simplified_model_results,
-  full = full_model_results
-)
-
-# Initialize an empty data frame to store results
-heterogeneity_results <- data.frame()
-
-# Loop through each model type and response variable
-for (model_type in names(all_models)) {
-  model_data <- all_models[[model_type]]
-  
-  for (response_variable in response_variables) {
-    # Check if model exists for the response variable
-    if (!is.null(model_data[[response_variable]])) {
-      model <- model_data[[response_variable]]
-      
-      # Compute heterogeneity partitioning for this model-response pair
-      result <- compute_heterogeneity_partitioning(model, response_variable, model_type)
-      
-      # Append to results
-      heterogeneity_results <- rbind(heterogeneity_results, result)
-    }
-  }
-}
-
-# View final heterogeneity results
-print(heterogeneity_results)
-heterogeneity_results |> str()
-```
-
-```{r}
-# Step 1: Correct negative ResidualHeterogeneity and recalculate proportions in the original data
-heterogeneity_results_fix <- heterogeneity_results %>%
-  mutate(
-    # Set negative ResidualHeterogeneity values to 0 as negative heterogeneity is not meaningful
-    ResidualHeterogeneity = ifelse(ResidualHeterogeneity < 0, 0, ResidualHeterogeneity),
-    # Recalculate ExplainedProportion as a percentage of TotalHeterogeneity
-    ExplainedProportion = ifelse(
-      TotalHeterogeneity > 0,
-      100 * ExplainedHeterogeneity / TotalHeterogeneity,
-      NA  # Assign NA if TotalHeterogeneity is zero or missing
-    ),
-    # Recalculate ResidualProportion similarly
-    ResidualProportion = ifelse(
-      TotalHeterogeneity > 0,
-      100 * ResidualHeterogeneity / TotalHeterogeneity,
-      NA  # Assign NA if TotalHeterogeneity is zero or missing
-    )
-  )
-
-# Step 2: Reshape the data to a long format for visualization
-long_heterogeneity_data <- heterogeneity_results_fix %>%
-  pivot_longer(
-    cols = c(TotalHeterogeneity, ExplainedHeterogeneity, ResidualHeterogeneity),
-    names_to = "HeterogeneityType",
-    values_to = "HeterogeneityValue"
-  )
-
-# Step 3: Join back TotalHeterogeneity for recalculations
-adjusted_heterogeneity_data <- long_heterogeneity_data %>%
-  left_join(
-    heterogeneity_results_fix %>% select(ResponseVariable, ModelType, TotalHeterogeneity),
-    by = c("ResponseVariable", "ModelType")
-  ) %>%
-  mutate(
-    # Adjust negative values only for ResidualHeterogeneity
-    HeterogeneityValue = ifelse(
-      HeterogeneityType == "ResidualHeterogeneity" & HeterogeneityValue < 0,
-      0,  # Set negative values to 0
-      HeterogeneityValue
-    ),
-    # Recalculate ExplainedProportion and ResidualProportion
-    ExplainedProportion = ifelse(
-      HeterogeneityType == "ExplainedHeterogeneity" & TotalHeterogeneity > 0,
-      100 * HeterogeneityValue / TotalHeterogeneity,
-      NA
-    ),
-    ResidualProportion = ifelse(
-      HeterogeneityType == "ResidualHeterogeneity" & TotalHeterogeneity > 0,
-      100 * HeterogeneityValue / TotalHeterogeneity,
-      NA
-    )
-  )
-
-# Step 4: Validate the adjusted data
-adjusted_heterogeneity_data |> glimpse()
-```
-
-
-
-```{r}
-# Prepare the data for visualization
-visualization_data <- adjusted_heterogeneity_data %>%
-  filter(!is.na(TotalHeterogeneity) & !is.na(ExplainedHeterogeneity)) %>%  # Remove rows with NA values
-  mutate(
-    ResponseVariable = factor(ResponseVariable, levels = unique(ResponseVariable)),  # Order response variables
-    ModelType = factor(ModelType, levels = c("null", "minimal", "fixed", "simplified", "full"))  # Order models
-  )
-
-visualization_data |> str()
-```
-
-
-```{r}
-# Prepare the data for visualization
-visualization_data <- heterogeneity_results %>%
-  filter(!is.na(TotalHeterogeneity) & !is.na(ExplainedHeterogeneity)) %>%  # Remove rows with NA values
-  mutate(
-    ResponseVariable = factor(ResponseVariable, levels = unique(ResponseVariable)),  # Order response variables
-    ModelType = factor(ModelType, levels = c("null", "minimal", "fixed", "simplified", "full"))  # Order models
-  )
-
-visualization_data |> str()
-
-# Reshape data to include HeterogeneityType
-long_heterogeneity_data <- visualization_data %>%
-  pivot_longer(
-    cols = c(TotalHeterogeneity, ExplainedHeterogeneity, ResidualHeterogeneity),
-    names_to = "HeterogeneityType",
-    values_to = "HeterogeneityValue"
-  )
-
-# Correct negative residual heterogeneity values
-long_heterogeneity_data_adjusted <- long_heterogeneity_data %>%
-  mutate(
-    HeterogeneityValue = ifelse(
-      HeterogeneityType == "ResidualHeterogeneity" & HeterogeneityValue < 0,
-      0,  # Replace negative values with 0
-      HeterogeneityValue
-    )
-  )
-```
-
-
-
-
-
-```{r}
-# Total Heterogeneity Plot
-total_plot <- ggplot(long_heterogeneity_data_adjusted %>% filter(HeterogeneityType == "TotalHeterogeneity"),
-                     aes(x = ResponseVariable, y = HeterogeneityValue, fill = ModelType)) +
-  geom_bar(stat = "identity", position = "dodge", alpha = 0.7) +
-  scale_y_break(c(8000, 200000), scales = 0.5) +  # Add y-axis breaks
-  labs(title = "Total Heterogeneity", x = NULL, y = "Heterogeneity Value") +
-  theme_minimal(base_size = 14) +
-  theme(
-    axis.text.x = element_text(angle = 45, hjust = 1),
-    plot.title = element_text(size = 14, face = "bold"),
-    axis.title.y = element_text(size = 12),
-    legend.position = "none"
-  )
-
-# Explained Heterogeneity Plot
-explained_plot <- ggplot(long_heterogeneity_data_adjusted %>% filter(HeterogeneityType == "ExplainedHeterogeneity"),
-                         aes(x = ResponseVariable, y = HeterogeneityValue, fill = ModelType)) +
-  geom_bar(stat = "identity", position = "dodge", alpha = 0.7) +
-  scale_y_break(c(4000, 1000000), scales = 0.5) +  # Add y-axis breaks
-  labs(title = "Explained Heterogeneity", x = NULL, y = NULL) +
-  theme_minimal(base_size = 14) +
-  theme(
-    axis.text.x = element_text(angle = 45, hjust = 1),
-    plot.title = element_text(size = 14, face = "bold"),
-    axis.title.y = element_blank(),
-    legend.position = "none"
-  )
-
-# Residual Heterogeneity Plot
-residual_plot <- ggplot(long_heterogeneity_data_adjusted %>% filter(HeterogeneityType == "ResidualHeterogeneity"),
-                        aes(x = ResponseVariable, y = HeterogeneityValue, fill = ModelType)) +
-  geom_bar(stat = "identity", position = "dodge", alpha = 0.7) +
-  scale_y_break(c(10000, 300000), scales = 0.5) +  # Add y-axis breaks
-  labs(title = "Residual Heterogeneity", x = NULL, y = NULL) +
-  theme_minimal(base_size = 14) +
-  theme(
-    axis.text.x = element_text(angle = 45, hjust = 1),
-    plot.title = element_text(size = 14, face = "bold"),
-    axis.title.y = element_blank(),
-    legend.position = "right"
-  )
-
-# Combine the plots with a shared legend
-combined_plot <- (total_plot | explained_plot | residual_plot) +  # Arrange side-by-side
-  plot_layout(guides = "collect", widths = c(500, 500, 5)) +  # Collect legend, ensure equal widths
-  plot_annotation(
-    title = "Partitioned Heterogeneity Across Models",
-    theme = theme(
-      plot.title = element_text(size = 16, face = "bold"),
-      legend.position = "top"  # Shared legend at the top
-    )
-  )
-
-# Display the plot
-print(combined_plot)
-```
-
-```{r}
-# Base theme
-base_theme <- theme_minimal(base_size = 14) +
-  theme(
-    axis.text.x = element_text(angle = 45, hjust = 1),
-    plot.title = element_text(size = 14, face = "bold"),
-    axis.title.y = element_text(size = 12)
-  )
-
-# Total Heterogeneity Plot
-total_plot <- ggplot(long_heterogeneity_data_adjusted %>% filter(HeterogeneityType == "TotalHeterogeneity"),
-                     aes(x = ResponseVariable, y = HeterogeneityValue, fill = ModelType)) +
-  geom_bar(stat = "identity", position = position_dodge(width = 0.8), width = 0.6, alpha = 0.7) +
-  scale_y_break(c(7500, 200000), scales = 0.5) +  # Add y-axis breaks
-  labs(title = "Total Heterogeneity", x = NULL, y = "Heterogeneity Value") +
-  base_theme +
-  theme(legend.position = "none")
-
-# Explained Heterogeneity Plot
-explained_plot <- ggplot(long_heterogeneity_data_adjusted %>% filter(HeterogeneityType == "ExplainedHeterogeneity"),
-                         aes(x = ResponseVariable, y = HeterogeneityValue, fill = ModelType)) +
-  geom_bar(stat = "identity", position = position_dodge(width = 0.8), width = 0.6, alpha = 0.7) +
-  scale_y_break(c(4000, 1000000), scales = 0.5) +  # Add y-axis breaks
-  labs(title = "Explained Heterogeneity", x = NULL, y = NULL) +
-  base_theme +
-  theme(legend.position = "none")
-
-explained_plot
-
-# Residual Heterogeneity Plot
-residual_plot <- ggplot(long_heterogeneity_data_adjusted %>% filter(HeterogeneityType == "ResidualHeterogeneity"),
-                        aes(x = ResponseVariable, y = HeterogeneityValue, fill = ModelType)) +
-  geom_bar(stat = "identity", position = position_dodge(width = 0.5), width = 0.4, alpha = 0.7) +
-  scale_y_break(c(10000, 300000), scales = 0.5) +  # Add y-axis breaks
-  labs(title = "Residual Heterogeneity", x = NULL, y = NULL) +
-  base_theme +
-  theme(legend.position = "none")
-
-
-# Extract the legend from one of the actual plots
-legend_plot <- ggpubr::get_legend(
-  ggplot(long_heterogeneity_data_adjusted %>% filter(HeterogeneityType == "TotalHeterogeneity"),
-         aes(x = ResponseVariable, y = HeterogeneityValue, fill = ModelType)) +
-    geom_bar(stat = "identity", position = "dodge", alpha = 0.7) +
-    theme_minimal(base_size = 14) +
-    theme(legend.position = "top", legend.title = element_text(size = 12, face = "bold"))
-)
-
-
-# Combine the plots into a single layout with equal widths
-combined_plot <- wrap_plots(
-  legend_plot,
-  total_plot + explained_plot + residual_plot,
-  ncol = 1, # Set three plots in one row for equal widths
-  heights = c(0.1, 1) # Allocate height for the legend and plots
-) +
-  plot_annotation(
-    title = "Partitioned Heterogeneity Across Models",
-    theme = theme(
-      plot.title = element_text(size = 16, face = "bold")
-    )
-  )
-
-# Display the plot
-print(combined_plot)
-```
-
-
-
-
-
-
-
-
-
-```{r}
-visualization_data |> str()
-```
-
-
-
-```{r}
-# Remove problematic rows (negative/infinite values)
-visualization_data_cleaned <- visualization_data %>%
-  filter(
-    !is.na(ExplainedProportion),
-    !is.na(ResidualProportion),
-    ExplainedProportion > 0,
-    ResidualProportion > 0
-  )
-
-# Scatter Plot: Explained vs. Residual Proportion
-heterogeneity_scatter_plot <- ggplot(visualization_data_cleaned, aes(x = ExplainedProportion, y = ResidualProportion, color = ModelType)) +
-  geom_point(size = 3, alpha = 0.8) +
-  geom_smooth(method = "lm", se = FALSE, linetype = "dashed") +
-  scale_y_continuous(trans = "pseudo_log", breaks = c(10, 50, 100)) +  # Adjust y-scale
-  scale_x_continuous(trans = "pseudo_log", breaks = c(1, 10, 100, 1000)) +  # Adjust x-scale
-  labs(
-    title = "Explained vs. Residual Proportion by Model Type",
-    x = "Explained Proportion (%)",
-    y = "Residual Proportion (%)",
-    color = "Model Type"
-  ) +
-  theme_minimal() +
-  theme(
-    legend.position = "top",
-    legend.title = element_text(size = 12, face = "bold")
-  )
-
-# Display the refined plot
-print(heterogeneity_scatter_plot)
-
-```
-
-This plot illustrates the relationship between the explained proportion and residual proportion of heterogeneity across different meta-analysis models. Explained heterogeneity represents the proportion of total variance in effect sizes that can be attributed to predictors or moderators in the model, while residual heterogeneity reflects the remaining unexplained variance after accounting for these predictors. These two metrics are essential for assessing the performance of different models, as they help quantify how effectively a model explains patterns in the data while minimizing unaccounted variation.
-
-In the plot, each model type is represented by a unique color, with dashed trend lines indicating general patterns for each model. The null model, which includes no random or fixed effects, has consistently high residual heterogeneity, showing that it fails to explain much of the variability in effect sizes. In contrast, models with additional complexity, such as the minimal, fixed, simplified, and full models, show varied performance in balancing explained and residual proportions.
-
-The fixed model shows a steep decline in residual heterogeneity as explained proportion increases, indicating strong performance in capturing variance through fixed effects. The minimal model strikes a balance between explained and residual proportions, suggesting that its inclusion of random effects improves its capacity to explain heterogeneity compared to the null model. The simplified and full models demonstrate better explained proportions in some cases, but their performance is more variable, reflecting potential challenges in overfitting or the inclusion of unnecessary complexity.
-
-This plot provides valuable insights into the trade-offs between model complexity and explanatory power. Models like the null model, while simple, do not perform well in capturing heterogeneity. More complex models, such as the full or simplified models, may improve explained heterogeneity but at the cost of consistency or interpretability.
-
-One limitation of this analysis is that it does not address how these differences in heterogeneity metrics affect the broader goals of the meta-analysis, such as reporting effect sizes or testing specific hypotheses. Additionally, model performance may vary depending on the specific response variables being studied, and the choice of the best model should align with the overarching research questions and practical considerations for reporting. These results highlight the importance of transparently communicating the rationale for model selection and acknowledging the trade-offs involved in balancing explanatory power, complexity, and interpretability in meta-analysis.
-
-
-This plot illustrates the relationship between the explained proportion and residual proportion of heterogeneity across different meta-analysis models. Explained heterogeneity represents the proportion of total variance in effect sizes that can be attributed to predictors or moderators in the model, while residual heterogeneity reflects the remaining unexplained variance after accounting for these predictors. These two metrics are essential for assessing the performance of different models, as they help quantify how effectively a model explains patterns in the data while minimizing unaccounted variation.
-
-In the plot, each model type is represented by a unique color, with dashed trend lines indicating general patterns for each model. The null model, which includes no random or fixed effects, has consistently high residual heterogeneity, showing that it fails to explain much of the variability in effect sizes. In contrast, models with additional complexity, such as the minimal, fixed, simplified, and full models, show varied performance in balancing explained and residual proportions.
-
-The fixed model shows a steep decline in residual heterogeneity as explained proportion increases, indicating strong performance in capturing variance through fixed effects. The minimal model strikes a balance between explained and residual proportions, suggesting that its inclusion of random effects improves its capacity to explain heterogeneity compared to the null model. The simplified and full models demonstrate better explained proportions in some cases, but their performance is more variable, reflecting potential challenges in overfitting or the inclusion of unnecessary complexity.
-
-This plot provides valuable insights into the trade-offs between model complexity and explanatory power. Models like the null model, while simple, do not perform well in capturing heterogeneity. More complex models, such as the full or simplified models, may improve explained heterogeneity but at the cost of consistency or interpretability.
-
-One limitation of this analysis is that it does not address how these differences in heterogeneity metrics affect the broader goals of the meta-analysis, such as reporting effect sizes or testing specific hypotheses. Additionally, model performance may vary depending on the specific response variables being studied, and the choice of the best model should align with the overarching research questions and practical considerations for reporting. These results highlight the importance of transparently communicating the rationale for model selection and acknowledging the trade-offs involved in balancing explanatory power, complexity, and interpretability in meta-analysis.
-
-
-#############
-# STEP 5
-##########################################################################################################################################
-KEY INFLUENCE DIAGNOSTICS ON EACH SUBSET - SIMPLIFIED MODEL FITTING 
-##########################################################################################################################################
-
-Understanding the overall effect of each response variable on the overall effect size: Quantifying how the outcomes (response variables) studied in our meta-analysis contribute to the aggregated measure of effect sizes. The Null and Minimal Random Effects Models are particularly good in this.
-
-What Does "Overall Effect of Each Response Variable" Mean?
-Effect Size (yi):
-
-Each study reports an effect size (yi) for a specific response variable (e.g., biodiversity, crop yield). The effect size quantifies the magnitude of the observed effect, such as the improvement in biodiversity or crop yield due to an intervention.
-Overall Effect:
-
-The overall effect is a weighted average of the effect sizes across studies for a given response variable. It answers the question: "On average, how much does this response variable change across studies?"
-Weighting accounts for the precision (variance, vi) of each study, giving more weight to studies with lower variance.
-
-```{r}
-# The Null Model is the simplest form of meta-analysis. It estimates an overall effect size (intercept-only) without accounting for moderators or random effects, making # it ideal for quickly summarizing the overall effect.
-
-# Fit the null model for each response variable
-overall_effects <- lapply(names(v_matrices), function(response) {
-  data_subset <- meta_data[meta_data$response_variable == response, ]
-  
-  # Fit the null model
-  fit_null_model(data_subset, response)
-})
-
-# Extract results
-overall_effects_summary <- lapply(overall_effects, function(model) {
-  if (!is.null(model)) {
-    summary(model)$b[, "Estimate"] # Extract the overall effect size (intercept)
-  } else {
-    NA
-  }
-})
-
-# Combine results into a data frame
-overall_effects_df <- data.frame(
-  ResponseVariable = names(v_matrices),
-  OverallEffect = unlist(overall_effects_summary)
-)
-
-# Fit the minimal random effects model for each response variable
-minimal_effects <- lapply(names(v_matrices), function(response) {
-  data_subset <- meta_data[meta_data$response_variable == response, ]
-  v_matrix <- v_matrices[[response]]
-  
-  # Fit the minimal random effects model
-  fit_minimal_model(data_subset, response, v_matrix)
-})
-
-# Extract results
-minimal_effects_summary <- lapply(minimal_effects, function(model) {
-  if (!is.null(model)) {
-    summary(model)$b[, "Estimate"] # Extract the overall effect size (intercept)
-  } else {
-    NA
-  }
-})
-
-# Combine results into a data frame
-minimal_effects_df <- data.frame(
-  ResponseVariable = names(v_matrices),
-  OverallEffect = unlist(minimal_effects_summary)
-)
-
-# Compare results from both models
-comparison_df <- merge(
-  overall_effects_df,
-  minimal_effects_df,
-  by = "ResponseVariable",
-  suffixes = c("_NullModel", "_MinimalModel")
-)
-```
-
-```{r}
-# Combine results for visualization
-effects_plot_data <- overall_effects_df %>%
-  rename(EffectSize = OverallEffect) %>%
-  mutate(Model = "Null Model") %>%
-  bind_rows(
-    minimal_effects_df %>%
-      rename(EffectSize = OverallEffect) %>%
-      mutate(Model = "Minimal Random Effects Model")
-  )
-
-# Plot
-ggplot(effects_plot_data, aes(x = ResponseVariable, y = EffectSize, color = Model)) +
-  geom_point(size = 3, position = position_dodge(width = 0.5)) +
-  geom_errorbar(aes(ymin = EffectSize - 0.1, ymax = EffectSize + 0.1), # Adjust error range as needed
-                width = 0.2, position = position_dodge(width = 0.5)) +
-  labs(
-    title = "Overall Effect Sizes by Response Variable",
-    x = "Response Variable",
-    y = "Overall Effect Size",
-    color = "Model"
-  ) +
-  theme_minimal(base_size = 14)
-
-```
-
-
-
-#############
-# STEP 6
-##########################################################################################################################################
-KEY INFLUENCE DIAGNOSTICS ON EACH SUBSET - SIMPLIFIED MODEL FITTING 
-##########################################################################################################################################
-
- 
- 
-##########################################################################################################################################
-MODERATOR ANALYSIS AND INTERPRETATION 
-##########################################################################################################################################
-
-
-
-##########################################################################################################################################
-SAVING DATASETS AND MODEL OBJECTS
-##########################################################################################################################################
 
 
 #############
@@ -2772,475 +1793,305 @@ Ridge Plot: Shows the distribution of effect sizes for each response variable.
 Variance Plot: Compares variance components (Tau²) and heterogeneity (I²).
 Combined Plot: Combines the forest and ridge plots into a single figure for publication.
 
-
+##########################################################################################################################################
+FOREST PLOT
+##########################################################################################################################################
 
 ```{r}
-# Load the saved models
-dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
+# Loop through the different response variables
+response_vars <- c("Biodiversity", "Greenhouse gas emission", "Product quality", "Crop yield", "Pest and Disease", "Soil quality", "Water quality")  # Adjust as needed)
+moderators <- c("tree_type", "crop_type", "age_system", "season", "soil_texture")
 
-# Load models for all complexity levels
-null_model_results <- readRDS(file.path(dir, "fitted_models_null.rds"))
-minimal_model_results <- readRDS(file.path(dir, "fitted_models_minimal.rds"))
-fixed_effects_model_results <- readRDS(file.path(dir, "fitted_models_fixed_effects.rds"))
-simplified_model_results <- readRDS(file.path(dir, "fitted_models_simplified.rds"))
-full_model_results <- readRDS(file.path(dir, "fitted_models_full.rds"))
-
-# simplified_model_results |> str()
-# simplified_model_results |> glimpse()
+# Extract data for forest plot
+model_results$Biodiversity$D_incremental_random_incremental
 ```
-
 ```{r}
-# WORKING ON THE SIMPLIFIED MODEL
-mod_res <- simplified_model_results
-```
+##########################################################################################################################################
+# RE-FITTING MODEL D_incremental_random_incremental
+##########################################################################################################################################
 
-```{r}
-custom_colors <- c(
-  "Biodiversity" = "#FF9999",
-  "Greenhouse gas emission" = "#66C266",
-  "Product quality" = "#FFC000",
-  "Crop yield" = "#FF9933",
-  "Pest and Disease" = "#33CCCC",
-  "Soil quality" = "#9966CC",
-  "Water quality" = "#9999FF"
-)
-```
+##########################################################################
+# Set up the parallel processing plan
+plan(multisession, workers = parallel::detectCores() - 1)
+##########################################################################
+# Start time tracking
+start.time <- Sys.time()
+##########################################################################
 
-```{r}
-# Combine results from all response variables into a single data frame
-forest_plot_data <- bind_rows(
-  lapply(names(mod_res), function(response) {
-    # Access the model for the current response variable
-    model <- mod_res[[response]]
-    
-    # Check if the model and its associated data are available
-    if (!is.null(model) && !is.null(model$data)) {
-      # Align the data with fitted effect sizes (model$yi) by subsetting
-      aligned_data <- model$data[seq_along(model$yi), ]
-      
-      # Ensure alignment resolves potential mismatch in lengths
-      if (nrow(aligned_data) == length(model$yi)) {
-        # Construct a data frame with necessary details for the forest plot
-        data.frame(
-          Study = aligned_data$id_article,              # Study identifiers
-          EffectSize = model$yi,                       # Fitted effect sizes
-          CI_Lower = model$yi - 1.96 * sqrt(model$vi), # Lower confidence interval (95%)
-          CI_Upper = model$yi + 1.96 * sqrt(model$vi), # Upper confidence interval (95%)
-          ResponseVariable = response                  # Corresponding response variable
-        )
-      } else {
-        # Warn if alignment did not resolve mismatched lengths
-        warning(sprintf(
-          "Still mismatched lengths for '%s': model$yi (%d) vs. aligned_data (%d).",
-          response, length(model$yi), nrow(aligned_data)
-        ))
-        NULL # Skip this response variable
-      }
+# Function to fit models with one moderator at a time
+fit_model_incremental <- function(data_subset, response_variable, v_matrix, moderator, random_effects = NULL, intercept = TRUE) {
+  # Print progress message
+  cat("\nFitting model for response variable:", response_variable, "with moderator:", moderator, "...\n")
+
+  # Build the formula for the moderator
+  moderator_formula <- if (!is.null(moderator)) {
+    if (intercept) {
+      as.formula(paste("yi ~", moderator))  # Include global intercept
     } else {
-      # Warn if the model or its data is unavailable
-      warning(sprintf("Skipping response variable '%s': Missing model or data.", response))
-      NULL # Skip this response variable
+      as.formula(paste("yi ~", moderator, "- 1"))  # Exclude global intercept
     }
+  } else {
+    ~ 1  # Intercept-only model
+  }
+
+  # Fit the model
+  model <- tryCatch({
+    rma.mv(
+      yi = yi,
+      V = v_matrix,
+      mods = moderator_formula,
+      random = random_effects,
+      data = data_subset,
+      method = "REML",
+      control = list(
+        optimizer = "optim",
+        optim.method = "BFGS",
+        iter.max = 1000,
+        rel.tol = 1e-8
+      )
+    )
+  }, error = function(e) {
+    cat("Error in model fitting for", response_variable, "with moderator", moderator, ":", e$message, "\n")
+    return(NULL)
   })
-)
-```
 
-```{r}
-# Summarize the data by response variable
-aggregated_data <- forest_plot_data %>%
-  group_by(ResponseVariable) %>% # Group data by response variable
-  summarise(
-    # Calculate the overall mean effect size
-    overall_effect = mean(EffectSize, na.rm = TRUE),
-    # Calculate mean confidence interval bounds
-    lower_ci = mean(CI_Lower, na.rm = TRUE),
-    upper_ci = mean(CI_Upper, na.rm = TRUE),
-    # Count total observations and unique studies
-    num_observations = n(),
-    num_studies = n_distinct(Study), # Assuming 'Study' represents unique studies
-    # Categorize studies into size groups based on the number of studies
-    size_category = case_when(
-      num_studies <= 2 ~ "1-2",  # Small sample size category
-      num_studies <= 4 ~ "3-4",  # Medium sample size category
-      num_studies > 4 ~ "5+"     # Large sample size category
-    ),
-    .groups = "drop" # Drop grouping after summarization
-  ) %>%
-  # Add response rank based on the overall effect size
-  mutate(
-    size_category = factor(size_category, levels = c("1-2", "3-4", "5+")), # Order size categories
-    response_rank = rank(overall_effect) # Rank responses by overall effect
-  )
+  # Return fitted model or NULL if fitting failed
+  if (!is.null(model)) {
+    cat("Model fitting completed for response variable:", response_variable, "with moderator:", moderator, ".\n")
+    return(model)
+  } else {
+    return(NULL)
+  }
+}
 
-# Reorder response variables based on the mean effect size (descending order)
-aggregated_data <- aggregated_data %>%
-  arrange(desc(overall_effect)) %>%
-  mutate(ResponseVariable = factor(ResponseVariable, levels = ResponseVariable))
+##########################################################################################################################################
+# Fit Models for Each Response Variable with Incremental Moderator Inclusion
+##########################################################################################################################################
 
-# View the aggregated data
-aggregated_data |> 
-```
+# Initialize an empty list to store model results
+selected_model_results <- list()
 
+# Loop through each response variable to fit models
+for (response in names(v_matrices)) {
+  # Display the response variable being processed
+  cat("\nProcessing response variable:", response, "\n")
 
-```{r}
-# Create the forest plot
-forest_plot <- aggregated_data %>%
-  ggplot(aes(x = overall_effect, y = reorder(ResponseVariable, response_rank), color = ResponseVariable)) +
-  # Add points for effect sizes
-  geom_point(aes(size = size_category), shape = 19, alpha = 0.8) +
-  # Add horizontal error bars for confidence intervals
-  geom_errorbarh(aes(xmin = lower_ci, xmax = upper_ci), height = 0.2, size = 1, alpha = 0.7) +
-  # Add vertical line at zero
-  geom_vline(xintercept = 0, linetype = "dashed", color = "grey40", size = 0.8) +
-  # Customize point size scale
-  scale_size_manual(
-    values = c("1-2" = 3, "3-4" = 5, "5+" = 7),
-    name = "Number of Studies"
-  ) +
-  # Customize color scale
-  scale_color_manual(
-    values = custom_colors,
-    name = "Response Variable"
-  ) +
-  # Customize plot labels and appearance
-  labs(
-    title = "Forest Plot: Effect Sizes and Confidence Intervals",
-    subtitle = "Meta-analysis of Temperate Silvoarable Agroforestry",
-    x = "Effect Size (Overall)",
-    y = "Response Variable",
-    size = "Study Size Category"
-  ) +
-  theme_minimal(base_size = 14) +
-  theme(
-    axis.text.y = element_text(size = 12, face = "bold"),
-    axis.text.x = element_text(size = 10),
-    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
-    plot.subtitle = element_text(size = 14, face = "italic", hjust = 0.5),
-    legend.position = "right",
-    legend.title = element_text(size = 12, face = "bold"),
-    legend.text = element_text(size = 10)
-  )
+  # Subset the metadata to include only rows relevant to the current response variable
+  data_subset <- meta_data[meta_data$response_variable == response, ]
 
-# Display the plot
-print(forest_plot)
-```
+  # Extract the corresponding variance-covariance matrix for the response variable
+  v_matrix <- v_matrices[[response]]
 
+  # Define the list of moderators to be included in the model
+  moderators <- c("tree_type", "crop_type", "age_system", "season", "soil_texture")
 
-
-```{r}
-# Updated forest plot dataset extraction
-detailed_forest_data <- bind_rows(
-  lapply(names(mod_res), function(response) {
-    model <- mod_res[[response]]
+  # Fit models step-by-step for the response variable
+  selected_model_results[[response]] <- list(
     
-    if (!is.null(model) && !is.null(model$data)) {
-      aligned_data <- model$data[seq_along(model$yi), ]  # Align data with fitted values
-      
-      if (nrow(aligned_data) == length(model$yi)) {
-        data.frame(
-          Study = aligned_data$id_article,
-          EffectSize = model$yi,
-          CI_Lower = model$yi - 1.96 * sqrt(model$vi),
-          CI_Upper = model$yi + 1.96 * sqrt(model$vi),
-          Variance = model$vi,
-          Precision = 1 / sqrt(model$vi),
-          ResponseVariable = response
-        )
-      } else {
-        NULL
-      }
-    } else {
-      NULL
-    }
-  })
+
+    # Incremental model with random effects: Adds moderators incrementally
+    D_refit_incremenal_random = lapply(moderators, function(moderator) {
+      fit_model_incremental(
+        data_subset = data_subset,
+        response_variable = response,
+        v_matrix = v_matrix,
+        moderator = moderator,             # Add one moderator
+        random_effects = ~ 1 | exp_id,     # Random effect at the experiment level
+        intercept = FALSE                   # Include intercept
+      )
+    })
+
+  )
+}
+
+##########################################################################################################################################
+# Save All Fitted Model
+##########################################################################################################################################
+
+
+##########################################################################
+# End time tracking
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+cat("\nTotal time taken:", time.taken, "\n")
+##########################################################################
+# Last go (19/01-2025)
+# Total time taken: 19.15765  mins
+```
+```{r}
+selected_model_results |> head()
+```
+```{r}
+# Example of refitting a model (for the "Crop yield" response variable and one moderator)
+model <- selected_model_results$`Crop yield`$D_refit_incremenal_random  # Take the first model as an example
+
+str(selected_model_results$`Crop yield`$D_refit_incremenal_random)
+```
+
+
+```{r}
+# Initialize an empty data frame to store forest plot data for all response variables
+forest_plot_data_all <- data.frame(
+  Study = character(),
+  EffectSize = numeric(),
+  CI_Lower = numeric(),
+  CI_Upper = numeric(),
+  ResponseVariable = character(),
+  stringsAsFactors = FALSE
 )
 
+# Loop through each response variable to extract data for the forest plot
+for (response in names(selected_model_results)) {
+  
+  # Extract the model data for each response variable
+  model_data <- selected_model_results[[response]]$D_refit_incremenal_random[[1]]
+  
+  # Extract the effect sizes (yi) and variances (vi)
+  effect_sizes <- model_data$yi
+  variances <- model_data$vi
+  
+  # Calculate confidence intervals
+  ci_lower <- effect_sizes - 1.96 * sqrt(variances)
+  ci_upper <- effect_sizes + 1.96 * sqrt(variances)
+  
+  # Create a data frame for the current response variable's forest plot data
+  forest_plot_data <- data.frame(
+    Study = model_data$slab,  # Assuming slab is the study identifier
+    EffectSize = effect_sizes,
+    CI_Lower = ci_lower,
+    CI_Upper = ci_upper,
+    ResponseVariable = response  # Add the response variable name
+  )
+  
+  # Append the data for the current response variable to the overall data frame
+  forest_plot_data_all <- rbind(forest_plot_data_all, forest_plot_data)
+}
 
-# Apply the same order to the detailed data
-# detailed_forest_data <- detailed_forest_data %>%
-#   mutate(ResponseVariable = factor(ResponseVariable, levels = levels(aggregated_data$ResponseVariable)))
-
-
-
-# Verify the prepared dataset
-detailed_forest_data |> glimpse()
+# Check the combined data
+forest_plot_data_all |> glimpse()
 ```
 
 ```{r}
-# Update aggregated_data to include Variance
-aggregated_data <- detailed_forest_data %>%
+# Calculate the global mean for each response variable
+global_mean_data <- forest_plot_data_all %>%
   group_by(ResponseVariable) %>%
   summarise(
     overall_effect = mean(EffectSize, na.rm = TRUE),
     lower_ci = mean(CI_Lower, na.rm = TRUE),
     upper_ci = mean(CI_Upper, na.rm = TRUE),
-    num_observations = n(),
-    num_studies = n_distinct(Study),
-    mean_variance = mean(Variance, na.rm = TRUE),  # Include average variance
-    size_category = case_when(
-      num_studies <= 2 ~ "1-2",
-      num_studies <= 4 ~ "3-4",
-      num_studies > 4 ~ "5+"
-    ),
     .groups = "drop"
-  ) %>%
-  mutate(
-    size_category = factor(size_category, levels = c("1-2", "3-4", "5+")),
-    response_rank = rank(overall_effect)
   )
 
-# Verify updated aggregated_data
-aggregated_data |> glimpse()
-```
+# Merge the global mean data with the forest plot data
+forest_plot_data_all_with_mean <- forest_plot_data_all %>%
+  left_join(global_mean_data, by = "ResponseVariable")
 
-```{r}
-# Beeswarm Forest Plot with Scaled X-Axis
-beeswarm_forest_plot_scaled <- ggplot(detailed_forest_data, 
-                                      aes(
-                                        x = EffectSize, 
-                                        y = reorder(ResponseVariable, aggregated_data$overall_effect[match(ResponseVariable, aggregated_data$ResponseVariable)]), 
-                                        color = ResponseVariable
-                                        )
-                                      ) +
-  # Beeswarm for individual points with more jitter
-  ggbeeswarm::geom_quasirandom(alpha = 0.7, size = 2, width = 0.2) +
-  # Add summary points for aggregated data with larger size and bold outline
-  geom_point(
-    data = aggregated_data, 
-    aes(
-      x = overall_effect, 
-      y = reorder(ResponseVariable, overall_effect), 
-      size = num_studies
-    ), 
-    shape = 21, fill = "white", color = "black", stroke = 1.5, inherit.aes = FALSE
-  ) + 
-  # Add error bars for confidence intervals with thicker lines
-  geom_errorbarh(
-    data = aggregated_data, 
-    aes(
-      xmin = lower_ci, 
-      xmax = upper_ci, 
-      y = reorder(ResponseVariable, overall_effect)
-    ), 
-    height = 0.2, 
-    color = "black", 
-    linewidth = 1.2, 
-    inherit.aes = FALSE
-  ) + 
-    # Add secondary, smaller error bars for 75% CI
-  # geom_errorbarh(
-  #   data = aggregated_data, 
-  #   aes(
-  #     xmin = overall_effect - 0.674 * sqrt(mean_variance),  # 50% CI lower bound
-  #     xmax = overall_effect + 0.674 * sqrt(mean_variance),  # 50% CI upper bound
-  #     y = reorder(ResponseVariable, overall_effect)
-  #   ), 
-  #   height = 0.1, 
-  #   color = "blue", 
-  #   linewidth = 1, 
-  #   inherit.aes = FALSE
-  # ) + 
-  # Vertical line at 0 with increased thickness
-  geom_vline(xintercept = 0, linetype = "dashed", color = "red", linewidth = 1) +
-  # Custom color scale (hides legend for response variables)
-  scale_color_manual(values = custom_colors, guide = "none") +
-  # Custom size scale for number of studies
-  scale_size_continuous(range = c(2, 6), name = "Number of Studies") +
-  # # Scaled x-axis for relative differences
-  # scale_x_continuous(
-  #   breaks = c(-1, -0.5, 0, 0.5, 1, 1.5, 2, 2.5), 
-  #   labels = c("-1", "-0.5", "0", "0.5", "1", "1.5", "2", "2.5"),
-  #   expand = c(0.01, 0.01)
-  # ) +
-   # Pseudo-logarithmic x-axis scale
-  scale_x_continuous(
-    trans = scales::pseudo_log_trans(sigma = 0.1),  # Pseudo-log transformation
-    breaks = c(-1, -0.5, 0, 0.5, 1, 2),  # Custom breakpoints
-    labels = scales::label_number(accuracy = 0.1)  # Custom label formatting
-  ) +
-  # Customize plot labels and title
+# Now create the forest plot with the global mean effect size added as a line
+forest_plot_mean_response <- forest_plot_data_all_with_mean |> 
+  ggplot(aes(x = EffectSize, y = Study)) +
+  # Points for effect sizes
+  geom_point(size = 3) +
+  # Confidence intervals
+  geom_errorbarh(aes(xmin = CI_Lower, xmax = CI_Upper), height = 0.2) +
+  # Add vertical line at 0
+  geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
+  # Add a line for the global mean effect size per response variable
+  geom_vline(aes(xintercept = overall_effect), color = "blue", linetype = "solid", size = 1) +
+  # Customize labels
   labs(
-    title = "Beeswarm Forest Plot of Effect Sizes (Scaled X-Axis)",
-    x = "Effect Size (Ratio of Means, ROM)",
-    y = "Response Variable"
+    title = "Forest Plot for All Response Variables",
+    x = "Effect Size (Overall)",
+    y = "Study"
   ) +
-  # Minimal theme with increased text size
-  theme_minimal(base_size = 16) +
+  # Focus on the area around 0
+  xlim(-2, 2) +  # Adjust this range based on your needs
+  theme_minimal(base_size = 14) +
   theme(
-    axis.text.y = element_text(size = 14),
-    axis.text.x = element_text(size = 14),
-    plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
-    legend.position = "bottom",
-    legend.title = element_text(size = 14),
-    legend.text = element_text(size = 12)
-  )
+    axis.text.y = element_text(size = 10),
+    axis.text.x = element_text(size = 12),
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+    strip.text = element_text(size = 12, face = "bold")  # Bold facet labels
+  ) +
+  facet_wrap(~ ResponseVariable, scales = "free_y", ncol = 1) +  # Facet by response variable
+  theme(strip.background = element_rect(fill = "lightgray", color = "black"))
 
-# Display the updated plot
-print(beeswarm_forest_plot_scaled)
-
-```
-
-```{r}
-# Add heterogeneity measures as annotations
-annotated_forest_plot <- beeswarm_forest_plot_scaled +
-  geom_text(
-    data = aggregated_data,
-    aes(
-      x = 2.5,  # Position on the right-hand side of the plot
-      y = reorder(ResponseVariable, overall_effect),
-      label = paste0("I²: ", round(heterogeneity$I2, 1), "%, ", "Tau²: ", round(heterogeneity$Tau2, 2))
-    ),
-    size = 4, 
-    hjust = 1
-  )
-print(annotated_forest_plot)
-```
-Additional elements that can be added to the forrestplot
-
-
-Publication Bias Tests
-Results of Egger’s test, Begg’s test, or funnel plot asymmetry tests could be summarized and shown.
-
-
-
-
-Model Fit Statistics (AIC, BIC, Log-Likelihood)
-Report the model's Akaike Information Criterion (AIC), Bayesian Information Criterion (BIC), or log-likelihood as a measure of fit.
-These metrics can be added to the plot title or as a subtitle.
-Example Subtitle:
-
-subtitle = "Simplified Model: AIC = 1423.6, BIC = 1450.8, Log-Likelihood = -704.8"
-
-Outlier Influence Diagnostics
-Include results from influence diagnostics (e.g., Cook’s distance, leave-one-out analysis).
-Highlight influential studies or response variables in the plot, perhaps with special shapes or colors.
-
-
-. Cumulative Meta-Analysis Results
-Show cumulative effect sizes calculated by adding one study at a time in order of publication year.
-This helps assess temporal trends in the evidence base.
-Implementation:
-Use a separate plot or integrate cumulative trends as a line within the current plot.
-
-
-Subgroup Analysis or Moderator Effects
-Display subgroup analyses or moderator effects (e.g., based on study design, location, crop type).
-Include these as a secondary legend or overlay on the forest plot.
-
-
-Table to accompany the Forest Plot
-
-```{r}
-
+forest_plot_mean_response
 ```
 
 
 
-
-
-
-
-Funnel Plot
-
 ```{r}
-# Example meta-analysis dataset
-funnel_data <- data.frame(
-  yi = detailed_forest_data$EffectSize,
-  vi = detailed_forest_data$Variance,
-  study = detailed_forest_data$Study,
-  response = detailed_forest_data$ResponseVariable
+# Define a custom scaling function for the x-axis
+pseudo_log_scale <- trans_new(
+  name = "pseudo_log_scale", 
+  transform = function(x) log(abs(x) + 1) * sign(x) * 10,  # Scaling and transformation
+  inverse = function(x) exp(abs(x)) - 1  # Inverse transformation (optional)
 )
-```
 
+# Now create the forest plot with the custom scaling applied
+forest_plot_mean_response_scaled <- forest_plot_data_all_with_mean |> 
+  ggplot(aes(x = EffectSize, y = Study)) +
+  # Points for effect sizes
+  geom_point(size = 3) +
+  # Confidence intervals
+  geom_errorbarh(aes(xmin = CI_Lower, xmax = CI_Upper), height = 0.2) +
+  # Add vertical line at 0
+  geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
+  # Add a line for the global mean effect size per response variable
+  geom_vline(aes(xintercept = overall_effect), color = "blue", linetype = "solid", size = 1) +
+  # Customize labels
+  labs(
+    title = "Forest Plot for All Response Variables",
+    x = "Effect Size (Overall)",
+    y = "Study"
+  ) +
+  # Apply pseudo-log scale transformation to x-axis
+  scale_x_continuous(trans = pseudo_log_scale) +
+  theme_minimal(base_size = 14) +
+  theme(
+    axis.text.y = element_text(size = 10),
+    axis.text.x = element_text(size = 12),
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+    strip.text = element_text(size = 12, face = "bold")  # Bold facet labels
+  ) +
+  facet_wrap(~ ResponseVariable, scales = "free_y", ncol = 1) +  # Facet by response variable
+  theme(strip.background = element_rect(fill = "lightgray", color = "black"))
 
-
-
-
-
-
-
-
-
-
-To produce a table similar to the one in the "cabbage paper," summarizing the effect of moderator variables on response variables, you can follow these steps. The table will display the significance (p-values) of the moderators for different response variables based on your simplified meta-analysis model.
-
-```{r}
-# Fit simplified models (assuming this has already been done)
-model_results <- lapply(names(v_matrices), function(response) {
-  data_subset <- meta_data[meta_data$response_variable == response, ]
-  v_matrix <- v_matrices[[response]]
-  moderators <- c("tree_type", "crop_type", "age_system", "season", "soil_texture") # Define moderators
-  fit_simplified_model(data_subset, response, v_matrix, moderators)
-})
-names(model_results) <- names(v_matrices)
-```
-
-```{r}
-# Extract p-values for each model and moderator
-extract_p_values <- function(model, response_variable) {
-  if (is.null(model)) return(NULL)
-  
-  summary_data <- summary(model)
-  p_values <- summary_data$coefficients[-1, "pval"]  # Exclude the intercept
-  moderators <- rownames(summary_data$coefficients)[-1]
-  
-  data.frame(
-    ResponseVariable = response_variable,
-    Moderator = moderators,
-    P_Value = p_values,
-    stringsAsFactors = FALSE
-  )
-}
-
-# Combine p-values across all response variables
-p_values_table <- do.call(
-  rbind,
-  lapply(names(model_results), function(response) {
-    extract_p_values(model_results[[response]], response)
-  })
-)
+# Display the plot
+forest_plot_mean_response_scaled
 ```
 
 ```{r}
-# Reshape the table for final output
-
-formatted_table <- p_values_table %>%
-  pivot_wider(
-    names_from = ResponseVariable,
-    values_from = P_Value
+# Add the number of studies for each moderator level
+forest_plot_data_all_with_moderators <- forest_plot_data_all %>%
+  group_by(ResponseVariable, Moderator) %>%
+  mutate(
+    n_studies = n_distinct(Study),  # Calculate number of unique studies per moderator level
+    study_count = as.factor(ifelse(n_studies < 3, "Few Studies", "Many Studies"))
   ) %>%
-  arrange(Moderator)
-```
+  ungroup()  # Ungroup the data for further processing
 
-```{r}
-# Add aspects manually (example mapping)
-aspects <- c(
-  "tree_type" = "Genetic",
-  "crop_type" = "Genetic",
-  "age_system" = "Temporal",
-  "season" = "Temporal",
-  "soil_texture" = "Spatial"
-)
+# Now proceed with plotting using the updated forest_plot_data_all_with_moderators
+ggplot(forest_plot_data_all_with_moderators, aes(x = EffectSize, y = Moderator)) +
+  geom_point(aes(size = study_count, color = ResponseVariable), shape = 16) +  # Points for effect sizes
+  geom_errorbarh(aes(xmin = CI_Lower, xmax = CI_Upper), height = 0.2) +  # Confidence intervals
+  geom_vline(xintercept = 0, linetype = "dashed", color = "black") +  # Add vertical line at 0
+  facet_wrap(~ ResponseVariable, scales = "free_y") +  # Facet by response variable (e.g., Ecosystem services)
+  labs(
+    title = "Effect Sizes of Moderators on Ecosystem Services",
+    x = "Effect Size (yi)",
+    y = "Moderators"
+  ) +
+  scale_size_manual(values = c("Few Studies" = 3, "Many Studies" = 5)) +  # Size based on the study count
+  scale_color_manual(values = c("Biodiversity" = "darkgreen", "Water quality" = "blue", "Soil quality" = "brown")) +  # Colors for different response variables
+  theme_minimal() +
+  theme(
+    axis.text.y = element_text(size = 10),
+    axis.text.x = element_text(size = 12),
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+    strip.text = element_text(size = 12, face = "bold")  # Facet labels
+  ) 
 
-formatted_table <- formatted_table %>%
-  mutate(Aspect = aspects[Moderator]) %>%
-  relocate(Aspect, .before = Moderator)
-```
-
-```{r}
-# Highlight significant p-values
-formatted_table <- formatted_table %>%
-  mutate(across(where(is.numeric), ~ ifelse(. < 0.05, sprintf("**%.3f**", .), sprintf("%.3f", .))))
-```
-
-```{r}
-# Render as Publication-Ready Table
-formatted_table %>%
-  gt() %>%
-  tab_header(
-    title = "Effect of Moderator Variables on Ecosystem Services",
-    subtitle = "Significant effects (P < 0.05) are highlighted."
-  )
 ```
 
 
@@ -3250,7 +2101,22 @@ formatted_table %>%
 
 
 
+#############
+# STEP 6
+##########################################################################################################################################
+KEY INFLUENCE DIAGNOSTICS ON VARIANCE EXPLANATION FOR EACH RESPONSE VARIABLE AND MODERATOR - SIMPLIFIED MODEL FITTING 
+##########################################################################################################################################
+
+
+ 
+ 
+##########################################################################################################################################
+MODERATOR ANALYSIS AND INTERPRETATION 
+##########################################################################################################################################
 
 
 
+##########################################################################################################################################
+SAVING DATASETS AND MODEL OBJECTS
+##########################################################################################################################################
 
