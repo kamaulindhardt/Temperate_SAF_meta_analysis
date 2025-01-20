@@ -1806,6 +1806,11 @@ moderators <- c("tree_type", "crop_type", "age_system", "season", "soil_texture"
 model_results$Biodiversity$D_incremental_random_incremental
 ```
 ```{r}
+meta_data |> glimpse()
+```
+
+
+```{r}
 ##########################################################################################################################################
 # RE-FITTING MODEL D_incremental_random_incremental
 ##########################################################################################################################################
@@ -1868,6 +1873,10 @@ fit_model_incremental <- function(data_subset, response_variable, v_matrix, mode
 # Fit Models for Each Response Variable with Incremental Moderator Inclusion
 ##########################################################################################################################################
 
+# WORING ON THE IMPUTED DATASET
+meta_data <- imp_dataset
+#############################################################
+
 # Initialize an empty list to store model results
 selected_model_results <- list()
 
@@ -1897,7 +1906,7 @@ for (response in names(v_matrices)) {
         v_matrix = v_matrix,
         moderator = moderator,             # Add one moderator
         random_effects = ~ 1 | exp_id,     # Random effect at the experiment level
-        intercept = FALSE                   # Include intercept
+        intercept = FALSE                  # Do not include intercept - making it easier to compare moderator levels
       )
     })
 
@@ -1908,6 +1917,19 @@ for (response in names(v_matrices)) {
 # Save All Fitted Model
 ##########################################################################################################################################
 
+# Directory for saving results
+output_dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
+if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
+
+# Save the results for each response variable under the name D_refit_incremenal_random_no_intercept
+save_selected_models <- function(model_results, output_dir) {
+  # Save the model results as an RDS file
+  saveRDS(model_results, file = file.path(output_dir, "D_refit_incremenal_random_no_intercept.rds"))
+  cat("Model results saved successfully!\n")
+}
+
+# Save the results
+save_selected_models(selected_model_results, output_dir)
 
 ##########################################################################
 # End time tracking
@@ -1919,13 +1941,18 @@ cat("\nTotal time taken:", time.taken, "\n")
 # Total time taken: 19.15765  mins
 ```
 ```{r}
-selected_model_results |> head()
+# Specify the output directory where the model was saved
+dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
+
+# Load the model results
+selected_model_results <- readRDS(file.path(dir, "D_refit_incremenal_random_no_intercept.rds"))
 ```
 ```{r}
 # Example of refitting a model (for the "Crop yield" response variable and one moderator)
-model <- selected_model_results$`Crop yield`$D_refit_incremenal_random  # Take the first model as an example
+# str(selected_model_results$`Crop yield`$D_refit_incremenal_random)
 
-str(selected_model_results$`Crop yield`$D_refit_incremenal_random)
+model_res_data_crop_yield <- selected_model_results$`Crop yield`$D_refit_incremenal_random  # Take the first model as an example
+model_res_data_crop_yield
 ```
 
 
@@ -2021,93 +2048,773 @@ forest_plot_mean_response
 
 
 ```{r}
-# Define a custom scaling function for the x-axis
-pseudo_log_scale <- trans_new(
-  name = "pseudo_log_scale", 
-  transform = function(x) log(abs(x) + 1) * sign(x) * 10,  # Scaling and transformation
-  inverse = function(x) exp(abs(x)) - 1  # Inverse transformation (optional)
-)
-
-# Now create the forest plot with the custom scaling applied
+# Ensure custom_colors are applied directly to the mean dots
 forest_plot_mean_response_scaled <- forest_plot_data_all_with_mean |> 
   ggplot(aes(x = EffectSize, y = Study)) +
-  # Points for effect sizes
-  geom_point(size = 3) +
+  # Points for individual observations
+  geom_point(color = "gray40", size = 3, alpha = 0.8) +  # Gray for all other points
   # Confidence intervals
-  geom_errorbarh(aes(xmin = CI_Lower, xmax = CI_Upper), height = 0.2) +
-  # Add vertical line at 0
-  geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
-  # Add a line for the global mean effect size per response variable
-  geom_vline(aes(xintercept = overall_effect), color = "blue", linetype = "solid", size = 1) +
+  geom_errorbarh(aes(xmin = CI_Lower, xmax = CI_Upper), height = 0.2, alpha = 0.7, color = "gray40") +
+  # Add a dot for the global mean effect size per response variable
+  geom_point(
+    data = forest_plot_data_all_with_mean %>% 
+      group_by(ResponseVariable) %>% 
+      summarize(overall_mean = mean(EffectSize, na.rm = TRUE), Study = 0),  # Calculate mean data
+    aes(x = overall_mean, y = Study),  # Map coordinates
+    color = "black",  # Ensure a black outline for visibility
+    size = 5, shape = 21,  # Filled circle
+    fill = forest_plot_data_all_with_mean %>%
+      pull(ResponseVariable) %>%
+      unique() %>%
+      purrr::map_chr(~ custom_colors[.])  # Map custom colors directly
+  ) +
   # Customize labels
   labs(
-    title = "Forest Plot for All Response Variables",
-    x = "Effect Size (Overall)",
-    y = "Study"
+    title = "Improved Forest Plot with Robust Mean Dot Colors",
+    x = "Effect Size (Pseudo-Log Scale)",
+    y = "Observation",
+    fill = "Response Variable"
   ) +
   # Apply pseudo-log scale transformation to x-axis
-  scale_x_continuous(trans = pseudo_log_scale) +
+  scale_x_continuous(
+    trans = pseudo_log_scale, 
+    breaks = c(-2, -1, 0, 1, 2), 
+    labels = scales::number_format(accuracy = 0.01)
+  ) +
+  # Facet by response variable with synchronized strip background colors
+  ggh4x::facet_wrap2(
+    ~ ResponseVariable, 
+    scales = "free_y", 
+    ncol = 1, 
+    strip = ggh4x::strip_themed(
+      background_x = list(
+        Biodiversity = element_rect(fill = custom_colors["Biodiversity"], color = "black"),
+        `Greenhouse gas emission` = element_rect(fill = custom_colors["Greenhouse gas emission"], color = "black"),
+        `Product quality` = element_rect(fill = custom_colors["Product quality"], color = "black"),
+        `Crop yield` = element_rect(fill = custom_colors["Crop yield"], color = "black"),
+        `Pest and Disease` = element_rect(fill = custom_colors["Pest and Disease"], color = "black"),
+        `Soil quality` = element_rect(fill = custom_colors["Soil quality"], color = "black"),
+        `Water quality` = element_rect(fill = custom_colors["Water quality"], color = "black")
+      )
+    )
+  ) +
+  # Add slim dotted vertical line at x = 0 for all facets
+  geom_vline(xintercept = 0, linetype = "dotted", color = "red", alpha = 0.6, size = 0.8) +
+  # Enhance theme for readability
   theme_minimal(base_size = 14) +
   theme(
     axis.text.y = element_text(size = 10),
     axis.text.x = element_text(size = 12),
     plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
-    strip.text = element_text(size = 12, face = "bold")  # Bold facet labels
-  ) +
-  facet_wrap(~ ResponseVariable, scales = "free_y", ncol = 1) +  # Facet by response variable
-  theme(strip.background = element_rect(fill = "lightgray", color = "black"))
+    strip.text = element_text(size = 12, face = "bold"),
+    legend.position = "right",
+    panel.border = element_rect(color = "black", fill = NA, size = 1)  # Black border for each panel
+  )
 
-# Display the plot
-forest_plot_mean_response_scaled
+# Display the corrected plot
+print(forest_plot_mean_response_scaled)
+```
+
+Saving the forest_plot_mean_response_scaled 
+```{r}
+# Increase base text size and adjust all styling for the plots
+theme_custom <- theme_minimal(base_size = 10) + 
+  theme(
+    plot.title = element_text(size = 10),        # Increase title size
+    axis.text = element_text(size = 10),        # Increase axis text size
+    axis.title = element_text(size = 10),       # Increase axis title size
+    legend.position = "top",                    # Place legend at the top
+    legend.title = element_blank(),             # Remove legend title
+    legend.text = element_text(size = 10),      # Increase legend text size
+    strip.text = element_text(size = 10),       # Increase facet text size
+    axis.text.y = element_text(size = 10),
+    axis.text.x = element_text(size = 10,
+                               angle = 45, hjust = 1) # Rotate x-axis text
+  )
+
+# Apply theme modifications to each plot
+forest_plot_mean_response_scaled <- forest_plot_mean_response_scaled + theme_custom
+
+
+# Specify the output directory
+output_dir <- here::here("DATA", "OUTPUT_FROM_R", "FIGURES")
+
+# Ensure the directory exists (optional step)
+if (!dir.exists(output_dir)) {
+  dir.create(output_dir, recursive = TRUE)
+}
+
+
+# Save the plots
+ggsave(
+  filename = file.path(output_dir, "forest_plot_mean_response_scaled.png"),
+  plot = forest_plot_mean_response_scaled,
+  width = 16, height = 8, dpi = 600,
+  bg = "white"
+)
+```
+
+Further enhanced plot
+```{r}
+forest_plot_data_all_with_mean |> glimpse()
+
+# Calculate the variance and confidence intervals for overall means
+mean_summary <- forest_plot_data_all_with_mean %>%
+  group_by(ResponseVariable) %>%
+  summarize(
+    overall_mean = mean(EffectSize, na.rm = TRUE),
+    mean_variance = mean(VarEffectSize, na.rm = TRUE),
+    central_y = mean(range(Study)),  # Center y-coordinate
+    lower_ci = overall_mean - 1.96 * sqrt(mean_variance),  # Lower confidence interval
+    upper_ci = overall_mean + 1.96 * sqrt(mean_variance)   # Upper confidence interval
+  )
+
+mean_summary |> glimpse()
 ```
 
 ```{r}
-# Add the number of studies for each moderator level
-forest_plot_data_all_with_moderators <- forest_plot_data_all %>%
-  group_by(ResponseVariable, Moderator) %>%
-  mutate(
-    n_studies = n_distinct(Study),  # Calculate number of unique studies per moderator level
-    study_count = as.factor(ifelse(n_studies < 3, "Few Studies", "Many Studies"))
-  ) %>%
-  ungroup()  # Ungroup the data for further processing
-
-# Now proceed with plotting using the updated forest_plot_data_all_with_moderators
-ggplot(forest_plot_data_all_with_moderators, aes(x = EffectSize, y = Moderator)) +
-  geom_point(aes(size = study_count, color = ResponseVariable), shape = 16) +  # Points for effect sizes
-  geom_errorbarh(aes(xmin = CI_Lower, xmax = CI_Upper), height = 0.2) +  # Confidence intervals
-  geom_vline(xintercept = 0, linetype = "dashed", color = "black") +  # Add vertical line at 0
-  facet_wrap(~ ResponseVariable, scales = "free_y") +  # Facet by response variable (e.g., Ecosystem services)
-  labs(
-    title = "Effect Sizes of Moderators on Ecosystem Services",
-    x = "Effect Size (yi)",
-    y = "Moderators"
+# Updated plot with error bars for mean dots
+forest_plot_mean_response_scaled_v4 <- ggplot(forest_plot_data_all_with_mean, aes(x = EffectSize, y = Study)) +
+  # Points for individual observations
+  geom_point(color = "gray40", size = 3, alpha = 0.8) +  
+  # Confidence intervals for individual observations
+  geom_errorbarh(aes(xmin = CI_Lower, xmax = CI_Upper), height = 0.2, alpha = 0.7, color = "gray40") +
+  # Add a dot for the global mean effect size per response variable, centered vertically
+  geom_point(
+    data = mean_summary,
+    mapping = aes(x = overall_mean, y = central_y, color = ResponseVariable),
+    size = 5, shape = 16, inherit.aes = FALSE
   ) +
-  scale_size_manual(values = c("Few Studies" = 3, "Many Studies" = 5)) +  # Size based on the study count
-  scale_color_manual(values = c("Biodiversity" = "darkgreen", "Water quality" = "blue", "Soil quality" = "brown")) +  # Colors for different response variables
-  theme_minimal() +
+  # Add error bars for the global mean dots
+  geom_errorbarh(
+    data = mean_summary,
+    mapping = aes(xmin = lower_ci, xmax = upper_ci, y = central_y, color = ResponseVariable),
+    height = 0.5, size = 0.8, alpha = 0.8, inherit.aes = FALSE
+  ) +
+  # Add slim dotted vertical line at x = 0 for all facets
+  geom_vline(xintercept = 0, linetype = "dotted", color = "red", alpha = 0.6, size = 0.8) +
+  # Customize labels
+  labs(
+    title = "Improved Forest Plot with Centered Mean Dots and Error Bars per Response Variable",
+    x = "Effect Size (Pseudo-Log Scale)",
+    y = "Observation",
+    color = "Response Variable"
+  ) +
+  # Apply pseudo-log scale transformation to x-axis
+  scale_x_continuous(
+    trans = pseudo_log_scale, 
+    breaks = c(-2, -1, 0, 1, 2), 
+    labels = scales::number_format(accuracy = 0.01)
+  ) +
+  # Apply custom colors to ResponseVariable for mean dots
+  scale_color_manual(values = custom_colors) +
+  # Facet by response variable with custom strip background colors
+  facet_wrap(~ ResponseVariable, scales = "free_y", ncol = 1) +
+  theme_minimal(base_size = 14) +
+  # Enhance theme for readability and custom facet colors
   theme(
     axis.text.y = element_text(size = 10),
     axis.text.x = element_text(size = 12),
     plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
-    strip.text = element_text(size = 12, face = "bold")  # Facet labels
-  ) 
+    strip.text = element_text(size = 12, face = "bold"),
+    strip.background = element_rect(fill = "white", color = "black"),
+    legend.position = "none",
+    panel.border = element_rect(color = "black", fill = NA, size = 1)
+  )
 
+# Display the updated plot
+forest_plot_mean_response_scaled_v4
 ```
+Saving the forest_plot_mean_response_scaled_v4 
+```{r}
+# Increase base text size and adjust all styling for the plots
+theme_custom <- theme_minimal(base_size = 10) + 
+  theme(
+    plot.title = element_text(size = 10),        # Increase title size
+    axis.text = element_text(size = 10),        # Increase axis text size
+    axis.title = element_text(size = 10),       # Increase axis title size
+    legend.position = "none",                    # Place legend at the top
+    legend.title = element_blank(),             # Remove legend title
+    legend.text = element_text(size = 10),      # Increase legend text size
+    strip.text = element_text(size = 10),       # Increase facet text size
+    axis.text.y = element_text(size = 10),
+    axis.text.x = element_text(size = 10)
+                              # angle = 45, hjust = 1) # Rotate x-axis text
+  )
+
+# Apply theme modifications to each plot
+forest_plot_mean_response_scaled_v4 <- forest_plot_mean_response_scaled_v4 + theme_custom
 
 
+# Specify the output directory
+output_dir <- here::here("DATA", "OUTPUT_FROM_R", "FIGURES")
+
+# Ensure the directory exists (optional step)
+if (!dir.exists(output_dir)) {
+  dir.create(output_dir, recursive = TRUE)
+}
 
 
-
-
+# Save the plots
+ggsave(
+  filename = file.path(output_dir, "forest_plot_mean_response_scaled_v4.png"),
+  plot = forest_plot_mean_response_scaled_v4,
+  width = 20, height = 8, dpi = 600,
+  bg = "white"
+)
+```
 
 
 #############
 # STEP 6
 ##########################################################################################################################################
-KEY INFLUENCE DIAGNOSTICS ON VARIANCE EXPLANATION FOR EACH RESPONSE VARIABLE AND MODERATOR - SIMPLIFIED MODEL FITTING 
+KEY VARIANCE EXPLANATION FOR EACH RESPONSE VARIABLE AND MODERATOR - MODEL FITTING 
 ##########################################################################################################################################
 
+```{r}
+# selected_model_results |> str()
+```
+```{r}
+print(selected_model_results[[1]]$D_refit_incremenal_random[[1]]) 
+```
 
+
+```{r}
+# Initialize an empty data frame to store the summary table results
+summary_table <- data.frame(
+  Aspect = character(),
+  Moderator = character(),
+  Estimate = numeric(),
+  SE = numeric(),
+  Z_value = numeric(),
+  P_value = numeric(),
+  CI_Lower = numeric(),
+  CI_Upper = numeric(),
+  stringsAsFactors = FALSE
+)
+
+# Loop through each response variable to extract and summarize results
+for (response in names(selected_model_results)) {
+  
+  # Extract the model data for each response variable
+  model_data_list <- selected_model_results[[response]]$D_refit_incremenal_random
+  
+  # Loop through each moderator for the current response variable
+  for (moderator_index in seq_along(model_data_list)) {
+    
+    # Extract the model fit for the current moderator
+    model_data <- model_data_list[[moderator_index]]
+    
+    # Check if the model fitting was successful and contains necessary data
+    if (!is.null(model_data) && !is.null(model_data$beta)) {
+      
+      # Extract the relevant statistics for each moderator (e.g., 'beta', 'se', 'zval', 'pval', etc.)
+      estimates <- model_data$beta  # The effect estimates (beta coefficients)
+      standard_errors <- model_data$se  # Standard errors of the estimates
+      z_values <- model_data$zval  # Z-values
+      p_values <- model_data$pval  # P-values
+      ci_lower <- model_data$ci.lb  # Lower bound of the confidence intervals
+      ci_upper <- model_data$ci.ub  # Upper bound of the confidence intervals
+      
+      # Check if estimates have more than 0 entries
+      if (length(estimates) > 0) {
+        # Loop through each effect size estimate for the current moderator
+        for (i in 1:length(estimates)) {
+          # Ensure the current moderator has valid data
+          if (!is.na(estimates[i]) && !is.na(standard_errors[i]) && !is.na(z_values[i]) && !is.na(p_values[i])) {
+            # Store each result in the summary table
+            summary_table <- rbind(summary_table, data.frame(
+              Aspect = response,  # Use response variable as the aspect
+              Moderator = rownames(estimates)[i],  # Moderator name (from row names)
+              Estimate = estimates[i],
+              SE = standard_errors[i],
+              Z_value = z_values[i],
+              P_value = p_values[i],
+              CI_Lower = ci_lower[i],
+              CI_Upper = ci_upper[i]
+            ))
+          }
+        }
+      }
+    }
+  }
+}
+
+summary_table |> glimpse()
+```
+
+```{r}
+# Format the p-values for significance with appropriate asterisks
+summary_table$P_value_formatted <- ifelse(summary_table$P_value < 0.001, 
+                                           paste0("< 0.001", "***"),  # Three asterisks for p < 0.001
+                                           ifelse(summary_table$P_value < 0.01, 
+                                                  paste0(round(summary_table$P_value, 3), "**"),  # Two asterisks for p < 0.01
+                                                  ifelse(summary_table$P_value < 0.05, 
+                                                         paste0(round(summary_table$P_value, 3), "*"),  # One asterisk for p < 0.05
+                                                         ifelse(summary_table$P_value < 0.10, 
+                                                                paste0(round(summary_table$P_value, 3), "·"),  # One dot for p < 0.10
+                                                                round(summary_table$P_value, 3)))))  # No asterisks for p ≥ 0.05
+
+# Create a new column for neatly rounded p-values without extra characters
+summary_table <- summary_table %>%
+  mutate(
+    P_value_simple = round(P_value, 3)  # Round p-values to 3 decimals
+  )
+
+# Step 1: Format the p-values and create significance columns
+summary_table <- summary_table %>%
+  mutate(
+    P_value_simple = round(P_value, 3),  # Rounded p-values without any special symbols
+    # Create formatted p-values based on P_value
+    P_value_formatted = case_when(
+      P_value < 0.001 ~ paste0("< 0.001", "***"),  # Three asterisks for p < 0.001
+      P_value < 0.01  ~ paste0(round(P_value, 3), "**"),  # Two asterisks for p < 0.01
+      P_value < 0.05  ~ paste0(round(P_value, 3), "*"),   # One asterisk for p < 0.05
+      P_value < 0.10  ~ paste0(round(P_value, 3), "·"),   # One dot for p < 0.10
+      TRUE ~ paste0(round(P_value, 3))  # No asterisks for p ≥ 0.05 (ensure it's treated as a string)
+    ),
+    
+    # Create significance level column for each response variable
+    significance = case_when(
+      P_value < 0.001 ~ "***",  # Three asterisks for p < 0.001
+      P_value < 0.01  ~ "**",   # Two asterisks for p < 0.01
+      P_value < 0.05  ~ "*",    # One asterisk for p < 0.05
+      P_value < 0.10  ~ "·",   # One dot for p < 0.10
+      TRUE ~ "NS"  # Non-significant for p ≥ 0.05
+    )
+  ) |> 
+  # Convert P_value_simple = 0.000 to < 0.001
+  mutate(P_value_simple = ifelse(P_value_simple == 0, "< 0.001", P_value_simple))
+
+
+# Check the result to ensure columns are correctly formatted
+summary_table |> glimpse()
+```
+
+```{r}
+summary_table_split <- summary_table %>%
+  mutate(Response_variable = Aspect) %>%  # Copy 'Aspect' to 'Response_variable' for clarity
+  # Separate "Moderator" using a regular expression to handle cases like "seasonSummer"
+  mutate(Moderator_type = gsub("(.*?)([A-Z].*)", "\\1", Moderator),  # Capture the first part before the capitalized word
+         Moderator_type_level = gsub(".*?([A-Z].*)", "\\1", Moderator)) %>%  # Capture the second part after the first capitalized word
+  # Clean the "Moderator_type_level" column by removing unnecessary prefixes (e.g., "type", "system")
+  mutate(Moderator_type_level = gsub("type", "", Moderator_type_level),
+         Moderator_type_level = gsub("system", "", Moderator_type_level)) %>%
+  # Format 'Moderator_type' and 'Moderator_type_level' with appropriate typography
+  mutate(Moderator_type = gsub("_", " ", Moderator_type),  # Replace underscores with spaces
+         Moderator_type = tools::toTitleCase(Moderator_type),  # Capitalize each word
+         Moderator_type_level = gsub("_", " ", Moderator_type_level),  # Replace underscores with spaces
+         Moderator_type_level = tools::toTitleCase(Moderator_type_level)) %>%  # Capitalize each word
+    # Modify the specific case of "Tuber,root and Other" & "Fruit,nut & Other"
+  mutate(Moderator_type_level = gsub("Tuber,root and Other", "Tuber, root and other crops", Moderator_type_level),
+         Moderator_type_level = gsub("Fruit,nut & Other", "Fruit, nut and other trees", Moderator_type_level)) %>%
+   # Filter out rows where Moderator = "intrcpt"
+  filter(Moderator != "intrcpt") %>%
+  relocate(Response_variable, Moderator, Moderator_type, Moderator_type_level)  # Reorder columns for better readability
+
+
+# Check the result
+summary_table_split |> glimpse()
+```
+ 
+
+```{r}
+# Prepare the GT table using the split Moderator structure
+summary_table_gt <- summary_table_split %>%
+  mutate(row_id = row_number()) %>%  # Add row_id column for alternating row colors
+  gt() %>%
+  tab_header(
+    title = "Summary of Moderator Effects on Key Response Variables"
+  ) %>%
+  fmt_number(
+    columns = c("Estimate", "P_value_simple"),
+    decimals = 3
+  ) %>%
+  tab_spanner(
+    label = "Statistics",
+    columns = c("Estimate", "P_value_simple", "significance")
+  ) %>%
+  # Apply bold for significant values in the 'significance' column
+  tab_style(
+    style = cell_text(weight = "bold"),
+    locations = cells_body(
+      columns = "significance",
+      rows = significance %in% c("***", "**", "*")  # Bold for significant results
+    )
+  ) %>%
+  # Apply normal weight for non-significant results in the 'significance' column
+  tab_style(
+    style = cell_text(weight = "normal"),
+    locations = cells_body(
+      columns = "significance",
+      rows = significance == "NS"  # Normal weight for non-significant results
+    )
+  ) %>%
+  # Apply alternating row colors for readability (odd/even rows)
+  tab_style(
+    style = list(
+      cell_fill(color = "white"),
+      cell_text(color = "black")
+    ),
+    locations = cells_body(
+      columns = everything(),
+      rows = row_id %% 2 != 0  # Odd rows
+    )
+  ) %>%
+  tab_style(
+    style = list(
+      cell_fill(color = "#f2f2f2"),  # Light gray for alternating rows
+      cell_text(color = "black")
+    ),
+    locations = cells_body(
+      columns = everything(),
+      rows = row_id %% 2 == 0  # Even rows
+    )
+  ) %>%
+  # Add column spacing for better readability
+  tab_options(
+    table.width = pct(100),  # Set width to 100% of the container
+    column_labels.font.size = 12,  # Adjust font size of column labels
+    row.striping.include_table_body = TRUE,  # Enable row striping in the table body
+    data_row.padding = px(5)  # Padding between data rows for readability
+  ) %>%
+  # Remove row_id column for the final table display
+  cols_hide(columns = "row_id") |> 
+  cols_hide(columns = "Moderator") |> 
+  cols_hide(columns = "Aspect") |> 
+  cols_hide(columns = "P_value_formatted") |> 
+  cols_hide(columns = "P_value") 
+
+# Print the GT table without the row_id column
+summary_table_gt
+```
+
+
+```{r}
+summary_table_selected_condenced <- summary_table_split |> 
+  select(Response_variable, Moderator_type, Moderator_type_level, Estimate, P_value_simple, significance)
+  
+summary_table_selected_condenced |> glimpse() 
+```
+
+```{r}
+selected_model_results$Biodiversity$D_refit_incremenal_random[[3]]$k.eff
+```
+
+
+Study level data to add to the summary table
+
+```{r}
+################################################################################
+# Number of observations for each 
+
+# Define response variables and moderators
+response_vars <- c("Biodiversity", "Greenhouse gas emission", "Product quality", "Crop yield", "Pest and Disease", "Soil quality", "Water quality")
+moderators <- c("tree_type", "crop_type", "age_system", "season", "soil_texture")
+
+# Initialize an empty data frame to store the summary of number of observations
+study_summary <- data.frame(
+  Response_variable = character(),
+  Moderator = character(),
+  Num_observations = integer(),
+  stringsAsFactors = FALSE
+)
+
+# Loop through each response variable
+for (response in response_vars) {
+  
+  # Extract the model data for each response variable
+  model_data_list <- selected_model_results[[response]]$D_refit_incremenal_random
+  
+  # Loop through each moderator for the current response variable
+  for (moderator_index in seq_along(moderators)) {
+    
+    # Check if the current moderator exists in the model data
+    moderator_name <- moderators[moderator_index]
+    moderator_data <- model_data_list[[moderator_index]]
+    
+    # Check if the moderator data contains the necessary field (k.eff) and is not null or empty
+    if (!is.null(moderator_data$k.eff)) {
+      num_observations <- moderator_data$k.eff  # Extract the number of observations (k.eff)
+      
+      # Append the result to the summary table
+      study_summary <- rbind(study_summary, data.frame(
+        Response_variable = response,
+        Moderator = moderator_name,
+        Num_observations = num_observations
+      ))
+    } else {
+      # If k.eff is missing, print a debug message
+      cat("Missing data for:", response, "Moderator:", moderator_name, "\n")
+    }
+  }
+}
+
+# Check the resulting summary of observations
+study_summary |> glimpse()
+```
+
+
+```{r}
+# meta_data |> glimpse()
+
+# Define response variables and moderators
+response_vars <- c("Biodiversity", "Greenhouse gas emission", "Product quality", "Crop yield", "Pest and Disease", "Soil quality", "Water quality")
+moderators <- c("tree_type", "crop_type", "age_system", "season", "soil_texture")
+
+# Initialize an empty list to store the summary data
+study_obs_summary <- data.frame()
+
+# Loop through each response variable
+for (response in unique(meta_data$response_variable)) {
+  # Loop through each moderator
+  for (moderator in moderators) {
+    # Filter data for the specific response and moderator
+    filtered_data <- meta_data %>%
+      filter(response_variable == response, !is.na(get(moderator)))
+    
+    # Calculate the number of unique observations and studies
+    num_observations <- filtered_data %>%
+      select(id_obs) %>%
+      distinct() %>%
+      nrow()
+    
+    num_studies <- filtered_data %>%
+      select(id_article) %>%
+      distinct() %>%
+      nrow()
+
+    # Calculate the average yi and vi for the specific combination
+    avg_yi <- filtered_data %>%
+      summarise(mean_yi = mean(yi, na.rm = TRUE)) %>%
+      pull(mean_yi)
+    
+    avg_vi <- filtered_data %>%
+      summarise(mean_vi = mean(vi, na.rm = TRUE)) %>%
+      pull(mean_vi)
+
+    # Get the list of unique studies (id_article) for this combination
+    unique_studies <- filtered_data %>%
+      select(id_article) %>%
+      distinct() %>%
+      pull(id_article)
+
+    # Store the result in the summary data frame
+    study_obs_summary <- rbind(study_obs_summary, data.frame(
+      Response_variable = response,
+      Moderator = moderator,
+      Num_observations = num_observations,
+      Num_studies = num_studies,
+      Avg_yi = avg_yi,
+      Avg_vi = avg_vi,
+      Unique_studies = I(list(unique_studies))  # Storing the list of unique studies
+    ))
+  }
+}
+
+# Standardize column names in dataframe
+
+# In study_obs_summary, rename 'Moderator' to 'Moderator_type' 
+# and 'Unique_studies' column to be more descriptive
+study_obs_summary <- study_obs_summary %>%
+  rename(
+    Moderator_type = Moderator,
+    n_obs = Num_observations,
+    n_studies = Num_studies
+  ) |> 
+  # Modify the specific case of "Tuber,root and Other" & "Fruit,nut & Other"
+  mutate(Moderator_type = gsub("tree_type", "Tree Type", Moderator_type),
+         Moderator_type = gsub("crop_type", "Crop Type", Moderator_type),
+         Moderator_type = gsub("age_system", "Age System", Moderator_type),
+         Moderator_type = gsub("season", "Season", Moderator_type),
+         Moderator_type = gsub("soil_texture", "Soil Texture", Moderator_type)
+  )
+
+
+# Display the summary with additional information
+study_obs_summary |> glimpse()
+
+# study_obs_summary$Unique_studies
+```
+
+
+
+Merging with the model summary statistics
+
+```{r}
+# summary_table_selected_condenced |> glimpse() 
+
+
+# Perform the left join
+merged_summary <- study_obs_summary %>%
+  full_join(
+    summary_table_selected_condenced,
+    by = c("Response_variable", "Moderator_type")
+  ) |> 
+   # Reorder columns for better readability
+  relocate(Response_variable, Moderator_type, Moderator_type_level, n_studies, n_obs, Estimate, P_value_simple, significance, Avg_yi, Avg_vi, Unique_studies) 
+
+# View the merged dataset
+merged_summary |>  glimpse()
+```
+
+```{r}
+# Prepare the GT table from merged_summary
+merged_summary_gt <- merged_summary %>%
+  mutate(row_id = row_number()) %>%  # Add row_id column for alternating row colors
+  gt() %>%
+  tab_header(
+    title = "Summary of Moderator Effects on Key Response Variables"
+  ) %>%
+  fmt_number(
+    columns = c("Estimate", "Avg_yi", "Avg_vi"),
+    decimals = 3
+  ) %>%
+  fmt_number(
+    columns = "P_value_simple",
+    decimals = 3
+  ) %>%
+  tab_spanner(
+    label = "Statistics",
+    columns = c("Estimate", "P_value_simple", "significance", "Avg_yi", "Avg_vi")
+  ) %>%
+  cols_label(
+    Response_variable = "Response Variable",
+    Moderator_type = "Moderator Type",
+    Moderator_type_level = "Moderator Level",
+    n_studies = "n studies",
+    n_obs = "n observations",
+    Estimate = "Estimate",
+    P_value_simple = "P-Value",
+    significance = "Significance",
+    Avg_yi = "Avg. Effect Size (yi)",
+    Avg_vi = "Avg. Variance (vi)"
+  ) %>%
+  tab_style(
+    style = cell_text(weight = "bold"),
+    locations = cells_body(
+      columns = "significance",
+      rows = significance %in% c("***", "**", "*")  # Bold for significant results
+    )
+  ) %>%
+  tab_style(
+    style = cell_text(weight = "normal"),
+    locations = cells_body(
+      columns = "significance",
+      rows = significance == "NS"  # Normal weight for non-significant results
+    )
+  ) %>%
+  tab_style(
+    style = list(
+      cell_fill(color = "white"),
+      cell_text(color = "black")
+    ),
+    locations = cells_body(
+      rows = row_id %% 2 != 0  # Odd rows
+    )
+  ) %>%
+  tab_style(
+    style = list(
+      cell_fill(color = "#f2f2f2"),  # Light gray for alternating rows
+      cell_text(color = "black")
+    ),
+    locations = cells_body(
+      rows = row_id %% 2 == 0  # Even rows
+    )
+  ) %>%
+  tab_options(
+    table.width = pct(100),  # Full-width table
+    column_labels.font.size = 12,  # Font size for column labels
+    data_row.padding = px(5)  # Padding for rows
+  ) %>%
+  cols_hide(columns = "row_id") %>%  # Hide row_id column
+  cols_hide(columns = "Avg_yi") |>   # Hide Avg_yi column
+  cols_hide(columns = "Avg_vi")      # Hide Avg_vi column
+
+# Print the table
+merged_summary_gt
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+# Step 2: Select the relevant columns and pivot the table
+summary_table_condensed <- summary_table_split %>%
+  select(Response_variable, Moderator_type, Moderator_type_level, Estimate, P_value_simple, significance)  # Ensure 'significance' is included
+
+# Pivot the table with response variables as columns
+summary_table_pivoted <- summary_table_condensed %>%
+  pivot_wider(names_from = Moderator_type_level, values_from = c(Estimate, P_value_simple, significance))
+
+# Step 3: Rename the columns for clarity
+summary_table_pivoted <- summary_table_pivoted %>%
+  rename_with(~ gsub("Estimate_", "Effect Estimate: ", .), starts_with("Estimate")) %>%
+  rename_with(~ gsub("P_value_simple_", "P-value (simple): ", .), starts_with("P_value_simple")) %>%
+  rename_with(~ gsub("significance_", "Significance: ", .), starts_with("significance"))
+
+summary_table_pivoted |> glimpse()
+```
+
+ 
+ 
+ 
+ 
+ 
+ 
+##########################################################################################################################################
+PUBLICATION-READY RIDGELINE PLOTS OF EFFECT SIZE DISTRIBUTIONS PER RESPONSE VARIABLE
+##########################################################################################################################################
+
+Ridge Plot: Shows the distribution of effect sizes for each response variable.
+ 
+```{r}
+meta_data |> glimpse()
+```
+```{r}
+# Extract relevant columns, including vi
+effect_size_data <- meta_data %>%
+  select(response_variable, yi, vi) %>%
+  drop_na()  # Remove missing values
+```
+
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
  
  
 ##########################################################################################################################################

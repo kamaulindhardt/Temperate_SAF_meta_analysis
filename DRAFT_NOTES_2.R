@@ -3936,3 +3936,279 @@ names(response_splits$imp) <- response_variables
 
 ```
 
+```{r}
+# Step 2: Select the relevant columns and pivot the table
+summary_table_condensed <- summary_table %>%
+  select(Aspect, Moderator, Estimate, P_value_simple, significance)  # Ensure 'significance' is included
+
+# Step 3: Pivot the table with response variables as columns, creating a sequential structure
+summary_table_pivoted <- summary_table_condensed %>%
+  pivot_wider(names_from = Aspect, values_from = c(Estimate, P_value_simple, significance)) %>%
+  rename_with(~ gsub("Estimate_", "Effect Estimate: ", .), starts_with("Estimate")) %>%
+  rename_with(~ gsub("P_value_simple_", "P-value (simple): ", .), starts_with("P_value_simple")) %>%
+  rename_with(~ gsub("significance_", "Significance: ", .), starts_with("significance"))
+
+# Step 1: List of response variables
+response_variables <- c("Biodiversity", "Crop yield", "Greenhouse gas emission", 
+                        "Product quality", "Pest and Disease", "Soil quality", "Water quality")
+
+# Step 2: Generate the required column names
+columns_order <- c("Moderator")  # Start with "Moderator"
+
+# For each response variable, add the columns for that variable in the desired order
+for (response in response_variables) {
+  columns_order <- c(columns_order,
+                     paste("Effect Estimate:", response),
+                     paste("P-value (simple):", response),
+                     paste("Significance:", response))
+}
+
+# Step 3: Reorder the columns in summary_table_pivoted
+summary_table_pivoted <- summary_table_pivoted %>%
+  select(all_of(columns_order))
+
+# Step 4: Preview the table to ensure columns are reordered correctly
+summary_table_pivoted |> glimpse()
+```
+
+
+```{r}
+# Add the number of studies for each moderator level
+forest_plot_data_all_with_moderators <- forest_plot_data_all %>%
+  group_by(ResponseVariable, Moderator) %>%
+  mutate(
+    n_studies = n_distinct(Study),  # Calculate number of unique studies per moderator level
+    study_count = as.factor(ifelse(n_studies < 3, "Few Studies", "Many Studies"))
+  ) %>%
+  ungroup()  # Ungroup the data for further processing
+
+# Now proceed with plotting using the updated forest_plot_data_all_with_moderators
+ggplot(forest_plot_data_all_with_moderators, aes(x = EffectSize, y = Moderator)) +
+  geom_point(aes(size = study_count, color = ResponseVariable), shape = 16) +  # Points for effect sizes
+  geom_errorbarh(aes(xmin = CI_Lower, xmax = CI_Upper), height = 0.2) +  # Confidence intervals
+  geom_vline(xintercept = 0, linetype = "dashed", color = "black") +  # Add vertical line at 0
+  facet_wrap(~ ResponseVariable, scales = "free_y") +  # Facet by response variable (e.g., Ecosystem services)
+  labs(
+    title = "Effect Sizes of Moderators on Ecosystem Services",
+    x = "Effect Size (yi)",
+    y = "Moderators"
+  ) +
+  scale_size_manual(values = c("Few Studies" = 3, "Many Studies" = 5)) +  # Size based on the study count
+  scale_color_manual(values = c("Biodiversity" = "darkgreen", "Water quality" = "blue", "Soil quality" = "brown")) +  # Colors for different response variables
+  theme_minimal() +
+  theme(
+    axis.text.y = element_text(size = 10),
+    axis.text.x = element_text(size = 12),
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+    strip.text = element_text(size = 12, face = "bold")  # Facet labels
+  ) 
+
+```
+
+
+
+
+```{r}
+# Function to generate a forest plot for an rma.mv object (meta-analysis)
+var.forestplot <- function(rma.object){
+  
+  # Step 1: Initialize an empty data frame to store study-level information
+  count_study = data.frame(
+    variable = character(0),    # Moderator variable
+    nb_study = integer(0),      # Number of studies for each level of the moderator
+    nb_entries = integer(0),    # Number of data entries for each level of the moderator
+    estimate = numeric(0),      # Effect size estimate for each moderator level
+    conf.low = numeric(0),      # Lower bound of the 95% confidence interval
+    conf.high = numeric(0)      # Upper bound of the 95% confidence interval
+  )
+  
+  # Step 2: Extract the model's coefficients and confidence intervals using tidy()
+  model_values_table = as.data.frame(tidy(rma.object, conf.int = TRUE))
+  rownames(model_values_table) = model_values_table[,1]  # Set row names for easy referencing
+  
+  # Step 3: Loop through each unique level of the moderator
+  # Extract the moderator variable from the formula and handle cases where "-1" is present
+  moderator_var = gsub(" - 1", "", as.character(rma.object$formula.mods)[2])
+  moderator_levels = unique(na.omit(get(moderator_var, pos = get(as.character(rma.object$call$data)))))
+  
+  for (i in moderator_levels) {
+    # Step 4: Extract study-level data for the current moderator level
+    subset_data = subset(get(as.character(rma.object$call$data)),
+                         get(moderator_var, pos = get(as.character(rma.object$call$data))) == i)
+    
+    # Calculate the number of studies and entries for the current level
+    nb_studies = length(unique(subset_data$Source.ID))
+    nb_entries = nrow(subset_data)
+    
+    # Get the effect size estimate for the current level from the model's coefficient
+    effect_size = rma.object$b[paste(moderator_var, i, sep = ""), ]
+    
+    # Extract the 95% confidence interval for the current level
+    conf_low = model_values_table[paste(moderator_var, i, sep = ""), ]$conf.low
+    conf_high = model_values_table[paste(moderator_var, i, sep = ""), ]$conf.high
+    
+    # Step 5: Store the extracted data in the count_study data frame
+    count_study[nrow(count_study) + 1, ] = c(i, nb_studies, nb_entries, effect_size, conf_low, conf_high)
+  }
+  
+  # Step 6: Remove the last row if it contains NA values (possible issue during extraction)
+  if (is.na(count_study$variable[nrow(count_study)])) {
+    count_study = count_study[-nrow(count_study), ]
+  }
+  
+  # Step 7: Reorder count_study based on the moderator levels and effect size estimates
+  count_study = count_study[na.omit(match(levels(get(moderator_var, pos = get(as.character(rma.object$call$data)))), count_study$variable)), ]
+  
+  # Convert numeric columns to correct data types for plotting
+  count_study$estimate = as.numeric(count_study$estimate)
+  count_study$conf.low = as.numeric(count_study$conf.low)
+  count_study$conf.high = as.numeric(count_study$conf.high)
+  
+  # Ensure that the variable column is a factor, ordered by effect size
+  count_study$variable = factor(count_study$variable, levels = count_study[order(count_study$estimate), ]$variable)
+  
+  # Step 8: Create the forest plot using ggplot2
+  forest_plot <- count_study %>%
+    ggplot(aes(y = variable, x = estimate,
+               xmin = conf.low, xmax = conf.high)) +
+    # Add points for effect sizes
+    geom_point(size = 4) +
+    # Add error bars for confidence intervals
+    geom_errorbarh(height = 0.5) +
+    # Add a vertical line at 0 to indicate no effect (commonly used in forest plots)
+    geom_vline(xintercept = 0, color = "black", linetype = "dashed", alpha = 0.5) +
+    # Use a clean, minimal theme
+    theme_bw() +
+    # Customize text size and appearance
+    theme(
+      text = element_text(size = 14, color = "black"),
+      panel.spacing = unit(1, "lines")
+    ) +
+    # Customize the y-axis labels to show the moderator name, number of studies, and number of entries
+    scale_y_discrete(labels = paste(count_study$variable[order(count_study$variable)],
+                                    "(", count_study$nb_study[order(count_study$variable)],
+                                    "/", count_study$nb_entries[order(count_study$variable)], ")")) +
+    # Add labels for the axes
+    labs(x = "Effect Size Estimate (log ratio change relative to monocropping)", y = "")
+  
+  # Step 9: Display the plot
+  print(forest_plot)
+}
+
+```
+
+```{r}
+# Generate ridgeline plot with weighted density
+ridgeline_plot <- ggplot(effect_size_data, aes(x = yi, y = response_variable, fill = response_variable, weight = 1 / vi)) +
+  geom_density_ridges(scale = 1.2, alpha = 0.7, rel_min_height = 0.01) +
+  theme_minimal() +
+  labs(
+    title = "Distribution of Effect Sizes by Response Variable (Weighted by Variance)",
+    x = "Effect Size (yi)",
+    y = "Response Variable",
+    fill = "Response Variable"
+  ) +
+  theme(
+    text = element_text(size = 14),
+    axis.text.y = element_text(size = 12),
+    axis.text.x = element_text(size = 12),
+    legend.position = "none"  # Remove legend for a cleaner look
+  )
+
+# Display the plot
+print(ridgeline_plot)
+```
+
+```{r}
+# Ridgeline plot with points representing `vi`
+ridgeline_with_points <- ggplot(effect_size_data, aes(x = yi, y = response_variable, fill = response_variable)) +
+  geom_density_ridges(scale = 1.2, alpha = 0.7, rel_min_height = 0.01) +
+  geom_point(aes(size = 1 / vi), color = "black", alpha = 0.6, position = position_jitter(width = 0.05, height = 0.1)) +
+  theme_minimal() +
+  labs(
+    title = "Effect Size Distribution with Variance Represented by Point Size",
+    x = "Effect Size (yi)",
+    y = "Response Variable",
+    fill = "Response Variable",
+    size = "Precision (1/vi)"
+  ) +
+  theme(
+    text = element_text(size = 14),
+    axis.text.y = element_text(size = 12),
+    axis.text.x = element_text(size = 12)
+  )
+
+# Display the plot
+print(ridgeline_with_points)
+
+```
+```{r}
+# Compute the overall mean for each response variable
+overall_means <- effect_size_data %>%
+  group_by(response_variable) %>%
+  summarize(overall_mean = mean(yi, na.rm = TRUE))
+
+# Ridgeline plot with pseudo-log x-axis and overall means as dots
+ridgeline_with_mean_dots <- ggplot(effect_size_data, aes(x = yi, y = response_variable, fill = response_variable)) +
+  geom_density_ridges(scale = 1.2, alpha = 0.7, rel_min_height = 0.01) +
+  geom_point(aes(size = 1 / vi), color = "black", alpha = 0.6, position = position_jitter(width = 0.05, height = 0.1)) +
+  geom_point(data = overall_means, aes(x = overall_mean, y = response_variable), 
+             color = "red", size = 3, shape = 16) +  # Add red dots for overall means
+  scale_x_continuous(
+    trans = pseudo_log_trans(base = 10),  # Apply pseudo-log transformation
+    breaks = c(-1, -0.1, 0, 0.1, 1, 2, 3),  # Adjust the tick marks
+    labels = scales::number_format(accuracy = 0.01)  # Format the tick labels
+  ) +
+  theme_minimal() +
+  labs(
+    title = "Effect Size Distribution with Variance Represented and Overall Means",
+    x = "Effect Size (yi, Pseudo-Log Scale)",
+    y = "Response Variable",
+    fill = "Response Variable",
+    size = "Precision (1/vi)"
+  ) +
+  theme(
+    text = element_text(size = 14),
+    axis.text.y = element_text(size = 12),
+    axis.text.x = element_text(size = 12),
+    legend.position = "right"
+  )
+
+# Display the plot
+print(ridgeline_with_mean_dots)
+```
+
+```{r}
+# Ridgeline plot with facets for each response variable
+faceted_ridgeline_plot <- ggplot(effect_size_data, aes(x = yi, y = response_variable, fill = response_variable)) +
+  geom_density_ridges(scale = 1.2, alpha = 0.7, rel_min_height = 0.01) +
+  geom_point(aes(size = 1 / vi), color = "black", alpha = 0.6, position = position_jitter(width = 0.05, height = 0.1)) +
+  geom_point(data = overall_means, aes(x = overall_mean, y = response_variable), 
+             color = "red", size = 3, shape = 16) +  # Add red dots for overall means
+  scale_x_continuous(
+    trans = pseudo_log_trans(base = 10),  # Apply pseudo-log transformation
+    breaks = c(-1, -0.1, 0, 0.1, 1, 2, 3),  # Adjust the tick marks
+    labels = scales::number_format(accuracy = 0.01)  # Format the tick labels
+  ) +
+  facet_wrap(~ response_variable, scales = "free_y", ncol = 2) +  # Facet by response variable
+  theme_minimal() +
+  labs(
+    title = "Faceted Effect Size Distributions with Variance Represented and Overall Means",
+    x = "Effect Size (yi, Pseudo-Log Scale)",
+    y = "Density",
+    fill = "Response Variable",
+    size = "Precision (1/vi)"
+  ) +
+  theme(
+    text = element_text(size = 14),
+    axis.text.y = element_blank(),  # Remove y-axis text for clarity
+    axis.ticks.y = element_blank(),
+    axis.text.x = element_text(size = 12),
+    strip.text = element_text(size = 14, face = "bold"),  # Style for facet labels
+    legend.position = "right"
+  )
+
+# Display the plot
+print(faceted_ridgeline_plot)
+
+```
