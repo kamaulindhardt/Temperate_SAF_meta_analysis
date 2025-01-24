@@ -174,9 +174,9 @@ non_imp_dataset <- non_imp_data_rom %>%
   as.data.frame()|> 
   # select(-geometry) |> 
   relocate(
-    # Overall ID info
+       # Overall ID info
     id_article, id_obs, treat_id, exp_id,
-    # Effect size measure
+    # Effect size calculation and variance
     yi, vi,
     # Response variable info
     response_variable, sub_response_variable,
@@ -184,18 +184,20 @@ non_imp_dataset <- non_imp_data_rom %>%
     location, final_lat, final_lon, exp_site_loc, experiment_year,
     # Moderators info
     tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width,
-    # Quantitative mata-analysis effect size info
-    silvo_mean, silvo_se_original, silvo_sd_combined, silvo_n, 
-    control_mean, control_se_original, control_sd_combined, control_n
+    # Quantitative meta-analysis variables - mean and no. of observations
+    silvo_mean, control_mean, silvo_n, control_n,
+    # Quantitative meta-analysis variables - variance info
+    silvo_se, silvo_sd, silvo_sd_from_se, silvo_sd_final, 
+    control_se, control_sd, control_sd_from_se, control_sd_final
   )
 
 # Read in the imputed dataset
 imp_dataset <- imp_data_rom %>%
   as.data.frame()|> 
   relocate(
-    # Overall ID info
+       # Overall ID info
     id_article, id_obs, treat_id, exp_id,
-    # Effect size measure
+    # Effect size calculation and variance
     yi, vi,
     # Response variable info
     response_variable, sub_response_variable,
@@ -203,9 +205,11 @@ imp_dataset <- imp_data_rom %>%
     location, final_lat, final_lon, exp_site_loc, experiment_year,
     # Moderators info
     tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width,
-    # Quantitative mata-analysis effect size info
-     silvo_mean, silvo_se_original, silvo_sd_combined, silvo_n, 
-    control_mean, control_se_original, control_sd_combined, control_n
+    # Quantitative meta-analysis variables - mean and no. of observations
+    silvo_mean, control_mean, silvo_n, control_n,
+    # Quantitative meta-analysis variables - variance info
+    silvo_se, silvo_sd, silvo_sd_from_se, silvo_sd_final, 
+    control_se, control_sd, control_sd_from_se, control_sd_final
   )
 })
 ```
@@ -214,12 +218,15 @@ imp_dataset <- imp_data_rom %>%
 # Checking high observations with extreme high variance
 high_variance_obs <- 
   imp_dataset|> 
-  filter(vi > quantile(vi, 0.995)) |> # 0.995
+  filter(vi > quantile(vi, 0.95)) |> # 0.995
   # Reorder columns for better readability
   relocate(id_article, response_variable, measured_metrics, measured_unit, 
            yi, vi,
-           silvo_mean, silvo_se_original, silvo_sd_combined, silvo_n, 
-           control_mean, control_se_original, control_sd_combined, control_n,
+           # Quantitative meta-analysis variables - mean and no. of observations
+           silvo_mean, control_mean, silvo_n, control_n,
+           # Quantitative meta-analysis variables - variance info
+           silvo_se, silvo_sd_from_se, silvo_sd_final, 
+           control_se, control_sd_from_se, control_sd_final,
            tree_type, crop_type, age_system, season, soil_texture, no_tree_per_m, tree_height, alley_width) |> 
   arrange(id_article, response_variable)
 
@@ -576,10 +583,16 @@ summary(imp_dataset$vi)
 
 # Identify rows with extreme variances
 extreme_variance_rows <- imp_dataset %>%
-  filter(vi > quantile(vi, 0.99) | vi < quantile(vi, 0.01)) %>%
+  filter(vi > quantile(vi, 0.95) | vi < quantile(vi, 0.05)) %>%
   arrange(desc(vi))
 
 extreme_variance_rows |> glimpse()
+
+# Last go (24/01-2025)
+#     Min.  1st Qu.   Median     Mean  3rd Qu.     Max. 
+#  0.00000  0.00019  0.00102  0.09496  0.00620 40.29043 
+# Rows: 110
+# Columns: 64
 ```
 
 
@@ -1003,7 +1016,7 @@ for (response in names(v_matrices)) {
       intercept = TRUE                      # Include intercept
     ),
 
-    # Minimal random effects model: Includes random effect at the experiment level, no moderators
+    # Minimal random effects model: Includes random effect at the experiment level, no moderators ------------------------ !
     B_minimal_random_incremental = fit_model_incremental(
       data_subset = data_subset,
       response_variable = response,
@@ -1025,7 +1038,7 @@ for (response in names(v_matrices)) {
       )
     }),
 
-    # Incremental model with random effects: Adds moderators incrementally
+    # Incremental model with random effects: Adds moderators incrementally --------------------------------------------- !
     D_incremental_random_incremental = lapply(moderators, function(moderator) {
       fit_model_incremental(
         data_subset = data_subset,

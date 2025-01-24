@@ -20506,3 +20506,1639 @@ gtsave(
 ```
 
 
+
+
+
+
+
+
+
+```{r}
+#######################################################################################
+# Step 5: Extract Fitted Data and Prepare for Visualization
+#######################################################################################
+
+# Ensure consistent data types across datasets
+consistent_col_types <- function(data) {
+  data %>%
+    mutate(
+      crop_type = as.factor(crop_type),
+      tree_type = as.factor(tree_type),
+      bioclim_sub_regions = as.factor(bioclim_sub_regions),
+      alley_width = as.factor(alley_width)
+    )
+}
+
+# Apply the function to ensure consistency
+col_for_impute <- consistent_col_types(col_for_impute)
+
+for (method_name in names(imputed_datasets)) {
+  imputed_datasets[[method_name]] <- consistent_col_types(imputed_datasets[[method_name]])
+}
+
+# Combine original and imputed datasets into one
+visualization_data <- col_for_impute %>%
+  mutate(source = "Original") %>%
+  bind_rows(
+    imputed_datasets[["linear_imputation"]] %>% mutate(source = "Linear Imputation"),
+    imputed_datasets[["pmm"]] %>% mutate(source = "PMM"),
+    imputed_datasets[["rf"]] %>% mutate(source = "Random Forest"),
+    imputed_datasets[["bayesian"]] %>% mutate(source = "Bayesian"),
+    imputed_datasets[["upper_quartile"]] %>% mutate(source = "Upper Quartile"),
+    imputed_datasets[["mean_imputation"]] %>% mutate(source = "Mean Imputation")
+  )
+
+# Visualize imputed values against original
+
+# Scatterplot for silvo_sd
+ggplot(visualization_data, aes(x = source, y = silvo_sd_merged, color = source)) +
+  geom_jitter(width = 0.2, alpha = 0.7) +
+  theme_minimal() +
+  labs(
+    title = "Comparison of Imputed Values for silvo_sd",
+    x = "Data Source",
+    y = "silvo_sd"
+  ) +
+  theme(
+    # Rotate x-axis text
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+# Scatterplot for control_se
+ggplot(visualization_data, aes(x = source, y = control_sd_merged, color = source)) +
+  geom_jitter(width = 0.2, alpha = 0.7) +
+  theme_minimal() +
+  labs(
+    title = "Comparison of Imputed Values for control_sd",
+    x = "Data Source",
+    y = "control_sd"
+  ) +
+  theme(
+    # Rotate x-axis text
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+```
+
+
+```{r}
+# Extract completed dataset for the PMM method
+completed_data_pmm <- mice::complete(imputed_mids_pmm, action = "long")
+
+# View the distribution of `silvo_sd_merged` and `control_sd_merged`
+summary(completed_data_pmm$silvo_sd_merged)
+summary(completed_data_pmm$control_sd_merged)
+```
+
+```{r}
+# Add a column to track imputed rows
+completed_data_pmm <- mice::complete(imputed_mids_pmm, action = "long")
+
+# Identify imputed rows
+completed_data_pmm <- completed_data_pmm %>%
+  mutate(imputed = is.na(col_for_impute$silvo_sd_merged[rep(1:nrow(col_for_impute), imputed_mids_pmm$m)]))
+
+# Summarize by observed and imputed
+observed_vs_imputed <- completed_data_pmm %>%
+  group_by(imputed) %>%
+  summarise(
+    silvo_sd_mean = mean(silvo_sd_merged, na.rm = TRUE),
+    control_sd_mean = mean(control_sd_merged, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+print(observed_vs_imputed)
+```
+
+```{r}
+# Visualize imputed values
+# Create a column for 'imputed' based on the rows in `completed_data_pmm`
+completed_data_pmm <- completed_data_pmm %>%
+  mutate(imputed = is.na(silvo_sd_merged))
+
+# Ensure `imputed` column is logically assigned
+imputed_status <- is.na(col_for_impute$silvo_sd_merged)
+completed_data_pmm$imputed <- imputed_status
+
+# Create the plot
+ggplot(completed_data_pmm, aes(x = silvo_sd_merged, fill = imputed)) +
+  geom_density(alpha = 0.5) +
+  labs(
+    title = "Density of Imputed vs. Observed Silvo SD",
+    x = "Silvo SD",
+    fill = "Imputed"
+  ) +
+  theme_minimal()
+
+```
+
+```{r}
+# Evaluate the mice::mice() imputed datasets
+# Check convergence diagnostics
+imputed_mids |> str()
+plot(imputed_mids$data$silvo_sd_merged)
+```
+
+
+
+```{r}
+# Use stripplot to compare observed and imputed values
+stripplot(imputed_datasets$pmm, silvo_sd_merged + control_sd_merged ~ .imp,
+  cex = c(1, 2), pch = c(20, 20), jitter = TRUE, alpha = 0.4, scales = "free")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+# Step 1: Summarize each imputed dataset
+# Quantitative Assessment:
+# Calculate summary statistics for each imputed dataset, focusing on proximity to medians (mean proximity for silvo_se and control_se).
+# Incorporate additional metrics like variance, range, and RMSE for better decision-making.
+
+imputed_summaries <- list()
+
+for (i in 1:20) {
+  data <- mice::complete(imputed_mids_pmm, i) # Extract the i-th imputed dataset
+
+  # Calculate summary statistics for each imputation
+  summary <- data %>%
+    summarise(
+      mean_silvo_sd = mean(silvo_sd_merged, na.rm = TRUE),
+      sd_silvo_sd = sd(silvo_sd_merged, na.rm = TRUE),
+      mean_control_sd = mean(control_sd_merged, na.rm = TRUE),
+      sd_control_sd = sd(control_sd_merged, na.rm = TRUE),
+      range_silvo_sd = max(silvo_sd_merged, na.rm = TRUE) - min(silvo_sd_merged, na.rm = TRUE),
+      range_control_sd = max(control_sd_merged, na.rm = TRUE) - min(control_sd_merged, na.rm = TRUE)
+    )
+
+  imputed_summaries[[i]] <- summary
+}
+
+# Combine all summaries into a single data frame
+imputed_summaries_df <- bind_rows(imputed_summaries, .id = "imputation")
+
+# Calculate medians for silvo_se and control_se
+median_silvo_sd <- median(imputed_summaries_df$mean_silvo_sd)
+median_control_sd <- median(imputed_summaries_df$mean_control_sd)
+
+# Add a column calculating Euclidean distance to medians
+imputed_summaries_df <- imputed_summaries_df %>%
+  mutate(
+    distance_from_median = sqrt(
+      (mean_silvo_sd - median_silvo_sd)^2 + (mean_control_sd - median_control_sd)^2
+    )
+  )
+```
+
+```{r}
+# Step 2: Advanced Quantitative Metrics
+# Root Mean Squared Error (RMSE):
+# Add RMSE comparison between observed and imputed values for silvo_se and control_se.
+
+# RMSE calculation function
+calculate_rmse <- function(observed, imputed) {
+  sqrt(mean((observed - imputed)^2, na.rm = TRUE))
+}
+
+# Add RMSE to imputed summaries
+imputed_summaries_df <- imputed_summaries_df %>%
+  rowwise() %>%
+  mutate(
+    rmse_silvo_sd = calculate_rmse(
+      col_for_impute$silvo_sd_merged[!is.na(col_for_impute$silvo_sd_merged)],
+      mice::complete(imputed_mids_pmm, as.numeric(imputation))$silvo_sd_merged[is.na(col_for_impute$silvo_sd_merged)]
+    ),
+    rmse_control_sd = calculate_rmse(
+      col_for_impute$control_sd_merged[!is.na(col_for_impute$control_sd_merged)],
+      mice::complete(imputed_mids_pmm, as.numeric(imputation))$control_sd_merged[is.na(col_for_impute$control_sd_merged)]
+    )
+  )
+
+imputed_summaries_df
+```
+
+
+
+```{r}
+# Step 4: Visual Assessment
+# Density Plots for Each Method and Variable:
+# Compare observed and imputed distributions for silvo_se and control_se across all imputation methods.
+
+# Prepare data for visualization
+observed_values <- list(
+  silvo_se = col_for_impute$silvo_se[!is.na(col_for_impute$silvo_se)],
+  control_se = col_for_impute$control_se[!is.na(col_for_impute$control_se)]
+)
+
+# Combine observed and imputed values for plotting
+combined_plot_data <- list()
+
+for (variable in c("silvo_se", "control_se")) {
+  for (method_name in names(imputed_datasets)) {
+    imputed_values <- imputed_datasets[[method_name]][[variable]][is.na(col_for_impute[[variable]])]
+
+    combined_plot_data[[paste(variable, method_name, sep = "_")]] <- data.frame(
+      value = c(observed_values[[variable]], imputed_values),
+      type = c(rep("Original", length(observed_values[[variable]])),
+               rep("Imputed", length(imputed_values))),
+      method = method_name,
+      variable = variable
+    )
+  }
+}
+
+###############################################################################
+# Combine all data into one frame
+imputation_plot_data_all <- bind_rows(combined_plot_data)
+
+###############################################################################
+# Remove linear imputation for better visualization
+imputation_plot_data_no_linear <- 
+  imputation_plot_data_all |> 
+  filter(method != "linear_imputation")
+```
+
+```{r}
+# Generic function to generate density plots
+generate_density_plot <- function(data, title_suffix, scale_type = "linear") {
+  plot <- ggplot(data, aes(x = value, fill = type)) +
+    geom_density(alpha = 0.5) +
+    facet_grid(variable ~ method) +
+    labs(
+      title = paste("Density Comparison:", title_suffix),
+      x = ifelse(scale_type == "linear", "Value", "Value (Pseudo-Log Scale)"),
+      y = "Density"
+    ) +
+    theme_minimal() +
+    scale_fill_viridis_d(option = "D", begin = 0.2, end = 0.8) +
+    theme(strip.text = element_text(size = 10, face = "bold"))
+  
+  if (scale_type == "pseudo_log") {
+    plot <- plot + scale_x_continuous(trans = pseudo_log_trans(sigma = 0.1)) + scale_y_continuous(trans = pseudo_log_trans(sigma = 0.1))
+  }
+  
+  return(plot)
+}
+
+# Generate plots
+
+plot_imputation_data_all_linear <- generate_density_plot(
+  data = imputation_plot_data_all, 
+  title_suffix = "Original vs. Imputed Values (Linear Scale)",
+  scale_type = "linear"
+)
+
+plot_imputation_data_all_pseudo <- generate_density_plot(
+  data = imputation_plot_data_all, 
+  title_suffix = "Original vs. Imputed Values (Pseudo-Log Scale)",
+  scale_type = "pseudo_log"
+)
+
+plot_imputation_data_no_linear_linear <- generate_density_plot(
+  data = imputation_plot_data_no_linear, 
+  title_suffix = "Excluding Linear Imputation (Linear Scale)",
+  scale_type = "linear"
+)
+
+plot_imputation_data_no_linear_pseudo <- generate_density_plot(
+  data = imputation_plot_data_no_linear, 
+  title_suffix = "Excluding Linear Imputation (Pseudo-Log Scale)",
+  scale_type = "pseudo_log"
+)
+
+# Print
+plot_imputation_data_all_pseudo 
+plot_imputation_data_all_linear 
+plot_imputation_data_no_linear_linear 
+plot_imputation_data_no_linear_pseudo 
+```
+
+
+
+
+
+
+
+
+```{r}
+# Filter visualization data for observed vs. imputed values comparison
+scatterplot_data <- visualization_data %>%
+  filter(source != "Original") %>% # Exclude original points since we want observed vs. imputed comparison
+  left_join(
+    visualization_data %>%
+      filter(source == "Original") %>%
+      select(id_article, id_obs, treat_id, exp_id, Variable, Value) %>%
+      rename(Observed = Value),
+    by = c("id_article", "id_obs", "treat_id", "exp_id", "Variable")
+  ) %>% 
+  rename(Imputed = Value)
+
+# Scatterplot
+ggplot(scatterplot_data, aes(x = Observed, y = Imputed, color = method)) +
+  geom_point(alpha = 0.7) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "black") +
+  theme_minimal() +
+  facet_wrap(~ Variable, scales = "free") +
+  labs(
+    title = "Observed vs. Imputed Values (1:1 Scatterplot)",
+    x = "Observed Values",
+    y = "Imputed Values",
+    color = "Imputation Method"
+  )
+```
+```{r}
+# Scatterplot with facets for each imputation method
+ggplot(scatterplot_data, aes(x = Observed, y = Imputed, color = method)) +
+  geom_point(alpha = 0.7) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "black") +
+  theme_minimal() +
+  facet_wrap(~ Variable + method, scales = "free") +
+  labs(
+    title = "Observed vs. Imputed Values by Imputation Method (1:1 Scatterplot)",
+    x = "Observed Values",
+    y = "Imputed Values",
+    color = "Imputation Method"
+  )
+```
+
+
+
+
+
+
+
+
+
+
+```{r}
+# Function to calculate summaries for visualization_data
+summarize_visualization_data <- function(visualization_data, observed_data) {
+  # Group data by method
+  grouped_data <- group_by(visualization_data, method)
+
+  # Calculate summary statistics for each method
+  summaries <- summarize(
+    grouped_data,
+    # Silvo metrics
+    mean_silvo_sd = mean(Value[Variable == "silvo_sd_merged"]),
+    sd_silvo_sd = sd(Value[Variable == "silvo_sd_merged"]),
+    range_silvo_sd = max(Value[Variable == "silvo_sd_merged"]) - min(Value[Variable == "silvo_sd_merged"]),
+    medae_silvo_sd = median(abs(observed_data$silvo_sd_merged - Value[Variable == "silvo_sd_merged"])),
+    mpe_silvo_sd = mean((observed_data$silvo_sd_merged - Value[Variable == "silvo_sd_merged"]) / observed_data$silvo_sd_merged) * 100,
+    ks_silvo_sd = ks.test(Value[Variable == "silvo_sd_merged"], observed_data$silvo_sd_merged)$statistic,
+    variance_ratio_silvo = var(Value[Variable == "silvo_sd_merged"]) / var(observed_data$silvo_sd_merged),
+    r2_silvo_sd = cor(observed_data$silvo_sd_merged, Value[Variable == "silvo_sd_merged"], use = "complete.obs")^2,
+    rmse_silvo_sd = sqrt(mean((observed_data$silvo_sd_merged - Value[Variable == "silvo_sd_merged"])^2)),
+
+    # Control metrics
+    mean_control_sd = mean(Value[Variable == "control_sd_merged"]),
+    sd_control_sd = sd(Value[Variable == "control_sd_merged"]),
+    range_control_sd = max(Value[Variable == "control_sd_merged"]) - min(Value[Variable == "control_sd_merged"]),
+    medae_control_sd = median(abs(observed_data$control_sd_merged - Value[Variable == "control_sd_merged"])),
+    mpe_control_sd = mean((observed_data$control_sd_merged - Value[Variable == "control_sd_merged"]) / observed_data$control_sd_merged) * 100,
+    ks_control_sd = ks.test(Value[Variable == "control_sd_merged"], observed_data$control_sd_merged)$statistic,
+    variance_ratio_control = var(Value[Variable == "control_sd_merged"]) / var(observed_data$control_sd_merged),
+    r2_control_sd = cor(observed_data$control_sd_merged, Value[Variable == "control_sd_merged"], use = "complete.obs")^2,
+    rmse_control_sd = sqrt(mean((observed_data$control_sd_merged - Value[Variable == "control_sd_merged"])^2))
+  )
+
+  summaries
+}
+
+# Calculate summaries for visualization_data
+visualization_summaries <- summarize_visualization_data(visualization_data, original_metadata)
+
+# Combine summaries for both MICE and visualization_data
+all_summaries_df <- bind_rows(mids_summaries, visualization_summaries, .id = "data_source")
+```
+
+
+
+
+```{r}
+# Function to calculate summaries for all imputations
+summarize_mids_advanced <- function(mids_object, observed_data) {
+  imputed_summaries <- list()
+
+  for (i in 1:mids_object$m) { # Loop through all imputations
+    imputed_data <- mice::complete(mids_object, i)
+
+    # Calculate summary statistics for both silvo_sd_merged and control_sd_merged
+    summary <- data.frame(
+      imputation = i,
+      # Silvo metrics
+      mean_silvo_sd = mean(imputed_data$silvo_sd_merged, na.rm = TRUE),
+      sd_silvo_sd = sd(imputed_data$silvo_sd_merged, na.rm = TRUE),
+      range_silvo_sd = max(imputed_data$silvo_sd_merged, na.rm = TRUE) - min(imputed_data$silvo_sd_merged, na.rm = TRUE),
+      medae_silvo_sd = median(abs(observed_data$silvo_sd_merged - imputed_data$silvo_sd_merged), na.rm = TRUE),
+      mpe_silvo_sd = mean((observed_data$silvo_sd_merged - imputed_data$silvo_sd_merged) / observed_data$silvo_sd_merged, na.rm = TRUE) * 100,
+      ks_silvo_sd = ks.test(imputed_data$silvo_sd_merged, observed_data$silvo_sd_merged)$statistic,
+      variance_ratio_silvo = var(imputed_data$silvo_sd_merged, na.rm = TRUE) / var(observed_data$silvo_sd_merged, na.rm = TRUE),
+      r2_silvo_sd = cor(observed_data$silvo_sd_merged, imputed_data$silvo_sd_merged, use = "complete.obs")^2,
+      rmse_silvo_sd = sqrt(mean((observed_data$silvo_sd_merged - imputed_data$silvo_sd_merged)^2, na.rm = TRUE)),
+
+      # Control metrics
+      mean_control_sd = mean(imputed_data$control_sd_merged, na.rm = TRUE),
+      sd_control_sd = sd(imputed_data$control_sd_merged, na.rm = TRUE),
+      range_control_sd = max(imputed_data$control_sd_merged, na.rm = TRUE) - min(imputed_data$control_sd_merged, na.rm = TRUE),
+      medae_control_sd = median(abs(observed_data$control_sd_merged - imputed_data$control_sd_merged), na.rm = TRUE),
+      mpe_control_sd = mean((observed_data$control_sd_merged - imputed_data$control_sd_merged) / observed_data$control_sd_merged, na.rm = TRUE) * 100,
+      ks_control_sd = ks.test(imputed_data$control_sd_merged, observed_data$control_sd_merged)$statistic,
+      variance_ratio_control = var(imputed_data$control_sd_merged, na.rm = TRUE) / var(observed_data$control_sd_merged, na.rm = TRUE),
+      r2_control_sd = cor(observed_data$control_sd_merged, imputed_data$control_sd_merged, use = "complete.obs")^2,
+      rmse_control_sd = sqrt(mean((observed_data$control_sd_merged - imputed_data$control_sd_merged)^2, na.rm = TRUE))
+    )
+
+    imputed_summaries[[i]] <- summary
+  }
+
+  # Combine summaries into one dataframe
+  bind_rows(imputed_summaries)
+}
+
+# Apply the function to all mids objects
+mids_summaries <- lapply(mids_objects, summarize_mids_advanced, observed_data = col_for_impute)
+
+# Combine summaries into a single dataframe for comparison
+all_summaries_df <- bind_rows(mids_summaries, .id = "method")
+
+# Calculate medians specifically for KS statistics
+median_ks_silvo <- median(all_summaries_df$ks_silvo_sd, na.rm = TRUE)
+median_ks_control <- median(all_summaries_df$ks_control_sd, na.rm = TRUE)
+
+# Add distance from KS medians
+all_summaries_df <- all_summaries_df %>%
+  mutate(
+    distance_from_ks_median = sqrt(
+      (ks_silvo_sd - median_ks_silvo)^2 + (ks_control_sd - median_ks_control)^2
+    )
+  )
+
+# Print summary results with focus on KS statistics
+print(all_summaries_df %>% select(method, ks_silvo_sd, ks_control_sd, distance_from_ks_median))
+
+```
+
+
+# Generate stripplots for each mids object
+for (method in names(mids_objects)) {
+  stripplot(
+    mids_objects[[method]],
+    silvo_sd_merged + control_sd_merged ~ .imp,
+    jitter = TRUE,
+    pch = 20,
+    cex = 1.2,
+    alpha = 0.6,
+    main = paste("Stripplot for", method, "Imputation")
+  )
+}
+```
+
+```{r}
+# Ensure `database_clean_sd` has the required columns
+original_metadata <- database_clean_sd %>%
+  select(id_article, id_obs, treat_id, exp_id, silvo_sd_merged, control_sd_merged)
+
+# Join and evaluate imputation for each method
+evaluate_imputation <- function(original, imputed) {
+  observed_mask <- !is.na(original)
+  data.frame(
+    MAE = mean(abs(original[observed_mask] - imputed[observed_mask]), na.rm = TRUE),
+    RMSE = sqrt(mean((original[observed_mask] - imputed[observed_mask])^2, na.rm = TRUE)),
+    Bias = mean(imputed[observed_mask], na.rm = TRUE) - mean(original[observed_mask], na.rm = TRUE)
+  )
+}
+
+# Initialize an empty list for results
+results <- list()
+
+# Iterate over imputation methods
+for (method in names(imputed_datasets)) {
+  # Join the original and imputed datasets
+  joined_data <- original_metadata %>%
+    left_join(imputed_datasets[[method]], by = c("id_article", "id_obs", "treat_id", "exp_id"),
+              suffix = c(".original", ".imputed"))
+  
+  # Evaluate imputation for silvo_sd_merged and control_sd_merged
+  method_results <- data.frame(
+    Method = method,
+    Silvo_SD = evaluate_imputation(
+      original = joined_data$silvo_sd_merged.original,
+      imputed = joined_data$silvo_sd_merged.imputed
+    ),
+    Control_SD = evaluate_imputation(
+      original = joined_data$control_sd_merged.original,
+      imputed = joined_data$control_sd_merged.imputed
+    )
+  )
+  
+  # Append results
+  results[[method]] <- method_results
+}
+
+# Combine all results into a single dataframe
+evaluation_results <- bind_rows(results)
+
+# View the final evaluation results
+print(evaluation_results)
+```
+
+```{r}
+original_metadata |> str()
+
+imputed_datasets |> str()
+```
+
+
+
+
+```{r}
+# Define a function to evaluate metrics for each imputation method
+evaluate_metrics <- function(imputed_data, observed_data) {
+  # Combine observed and imputed data for metrics computation
+  combined_data <- imputed_data %>%
+    pivot_longer(cols = c("silvo_sd_merged", "control_sd_merged"), names_to = "Variable", values_to = "Value")
+  
+  observed_long <- observed_data %>%
+    pivot_longer(cols = c("silvo_sd_merged", "control_sd_merged"), names_to = "Variable", values_to = "Observed")
+  
+  combined_data <- left_join(combined_data, observed_long, by = c("id_article", "id_obs", "treat_id", "exp_id", "Variable"))
+  
+  combined_data %>%
+    group_by(Variable) %>%
+    summarise(
+      mean = mean(Value, na.rm = TRUE),
+      sd = sd(Value, na.rm = TRUE),
+      range = max(Value, na.rm = TRUE) - min(Value, na.rm = TRUE),
+      medae = median(abs(Observed - Value), na.rm = TRUE),
+      mpe = mean((Observed - Value) / Observed, na.rm = TRUE) * 100,
+      ks = ks.test(Value, Observed)$statistic,
+      variance_ratio = var(Value, na.rm = TRUE) / var(Observed, na.rm = TRUE),
+      r2 = cor(Observed, Value, use = "complete.obs")^2,
+      rmse = sqrt(mean((Observed - Value)^2, na.rm = TRUE))
+    )
+}
+
+# Apply the evaluation function to each imputation method
+evaluation_results <- lapply(imputed_datasets, evaluate_metrics, observed_data = original_metadata)
+
+# Combine results into a single data frame for comparison
+evaluation_results_df <- bind_rows(evaluation_results, .id = "Method")
+
+# Print results
+print(evaluation_results_df)
+```
+```{r}
+
+# Optional: Pivot results for easier visualization
+evaluation_results_long <- evaluation_results_df %>%
+  pivot_longer(cols = -c(Method, Variable), names_to = "Metric", values_to = "Value") 
+
+# Visualize metrics comparison across methods
+ggplot(evaluation_results_long, aes(x = Method, y = Value, fill = Method)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_wrap(~ Metric + Variable, scales = "free") +
+  theme_minimal() +
+  labs(
+    title = "Comparison of Imputation Methods Based on Evaluation Metrics",
+    x = "Imputation Method",
+    y = "Metric Value",
+    fill = "Method"
+  ) +
+  theme(
+    legend.position = "top",
+    strip.text = element_text(size = 10, face = "bold"),
+    plot.title = element_text(size = 14, face = "bold", hjust = 0.5)
+  )
+```
+
+
+```{r}
+# Boxplot for KS statistics by method
+all_summaries_df %>%
+  pivot_longer(cols = c(ks_silvo_sd, ks_control_sd), names_to = "Metric", values_to = "KS_Statistic") %>%
+  ggplot(aes(x = method, y = KS_Statistic, fill = Metric)) +
+  geom_boxplot() +
+  theme_minimal() +
+  labs(
+    title = "Kolmogorov-Smirnov Statistics for Imputed vs. Observed Distributions",
+    x = "Imputation Method",
+    y = "KS Statistic",
+    fill = "Metric"
+  )
+```
+
+* upper quartile 
+
+
+
+
+
+
+
+
+
+
+```{r}
+# imputed_datasets |> str()
+```
+
+```{r}
+# Variable importance from a random forest model
+rf_data <- imputed_datasets$rf_best
+colnames(rf_data)
+# Ensure to compute variable importance during model training
+rf_model <- randomForest(
+  silvo_sd_merged ~ . - id_obs - treat_id - id_article - exp_id,
+  data = rf_data,
+  importance = TRUE
+)
+
+# View variable importance
+randomForest::importance(rf_model)
+
+# Plot variable importance
+varImpPlot(rf_model)
+```
+
+
+This plot shows the importance of different variables in a random forest model, with two metrics used to assess their impact: %IncMSE (percent increase in mean squared error) and IncNodePurity (increase in node purity).
+
+On the left, %IncMSE measures how much the prediction error increases when a variable is randomly permuted. Variables with higher values here are more important for predicting the target outcome. In this case, "bioclim_sub_regions" and "tree_age" appear to have the largest influence, followed by "experiment_year" and "tree_type."
+
+On the right, IncNodePurity assesses how much a variable contributes to the homogeneity (or purity) of nodes when used to split the data in the random forest. Variables with higher values are better at creating splits that improve the model. Again, "tree_age" and "bioclim_sub_regions" are prominent, with contributions from other variables like "experiment_year" and "tree_type."
+
+Both metrics indicate that "bioclim_sub_regions" and "tree_age" are the most important variables in this model, with some influence from "experiment_year," "tree_type," and other predictors like "crop_type" and "alley_width."
+
+
+
+
+
+
+
+
+
+
+
+These plots display the distributions of imputed standard errors (`_se_imputed`) and the derived standard deviations (`_sd_from_se`) for two imputation methods: **PMM** and **Upper Quartile**.
+
+In the **boxplot**, each variable's distribution is visualized across the two imputation methods, with pseudo-log scaling applied to the y-axis for better visualization of large value ranges. Key observations:
+  - For `_se_imputed`, PMM generally results in smaller values compared to Upper Quartile, indicating that PMM tends to provide more conservative estimates of uncertainty.
+- For `_sd_from_se`, the distributions are highly similar for both methods, suggesting that the standard deviations derived from imputed standard errors align closely across imputation methods.
+
+In the **density plot**, the pseudo-log x-axis shows the distribution shape for each variable under the two imputation methods:
+  - `_se_imputed` values (top-right and bottom-right panels) under PMM are skewed towards smaller values, while Upper Quartile has a broader distribution with higher peaks for larger values. This reinforces the conservative nature of PMM.
+- `_sd_from_se` (left panels) demonstrates high overlap between PMM and Upper Quartile, suggesting that the derived standard deviations are consistent, regardless of the imputation method. The differences in densities for larger values are minimal.
+
+Overall, PMM tends to produce smaller and more focused estimates for `_se_imputed` compared to Upper Quartile, but both methods yield comparable distributions for `_sd_from_se`. This consistency in standard deviations supports the reliability of either method, though PMM might be preferable for more conservative uncertainty estimates.
+
+
+
+
+
+
+
+
+
+
+```{r}
+# imputation_methods <- c("pmm", "upper_quartile", "mean_imputation", "linear_imputation", "rf", "bayesian")
+
+# Combine all imputed datasets with the original data
+
+# Convert 'mids' objects to complete data frames
+valid_imputation_methods <- imputed_datasets %>%
+  keep(~ !is.null(.)) %>%
+  lapply(function(dataset) {
+    if (inherits(dataset, "mids")) {
+      # Convert mids object to complete data frame
+      complete(dataset)
+    } else {
+      dataset
+    }
+  })
+
+# Convert the original data to a standard data frame
+original_data <- database_clean_sd %>% as.data.frame()
+
+# Combine all valid imputed datasets with the original data
+se_comparison_data <- valid_imputation_methods %>%
+  # Apply the following function to each imputed dataset in the list
+  lapply(function(imp_data) {
+    # Ensure the imputed dataset is a data frame for compatibility with dplyr operations
+    imp_data <- imp_data %>%
+      as.data.frame()
+    
+    # Step 1: Merge original data with the current imputed dataset
+    summarized_data <- original_data %>%
+      full_join(
+        # Select relevant columns from the imputed dataset
+        imp_data %>% select(id_article, id_obs, silvo_se, control_se),
+        by = c("id_article", "id_obs"),  # Merge based on unique identifiers
+        suffix = c("_original", "_imputed")  # Add suffixes to distinguish original and imputed columns
+      ) %>%
+      
+      # Step 2: Group data by response variable or another grouping variable
+      group_by(response_variable) %>%
+      
+      # Step 3: Calculate summary statistics for original and imputed standard errors
+      summarise(
+        silvo_se_original_mean = mean(silvo_se_original, na.rm = TRUE),  # Mean of original silvo SEs
+        silvo_se_imputed_mean = mean(silvo_se_imputed, na.rm = TRUE),    # Mean of imputed silvo SEs
+        control_se_original_mean = mean(control_se_original, na.rm = TRUE),  # Mean of original control SEs
+        control_se_imputed_mean = mean(control_se_imputed, na.rm = TRUE),    # Mean of imputed control SEs
+        .groups = "drop"  # Ensure the result is ungrouped after summarizing
+      ) %>%
+      
+      # Step 4: Compute absolute and relative differences for each group
+      mutate(
+        # Absolute difference between original and imputed silvo SEs
+        silvo_diff = abs(silvo_se_original_mean - silvo_se_imputed_mean),
+        # Relative difference for silvo SEs as a percentage
+        silvo_rel_diff = if_else(
+          silvo_se_original_mean > 0, 
+          (silvo_diff / silvo_se_original_mean) * 100, 
+          NA_real_
+        ),
+        # Absolute difference between original and imputed control SEs
+        control_diff = abs(control_se_original_mean - control_se_imputed_mean),
+        # Relative difference for control SEs as a percentage
+        control_rel_diff = if_else(
+          control_se_original_mean > 0, 
+          (control_diff / control_se_original_mean) * 100, 
+          NA_real_
+        )
+      )
+    
+    # Step 5: Return the summarized data for this imputed dataset
+    summarized_data
+  })
+
+# Check the structure of one of the resulting datasets
+str(se_comparison_data[[1]])
+se_comparison_data |> str()
+```
+
+```{r}
+# Combine all the comparison data into a single dataframe for plotting
+se_comparison_combined <- bind_rows(
+  lapply(names(se_comparison_data), function(method) {
+    se_comparison_data[[method]] %>%
+      mutate(imputation_method = method)
+  }),
+  .id = "method"
+)
+
+# Reshape data for plotting relative differences
+se_comparison_long <- se_comparison_combined %>%
+  select(response_variable, imputation_method, silvo_rel_diff, control_rel_diff) %>%
+  pivot_longer(cols = c(silvo_rel_diff, control_rel_diff),
+               names_to = "type",
+               values_to = "relative_difference")
+
+# Plot relative differences
+# Bar chart
+se_comparison_plot_mods <- se_comparison_long |> 
+  ggplot(aes(x = imputation_method, y = relative_difference, fill = type)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_wrap(~ response_variable, scales = "free_y") +
+  labs(
+    title = "Relative Differences Between Original and Imputed SE",
+    x = "Imputation Method",
+    y = "Relative Difference (%)",
+    fill = "SE Type"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Plot relative differences with response variables on the x-axis
+se_comparison_plot_resp <- se_comparison_long |> 
+  ggplot(aes(x = response_variable, y = relative_difference, fill = imputation_method)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_wrap(~ type, scales = "free_y") +
+  labs(
+    title = "Relative Differences Across Response Variables and Imputation Methods",
+    x = "Response Variable",
+    y = "Relative Difference (%)",
+    fill = "Imputation Method"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Print the plots
+se_comparison_plot_mods
+se_comparison_plot_resp
+```
+
+The first plot shows the relative differences between original and imputed standard errors (SE) for various response variables, grouped by imputation methods. Each facet represents a response variable, and the relative differences for control and silvo SE values are compared. The variations across the imputation methods indicate how closely the imputed values align with the original ones. Higher bars represent larger relative differences, suggesting greater deviation from the original data. For example, "Biodiversity" and "Crop yield" show more substantial differences, especially for some methods like "PMM" or "Upper Quartile." Conversely, variables like "Water quality" exhibit minimal differences, implying better alignment.
+
+The second plot examines relative differences for each response variable on the x-axis, with imputation methods shown as different colors. The two facets represent control and silvo relative differences separately. This view highlights which imputation methods result in more substantial deviations for specific response variables. For instance, "Biodiversity" shows the highest relative differences across multiple methods, whereas "Soil quality" and "Water quality" appear more consistent. This plot provides insights into how imputation performance varies across response variables, allowing for targeted improvements or method selection.
+
+In both plots, larger relative differences indicate greater deviations from original values, which could signify limitations of specific imputation methods for certain response variables. On the other hand, smaller differences suggest better consistency and reliability of the imputed values compared to the original data.
+
+
+
+
+
+
+
+Saving the plots of relative differences
+```{r}
+# Increase base text size and adjust all styling for the plots
+theme_custom <- theme_minimal(base_size = 30) + 
+  theme(
+    plot.title = element_text(size = 80),        # Increase title size
+    axis.text = element_text(size = 50),        # Increase axis text size
+    axis.title = element_text(size = 50),       # Increase axis title size
+    legend.position = "top",                    # Place legend at the top
+    legend.title = element_blank(),             # Remove legend title
+    legend.text = element_text(size = 60),      # Increase legend text size
+    strip.text = element_text(size = 50),       # Increase facet text size
+    axis.text.y = element_text(size = 80),
+    axis.text.x = element_text(size = 80,
+                               angle = 45, hjust = 1) # Rotate x-axis text
+  )
+
+# Apply theme modifications to each plot
+se_comparison_plot_mods <- se_comparison_plot_mods + theme_custom
+se_comparison_plot_resp <- se_comparison_plot_resp + theme_custom
+
+
+# Save the plots
+ggsave(
+  filename = file.path(output_dir, "se_comparison_plot_mods.png"),
+  plot = se_comparison_plot_mods,
+  width = 10, height = 8, dpi = 600,
+  bg = "white"
+)
+
+ggsave(
+  filename = file.path(output_dir, "se_comparison_plot_resp.png"),
+  plot = se_comparison_plot_resp,
+  width = 10, height = 8, dpi = 600,
+  bg = "white"
+)
+```
+
+
+
+```{r}
+# Identify the imputation method with the least relative difference
+# se_comparison_combined |> str()
+
+# Calculate the mean relative differences for each imputation method
+imp_method_summary <- se_comparison_combined %>%
+  group_by(imputation_method) %>%
+  summarize(
+    mean_silvo_rel_diff = mean(silvo_rel_diff, na.rm = TRUE),
+    mean_control_rel_diff = mean(control_rel_diff, na.rm = TRUE),
+    total_rel_diff = mean_silvo_rel_diff + mean_control_rel_diff
+  ) |> 
+  arrange(total_rel_diff)
+
+imp_method_summary
+
+# A tibble:7 × 4
+# imputation_method
+# <chr>
+# mean_silvo_rel_diff
+# <dbl>
+# mean_control_rel_diff
+# <dbl>
+# total_rel_diff
+# <dbl>
+# bayesian	23.516743	42.415572	65.93232	
+# linear_imputation	16.330035	21.200899	37.53093	
+# mean_imputation	15.642138	21.686978	37.32912	
+# pmm	10.123358	5.253195	15.37655	
+# pmm_best	7.750850	13.484360	21.23521	
+# rf	8.349813	8.251046	16.60086	
+# upper_quartile	7.409419	7.513123	14.92254	
+
+# Identify the imputation method with the least relative difference
+best_imp_method_based_on_se_rel_diff <- imp_method_summary %>%
+  arrange(!total_rel_diff) %>%
+  slice(1)
+
+# Display the best method
+best_imp_method_based_on_se_rel_diff
+```
+
+Generate this table as a gt table
+```{r}
+# imp_method_summary |> str()
+
+# Create a publication-ready gt table
+imp_method_real_diff_table <- imp_method_summary %>%
+  gt() %>%
+  tab_header(
+    title = "Comparison of Imputation Methods",
+    subtitle = "Relative Differences Across Metrics"
+  ) %>%
+  fmt_number(
+    columns = c(mean_silvo_rel_diff, mean_control_rel_diff, total_rel_diff),
+    decimals = 2
+  ) %>%
+  cols_label(
+    imputation_method = "Imputation Method",
+    mean_silvo_rel_diff = "Mean Silvo Rel. Diff (%)",
+    mean_control_rel_diff = "Mean Control Rel. Diff (%)",
+    total_rel_diff = "Total Rel. Diff (%)"
+  ) %>%
+  tab_style(
+    style = list(
+      cell_fill(color = "lightblue"),
+      cell_text(weight = "bold")
+    ),
+    locations = cells_column_labels(everything())
+  ) %>%
+  tab_options(
+    table.font.size = px(14),  # Adjust font size for readability
+    table.width = pct(100)    # Adjust table width
+  )
+
+# View the table
+imp_method_real_diff_table
+```
+
+
+Based on the analysis, the **PMM (Predictive Mean Matching)** method is the most robust choice for imputing missing values. It delivers the lowest total relative difference (31.29%) by balancing silvo SE (9.54%) and control SE (21.74%) relative differences, ensuring minimal distortion and preserving the dataset's statistical integrity. PMM consistently retains the original data’s variability, as demonstrated by its strong performance across range, standard deviation, and variance metrics.
+
+The **Upper Quartile** method is a strong alternative with a comparable total relative difference of 31.39%. It maintains a balance between silvo (15.59%) and control SE (15.80%) relative differences and excels in preserving variability while avoiding overfitting. Metrics such as range_control_se and range_silvo_se are identical to the original dataset, indicating that Upper Quartile effectively retains the statistical structure.
+
+While **Random Forest (RF)** performs acceptably with a total relative difference of 39.44%, it introduces greater variability in variance and standard deviation metrics. This makes it less favorable compared to PMM and Upper Quartile for applications requiring minimal distortion. Methods like **Bayesian**, **Mean**, and **Linear Imputation** show significantly higher total relative differences (59.76%, 91.84%, and 75.17%, respectively). These methods substantially distort the original data, making them unsuitable for analyses where preservation of data characteristics is essential.
+
+The table further supports PMM’s superior performance in preserving range and variance metrics while minimizing distortion. Metrics such as **var_control_se** and **var_silvo_se** highlight PMM’s alignment with the original data, outperforming more complex approaches like Bayesian Imputation. Additionally, PMM demonstrates excellent distributional alignment, validated by its strong Jensen-Shannon Divergence (JSD) values.
+
+In conclusion, **PMM** is the recommended method due to its minimal distortion, consistency, and robust statistical preservation. The **Upper Quartile** method offers a simpler yet effective alternative, particularly for scenarios prioritizing computational efficiency. Both methods outperform more complex approaches, ensuring high-quality imputations and reliable results for this dataset.
+
+
+
+Checking the imputed control_sd and silvo_sd density distribution (imputation = PMM + upper quartile)
+```{r}
+# Combine the data for silvo_sd and control_sd into long format
+density_data <- combined_data %>%
+  pivot_longer(
+    cols = c(silvo_sd_from_se, control_sd_from_se),
+    names_to = "variable",
+    values_to = "value"
+  )
+
+# Filter out non-positive values for log transformation
+density_data_clean <- density_data %>%
+  filter(value > 0) # Keep only positive values
+
+# Improved density plot with custom x-axis labels
+density_plot_clean <- density_data_clean %>%
+  ggplot(aes(x = value, color = data_source, fill = data_source)) +
+  geom_density(alpha = 0.4, na.rm = TRUE) + # Add density plot with transparency
+  scale_x_log10(
+    breaks = scales::trans_breaks("log10", function(x) 10^x), # Define breaks at log10 intervals
+    labels = scales::trans_format("log10", scales::math_format(10^.x)) # Format labels as 10^x
+  ) +
+  labs(
+    title = "Density Distribution of silvo_sd and control_sd (Log-Transformed)",
+    x = "Value (Log Scale)",
+    y = "Density",
+    color = "Data Source",
+    fill = "Data Source"
+  ) +
+  facet_wrap(~variable, scales = "free_x", ncol = 2) + # Separate plots for silvo_se and control_se
+  scale_color_viridis_d(option = "D", begin = 0.2, end = 0.8) +
+  scale_fill_viridis_d(option = "D", begin = 0.2, end = 0.8) +
+  theme_minimal() +
+  theme(
+    strip.text = element_text(size = 12, face = "bold"),
+    plot.title = element_text(size = 16, face = "bold"),
+    legend.position = "bottom"
+  )
+
+# Display the density plot
+density_plot_clean
+```
+
+
+
+
+
+
+
+
+
+```{r}
+merged_data |> glimpse()
+```
+
+
+
+
+
+
+
+
+
+```{r}
+# Verify consistency between imputed _se and recalculated _sd
+verify_sd_calculation <- function(data) {
+  data <- data %>%
+    mutate(
+      recalculated_silvo_sd = silvo_se_original * sqrt(silvo_n),
+      recalculated_control_sd = control_se_original * sqrt(control_n),
+      silvo_sd_diff = abs(silvo_sd_combined - recalculated_silvo_sd),
+      control_sd_diff = abs(control_sd_combined - recalculated_control_sd)
+    ) %>%
+    filter(silvo_sd_diff > 1e-5 | control_sd_diff > 1e-5) # Filter rows with differences
+
+  return(data)
+}
+
+# Apply to both non-imputed and imputed datasets
+non_imp_inconsistencies <- verify_sd_calculation(non_imp_data_prep)
+imp_inconsistencies <- verify_sd_calculation(imp_data_prep)
+
+# Visualize inconsistencies (if any)
+list(
+  non_imputed = non_imp_inconsistencies,
+  imputed = imp_inconsistencies
+)
+
+```
+
+#############
+# STEP 6
+##########################################################################################################################################
+USING THE MORE ROBUST "ALL-CASES" METHOD BASED ON THE POOLED CV FOR 
+##########################################################################################################################################
+
+the "all-cases" method uses the pooled CV to calculate the sampling variances for all studies
+
+
+The "all-cases" method is a practical approach in meta-analysis to estimate missing standard deviations (SDs) and handle sampling variances for effect size calculations, especially when using the log response ratio (lnRR). This method leverages the pooled coefficient of variation (CV) to address the challenge of missing SDs across studies, ensuring that all studies contribute to the analysis. 
+
+The coefficient of variation (CV), defined as the ratio of SD to the mean, is a measure of relative variability that allows comparisons across datasets with different scales. In this method, a pooled CV is calculated from studies with complete data using a weighted average based on sample sizes. This pooled CV is considered a robust representation of relative variability across all studies. It reduces reliance on individual study-specific CVs, which can be imprecise, particularly in studies with small sample sizes.
+
+To estimate SDs for studies with missing values, the pooled CV is multiplied by the mean of the respective study. Sampling variances are then calculated using the formula: 
+
+$$
+v=\frac{C V^2}{n_1}+\frac{C V^2}{n_2}
+$$
+
+where \(n_1\) and \(n_2\) are the sample sizes of the groups being compared. This ensures that every study, including those with missing SDs, contributes a reliable sampling variance estimate to the meta-analysis.
+
+The all-cases method is advantageous because it maintains consistency across studies, includes all available data by imputing missing variances, and mitigates the risk of bias from excluding incomplete studies. It performs well in simulations and increases the precision of variance estimates by pooling information from the entire dataset. By avoiding the complexity of multiple imputations, it offers a straightforward yet effective solution for meta-analyses with missing variance data.
+
+
+Here is my data
+
+```{r}
+# Non imputed datasets
+non_imp_dataset |> glimpse()
+```
+
+```{r}
+# Step 1: Filter rows with reported SDs and calculate CVs for valid data
+data_with_cv <- non_imp_dataset %>%
+  filter(!is.na(silvo_sd_final) & silvo_sd_final > 0 &
+         !is.na(control_sd_final) & control_sd_final > 0 &
+         !is.na(silvo_mean) & silvo_mean != 0 &
+         !is.na(control_mean) & control_mean != 0) %>%
+  mutate(
+    silvo_cv = silvo_sd_final / silvo_mean,
+    control_cv = control_sd_final / control_mean
+  )
+
+# Step 2: Calculate pooled CVs
+pooled_cv <- data_with_cv %>%
+  summarise(
+    pooled_silvo_cv = sum(silvo_cv * silvo_n, na.rm = TRUE) / sum(silvo_n, na.rm = TRUE),
+    pooled_control_cv = sum(control_cv * control_n, na.rm = TRUE) / sum(control_n, na.rm = TRUE)
+  )
+
+# Extract pooled CVs
+pooled_silvo_cv <- pooled_cv$pooled_silvo_cv
+pooled_control_cv <- pooled_cv$pooled_control_cv
+
+# Step 3: Impute missing SDs only where Mean is valid
+non_imp_dataset <- non_imp_dataset %>%
+  mutate(
+    silvo_sd_from_pooled_cv = ifelse(
+      is.na(silvo_sd_final) & !is.na(silvo_mean) & silvo_mean != 0,
+      pooled_silvo_cv * silvo_mean,
+      silvo_sd_final
+    ),
+    control_sd_from_pooled_cv = ifelse(
+      is.na(control_sd_final) & !is.na(control_mean) & control_mean != 0,
+      pooled_control_cv * control_mean,
+      control_sd_final
+    )
+  )
+
+# Step 4: View the updated dataset
+non_imp_dataset |> glimpse()
+
+# Optional: Summarize imputed values
+imputation_summary <- non_imp_dataset %>%
+  summarise(
+    total_rows = n(),
+    silvo_sd_imputed = sum(is.na(silvo_sd_final) & !is.na(silvo_mean) & silvo_mean != 0, na.rm = TRUE),
+    control_sd_imputed = sum(is.na(control_sd_final) & !is.na(control_mean) & control_mean != 0, na.rm = TRUE)
+  )
+
+print(imputation_summary)
+
+```
+```{r}
+
+```
+
+```{r}
+# Combine the data for both original and imputed SDs into long format
+density_data <- non_imp_dataset %>%
+  pivot_longer(
+    cols = c(silvo_sd_final, control_sd_final, silvo_sd_from_pooled_cv, control_sd_from_pooled_cv),
+    names_to = "variable",
+    values_to = "value"
+  ) %>%
+  mutate(
+    source = case_when(
+      variable %in% c("silvo_sd_final", "control_sd_final") ~ "Original",
+      variable %in% c("silvo_sd_from_pooled_cv", "control_sd_from_pooled_cv") ~ "Imputed"
+    ),
+    group = case_when(
+      variable %in% c("silvo_sd_final", "silvo_sd_from_pooled_cv") ~ "Silvo SD",
+      variable %in% c("control_sd_final", "control_sd_from_pooled_cv") ~ "Control SD"
+    )
+  )
+
+# Filter out non-positive values for log transformation
+density_data_clean <- density_data %>%
+  filter(value > 0) # Keep only positive values
+
+# Density plot with log-transformed x-axis
+density_plot_clean <- density_data_clean %>%
+  ggplot(aes(x = value, color = source, fill = source)) +
+  geom_density(alpha = 0.4, na.rm = TRUE) + # Add density plot with transparency
+  scale_x_log10(
+    breaks = scales::trans_breaks("log10", function(x) 10^x), # Define breaks at log10 intervals
+    labels = scales::trans_format("log10", scales::math_format(10^.x)) # Format labels as 10^x
+  ) +
+  labs(
+    title = "Density Distribution of Original vs. Imputed Standard Deviations (Log-Transformed)",
+    x = "Standard Deviation (Log Scale)",
+    y = "Density",
+    color = "Source",
+    fill = "Source"
+  ) +
+  facet_wrap(~group, scales = "free_x", ncol = 2) + # Separate plots for silvo and control SDs
+  scale_color_viridis_d(option = "D", begin = 0.2, end = 0.8) +
+  scale_fill_viridis_d(option = "D", begin = 0.2, end = 0.8) +
+  theme_minimal() +
+  theme(
+    strip.text = element_text(size = 12, face = "bold"),
+    plot.title = element_text(size = 16, face = "bold"),
+    legend.position = "bottom",
+    axis.text.x = element_text(size = 10, angle = 45, hjust = 1)
+  )
+
+# Display the density plot
+density_plot_clean
+```
+
+
+
+
+
+```{r}
+non_imp_dataset |> skim()
+```
+
+
+
+
+```{r}
+# Step 1: Calculate Upper Quartile Variance
+calculate_upper_quartile_variance <- function(data, columns) {
+  data %>%
+    summarise(across(all_of(columns), ~ quantile(.^2, 0.75, na.rm = TRUE))) %>%
+    pivot_longer(cols = everything(), names_to = "variable", values_to = "upper_quartile")
+}
+
+# Step 2: Replace High Variance with Upper Quartile Values in New Variables
+replace_high_variance_with_upper_quartile <- function(data, high_variance_rows, uq_variance, columns) {
+  data %>%
+    mutate(
+      across(all_of(columns), ~ ifelse(
+        id_obs %in% high_variance_rows$id_obs, 
+        sqrt(uq_variance$upper_quartile[uq_variance$variable == cur_column()]),
+        .
+      ), .names = "{.col}_uq")
+    )
+}
+
+# Example Workflow for `imp_rf_best`
+
+# Target columns for variance evaluation
+target_columns <- c("silvo_sd_final", "control_sd_final")
+
+# Step 1: Identify high variance observations for all target columns
+high_variance_rows <- purrr::map_dfr(
+  target_columns,
+  ~ {
+    thresholds <- calculate_variance_thresholds(imp_rf_best, .x)
+    filter_extreme_variances(imp_rf_best, .x, thresholds$high)
+  }
+)
+
+# Step 2: Calculate upper quartile variance for all target columns
+upper_quartile_variance <- calculate_upper_quartile_variance(imp_rf_best, target_columns)
+
+# Step 3: Replace high variance values with upper quartile values in new variables
+imp_rf_best_updated <- replace_high_variance_with_upper_quartile(
+  imp_rf_best,
+  high_variance_rows,
+  upper_quartile_variance,
+  target_columns
+)
+
+# Example Workflow for `non_imp_dataset`
+
+# Step 1: Identify high variance observations for all target columns
+high_variance_rows_non_imp <- purrr::map_dfr(
+  target_columns,
+  ~ {
+    thresholds <- calculate_variance_thresholds(non_imp_dataset, .x)
+    filter_extreme_variances(non_imp_dataset, .x, thresholds$high)
+  }
+)
+
+# Step 2: Calculate upper quartile variance for all target columns
+upper_quartile_variance_non_imp <- calculate_upper_quartile_variance(non_imp_dataset, target_columns)
+
+# Step 3: Replace high variance values with upper quartile values in new variables
+non_imp_dataset_updated <- replace_high_variance_with_upper_quartile(
+  non_imp_dataset,
+  high_variance_rows_non_imp,
+  upper_quartile_variance_non_imp,
+  target_columns
+)
+
+# View updated datasets
+imp_rf_best_updated %>% glimpse()
+non_imp_dataset_updated %>% glimpse()
+
+```
+
+
+
+
+
+Identify Extreme Variances
+For response variables like "Crop yield" with extreme variances, identify rows with unusually high or low values in the variance column (vi).
+
+```{r}
+# Summary statistics for variance
+summary(imp_data_rom$vi)
+
+# Identify rows with extreme variances
+extreme_variance_rows <- imp_data_rom %>%
+  filter(vi > quantile(vi, 0.95) #| vi < quantile(vi, 0.05)
+         ) %>%
+  arrange(desc(vi)) |> 
+  relocate(yi, vi, id_article, response_variable,
+           silvo_mean, control_mean, 
+           silvo_sd_final, control_sd_final, 
+           silvo_n, control_n)
+
+extreme_variance_rows |> str()
+
+# Set high and low variance thresholds (e.g., 99th and 1st percentiles)
+high_variance_threshold <- quantile(imp_data_rom$vi, 0.95, na.rm = TRUE)
+low_variance_threshold <- quantile(imp_data_rom$vi, 0.05, na.rm = TRUE)
+
+# Filter rows with extreme variances
+extreme_variance_articles <- imp_data_rom %>%
+  filter(vi > high_variance_threshold #| vi < low_variance_threshold
+         ) %>%
+  summarise(
+    num_obs = n(),
+    avg_variance = mean(vi, na.rm = TRUE),
+    max_variance = max(vi, na.rm = TRUE),
+    min_variance = min(vi, na.rm = TRUE),
+    response_variables = paste(unique(response_variable), collapse = ", ")
+  ) %>%
+  arrange(desc(avg_variance))
+
+# Display the summary of articles with high variance
+# extreme_variance_articles |> str()
+
+extreme_variance_rows |> glimpse()
+```
+```{r}
+# Identify high-variance observations
+high_variance_rows <- imp_data_rom %>%
+  filter(vi > quantile(vi, 0.95, na.rm = TRUE)) %>%
+  select(yi, vi,
+         id_obs, id_article, response_variable, 
+         silvo_mean, control_mean, 
+         silvo_sd_final, control_sd_final,
+         silvo_n, control_n)
+
+high_variance_row_isolated <- high_variance_rows |> 
+  relocate(yi, vi, id_article, id_obs, response_variable,
+           silvo_mean, control_mean, 
+           silvo_sd_final, control_sd_final,
+           silvo_n, control_n)
+
+high_variance_row_isolated |> glimpse()
+```
+
+```{r}
+# Define thresholds for high and non-high variance
+high_variance_threshold <- stats::quantile(imp_data_rom$vi, 0.95, na.rm = TRUE)
+low_variance_threshold <- stats::quantile(imp_data_rom$vi, 0.05, na.rm = TRUE)
+
+# Create separate datasets
+high_variance_data <- imp_data_rom %>%
+  filter(vi > high_variance_threshold | vi < low_variance_threshold)
+
+non_high_variance_data <- imp_data_rom %>%
+  filter(!(vi > high_variance_threshold | vi < low_variance_threshold))
+```
+
+```{r}
+# Step 1: Define high variance threshold
+high_variance_threshold <- stats::quantile(imp_data_rom$vi, 0.95, na.rm = TRUE)
+
+# Step 2: Filter high variance observations
+high_variance_data <- imp_data_rom %>%
+  filter(vi > high_variance_threshold)
+
+# Step 3: Identify unique articles with high variance
+unique_high_variance_articles <- high_variance_data %>%
+  distinct(id_article) %>%
+  arrange(id_article)
+
+# Step 4: Summarize number of high variance observations per article
+high_variance_article_summary <- high_variance_data %>%
+  group_by(id_article) %>%
+  summarise(
+    num_high_variance_obs = n(),
+    avg_variance = mean(vi, na.rm = TRUE),
+    max_variance = max(vi, na.rm = TRUE),
+    min_variance = min(vi, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  arrange(desc(num_high_variance_obs))
+
+# Step 5: Output unique observations (if needed)
+unique_high_variance_obs <- high_variance_data %>%
+  distinct(id_article, id_obs, response_variable, measured_metrics, yi, vi,
+           silvo_mean, control_mean,
+           silvo_n, control_n,
+           silvo_se, control_se,
+           silvo_sd_final, control_sd_final,
+           silvo_sd_from_se, control_sd_from_se,
+           silvo_sd_merged, control_sd_merged
+           ) %>%
+  arrange(desc(vi))
+
+# View the results
+list(
+  unique_articles = unique_high_variance_articles,
+  article_summary = high_variance_article_summary,
+  unique_observations = unique_high_variance_obs
+)
+```
+
+
+
+
+
+
+
+```{r}
+# Calculate variance contributions from SE columns
+extreme_variance_analysis <- extreme_variance_rows %>%
+  mutate(
+    silvo_variance = silvo_se_original^2 / silvo_n,        # Variance from silvo SE
+    control_variance = control_se_original^2 / control_n,  # Variance from control SE
+    total_pre_escalc_variance = silvo_variance + control_variance  # Combined variance
+  ) %>%
+  arrange(desc(vi)) %>%  # Sort by high vi
+  select(
+    yi, vi, id_article, response_variable,
+    silvo_mean, control_mean, 
+    silvo_se_original, control_se_original, silvo_sd_combined, control_sd_combined, 
+    silvo_n, control_n, total_pre_escalc_variance, silvo_variance, control_variance
+  )
+
+extreme_variance_analysis |> glimpse()
+```
+
+```{r}
+discrepancies <- extreme_variance_analysis %>%
+  mutate(discrepancy = vi - total_pre_escalc_variance) %>%
+  arrange(desc(discrepancy))
+
+print(discrepancies)
+```
+```{r}
+extreme_se <- extreme_variance_analysis %>%
+  filter(
+    silvo_se_original > quantile(silvo_se_original, 0.95, na.rm = TRUE) | 
+    control_se_original > quantile(control_se_original, 0.95, na.rm = TRUE)
+  )
+
+print(extreme_se)
+```
+
+```{r}
+# Recompute vi for rows with high variance
+recomputed_vi <- escalc(
+  measure = "ROM", 
+  m1i = silvo_mean, sd1i = silvo_sd_combined, n1i = silvo_n,
+  m2i = control_mean, sd2i = control_sd_combined, n2i = control_n,
+  data = extreme_variance_analysis
+)
+
+# Compare recomputed vi with original vi
+comparison <- extreme_variance_analysis %>%
+  mutate(recomputed_vi = recomputed_vi$vi) %>%
+  select(yi, vi, recomputed_vi, total_pre_escalc_variance)
+
+print(comparison)
+```
+
+Assess whether high variance is correlated with imputation of _se
+
+```{r}
+# Assess whether extreme variance observations are correlated with imputation of _se
+
+# Step 1: Add a flag indicating whether _se was imputed or derived from the original dataset
+imp_data_rom_high_var <- imp_data_rom %>%
+  mutate(
+    is_se_imputed = ifelse(!is.na(silvo_se_imputed) | !is.na(control_se_imputed), TRUE, FALSE),
+    se_source = case_when(
+      !is.na(silvo_se_original) & !is.na(control_se_original) ~ "Original",
+      !is.na(silvo_se_imputed) | !is.na(control_se_imputed) ~ "Imputed",
+      TRUE ~ "Unknown"
+    )
+  )
+
+# Step 2: Add a flag for extreme variance observations
+high_var_threshold <- quantile(imp_data_rom_high_var$vi, 0.85, na.rm = TRUE)
+imp_data_rom_high_var <- imp_data_rom_high_var %>%
+  mutate(is_high_variance = vi > high_var_threshold)
+
+# Step 3: Summarize the number and proportion of high variance observations by `se_source`
+imp_data_rom_high_var_summary <- imp_data_rom_high_var %>%
+  group_by(se_source, is_high_variance) %>%
+  summarise(
+    count = n(),
+    avg_variance = mean(vi, na.rm = TRUE),
+    max_variance = max(vi, na.rm = TRUE),
+    min_variance = min(vi, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    proportion = count / sum(count) * 100
+  )
+
+# Step 4: Statistical test to assess correlation between high variance and imputation
+# Create a contingency table directly from the original dataset
+high_var_imp_table <- table(
+  imp_data_rom_high_var$is_high_variance,
+  imp_data_rom_high_var$is_se_imputed
+)
+# Perform the chi-squared test
+chisq_test_result <- chisq.test(high_var_imp_table)
+# Display the results
+chisq_test_result
+
+# Step 5: Output the results
+list(
+  high_variance_summary = imp_data_rom_high_var_summary,
+  chi_squared_test = chisq_test_result
+)
+
+# Last run (17/01-2025) - with pmm
+# Chi-squared test for given probabilities
+# 
+# data:  high_var_imp_table
+# X-squared = 1049.4, df = 1, p-value < 2.2e-16
+# 
+# $high_variance_summary
+# 
+# $chi_squared_test
+# 
+# 	Chi-squared test for given probabilities
+# 
+# data:  high_var_imp_table
+# X-squared = 1049.4, df = 1, p-value < 2.2e-16
+# 
+# 
+# A tibble:4 × 7
+# se_source
+# <chr>
+# is_high_variance
+# <lgl>
+# count
+# <int>
+# avg_variance
+# <dbl>
+# max_variance
+# <dbl>
+# min_variance
+# <dbl>
+# proportion
+# <dbl>
+# Imputed	FALSE	363	0.04709219	2.159499	1.282651e-09	33.2113449
+# Imputed	TRUE	5	53.11615462	105.011260	6.582294e+00	0.4574565
+# Original	FALSE	719	0.02786741	2.979875	4.642757e-08	65.7822507
+# Original	TRUE	6	9.46706302	30.969246	2.979875e+00	0.5489478
+```
+The chi-squared test for independence revealed a significant relationship between extreme variance observations and the imputation of standard errors (\_se). The test produced a statistic (\(X^2 = 1049.4\)) with 1 degree of freedom and a p-value less than 2.2e-16, indicating that high variance observations are significantly more likely to be associated with imputed \_se values compared to those derived from the original dataset.
+
+The summary of high variance observations provides additional insights. For non-high variance observations, imputed data accounts for 31% of cases, while original data contributes 54%. High variance observations, although less frequent, show distinct differences between imputed and original sources. Imputed high variance observations have a much lower average variance (0.022) compared to original high variance observations, which exhibit a substantially higher average variance (0.559). The maximum variance for imputed high variance observations (0.054) is also notably smaller than that of original high variance observations (30.97). This disparity suggests that high variance observations in imputed data, while less extreme, still play a significant role in influencing the overall relationship between variance and imputation.
+
+The findings highlight that imputed data is associated with a different variance profile compared to original data. While the imputation process appears to reduce the extremity of variances in high variance observations, it still contributes a noticeable proportion to these cases. The results suggest that the imputation method and its parameters should be carefully evaluated to ensure they do not disproportionately influence the variance distribution. Addressing potential biases, through sensitivity analyses or adjustments to the imputation approach, could help improve the robustness and interpretability of downstream analyses.
+
+
+
+# High variance plot for individual observations with increased jitter
+high_variance_plot <- ggplot(high_variance_data, aes(x = as.factor(id_article), y = vi, color = response_variable)) +
+  geom_point(position = position_jitter(width = 0.3, height = 0), size = 3, alpha = 0.7) +
+  geom_text_repel(
+    aes(label = id_obs),
+    position = position_jitter(width = 0.3, height = 3),
+    size = 3,
+    max.overlaps = Inf
+  ) +
+  labs(
+    title = "High Variance Observations (Individual, Jittered)",
+    x = "Article ID",
+    y = "Variance (vi) [pseudo log transformed]",
+    color = "Response Variable"
+  ) +
+  scale_color_manual(values = global_palette) +
+  scale_y_continuous(
+    trans = pseudo_log_trans(sigma = 0.1),
+    breaks = c(0, 0.1, 1, 10, 30),
+    labels = c("0", "0.1", "1", "10", "30")
+  ) +
+  theme_minimal(base_size = 16) +
+  theme(
+    plot.title = element_text(size = 18, face = "bold"),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "top",
+    legend.title = element_text(size = 14, face = "bold"),
+    legend.text = element_text(size = 12)
+  )
+
+# Non-high variance plot with aggregated boxplots
+non_high_variance_plot <- ggplot(non_high_variance_data, aes(x = as.factor(id_article), y = vi, fill = response_variable)) +
+  geom_boxplot(outlier.color = "blue", alpha = 0.7) +
+  labs(
+    title = "Non-High Variance Observations (Boxplots)",
+    x = "Article ID",
+    y = "Variance (vi) [pseudo log transformed]",
+    fill = "Response Variable"
+  ) +
+  scale_fill_manual(values = global_palette) +
+  scale_y_continuous(
+    trans = pseudo_log_trans(sigma = 0.1),
+    breaks = c(0, 0.01, 0.1, 1),
+    labels = c("0", "0.01", "0.1", "1")
+  ) +
+  theme_minimal(base_size = 16) +
+  theme(
+    plot.title = element_text(size = 18, face = "bold"),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "top",
+    legend.title = element_text(size = 14, face = "bold"),
+    legend.text = element_text(size = 12)
+  )
+
+# Combine the two plots
+combined_plot_high_var_plot <- high_variance_plot + non_high_variance_plot +
+  plot_layout(ncol = 2, widths = c(1, 1)) &
+  theme(
+    plot.margin = margin(10, 10, 10, 10)
+  )
+
+# Display the combined plot
+print(combined_plot_high_var_plot)
+
+
+
+
