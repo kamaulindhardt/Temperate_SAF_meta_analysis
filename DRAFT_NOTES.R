@@ -22142,3 +22142,567 @@ print(combined_plot_high_var_plot)
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+##########################################################################################################################################
+# FITTING MODELS (SUB-GROUP) FOR EACH RESPONSE VARIABLE USING PRECOMPUTED V_MATRICES WITH `-1` INTERCEPT REMOVAL APPROACH
+##########################################################################################################################################
+
+##########################################################################
+# Set up the parallel processing plan
+plan(multisession, workers = parallel::detectCores() - 1)
+##########################################################################
+# Start time tracking
+start.time <- Sys.time()
+##########################################################################
+# Protocol to Fit and Save Models for Meta-Analysis with Intercept Removal Approach
+
+##########################################################################################################################################
+# Fit Models with Increasing Complexity
+##########################################################################################################################################
+
+# Function to fit models
+fit_model <- function(data_subset, response_variable, v_matrix, moderators, random_effects = NULL, intercept = TRUE, include_interaction = FALSE) {
+  cat("\nFitting model for response variable:", response_variable, "...\n")
+
+  # Ensure moderators are valid
+  if (is.null(moderators) || length(moderators) == 0) {
+    moderator_formula <- ~ 1  # Intercept-only model
+  } else {
+    # Build moderator formula with or without interactions
+    if (include_interaction) {
+      # Include all interactions among moderators
+      moderator_formula <- if (intercept) {
+        as.formula(paste("yi ~", paste(moderators, collapse = " * ")))
+      } else {
+        as.formula(paste("yi ~", paste(moderators, collapse = " * "), "- 1"))
+      }
+    } else {
+      # Build moderator formula with or without intercept
+      moderator_formula <- if (intercept) {
+        as.formula(paste("yi ~", paste(moderators, collapse = " + ")))
+      } else {
+        as.formula(paste("yi ~", paste(moderators, collapse = " + "), "- 1"))
+      }
+    }
+  }
+
+  # Fit the model
+  model <- tryCatch({
+    rma.mv(
+      yi = yi,
+      V = v_matrix,
+      mods = moderator_formula,
+      random = random_effects,
+      data = data_subset,
+      method = "REML",
+      control = list(
+        optimizer = "optim",
+        optim.method = "BFGS",
+        iter.max = 1000,
+        rel.tol = 1e-8
+      )
+    )
+  }, error = function(e) {
+    cat("Error in model fitting for", response_variable, ":", e$message, "\n")
+    return(NULL)
+  })
+
+  if (!is.null(model)) {
+    cat("Model fitting completed for response variable:", response_variable, ".\n")
+    return(model)
+  } else {
+    return(NULL)
+  }
+}
+
+##########################################################################################################################################
+# Fit Models with Hierarchical Complexity
+##########################################################################################################################################
+
+model_results <- list()
+
+for (response in names(v_matrices)) {
+  # Display the response variable being processed
+  cat("\nProcessing response variable:", response, "\n")
+
+  # Subset the metadata to include only rows relevant to the current response variable
+  data_subset <- meta_data[meta_data$response_variable == response, ]
+
+  # Extract the corresponding variance-covariance matrix for the response variable
+  v_matrix <- v_matrices[[response]]
+
+  # Define the list of moderators to be included in the model
+  moderators <- c("tree_type", "crop_type", "age_system", "season", "soil_texture")
+
+  # Fit various models for the response variable and store results in a nested list
+  model_results[[response]] <- list(
+    
+    # Null model: Intercept-only model, no random effects, no moderators
+    A_null = fit_model(
+      data_subset = data_subset,
+      response_variable = response,
+      v_matrix = v_matrix,
+      moderators = NULL,                    # No moderators
+      intercept = TRUE                      # Include intercept
+    ),
+
+    # Minimal random effects model: Includes random effect at the experiment level, no moderators
+    B_minimal_random = fit_model(
+      data_subset = data_subset,
+      response_variable = response,
+      v_matrix = v_matrix,
+      moderators = NULL,                    # No moderators
+      random_effects = ~ 1 | exp_id,        # Random effect at the experiment level
+      intercept = TRUE                      # Include intercept
+    ),
+
+    # Fixed effects model: Includes specified moderators, no random effects
+    C_fixed_effects = fit_model(
+      data_subset = data_subset,
+      response_variable = response,
+      v_matrix = v_matrix,
+      moderators = moderators,              # Include specified moderators
+      intercept = TRUE                      # Include intercept
+    ),
+
+    # Random effects model: Includes specified moderators and a random effect at the experiment level
+    D_random_effects = fit_model(
+      data_subset = data_subset,
+      response_variable = response,
+      v_matrix = v_matrix,
+      moderators = moderators,              # Include specified moderators
+      random_effects = ~ 1 | exp_id,        # Random effect at the experiment level
+      intercept = TRUE                      # Include intercept
+    ),
+
+    # Random effects model with interaction: Includes interactions among moderators and a random effect at the experiment level
+    E_random_effects_interaction = fit_model(
+      data_subset = data_subset,
+      response_variable = response,
+      v_matrix = v_matrix,
+      moderators = moderators,              # Include specified moderators
+      random_effects = ~ 1 | exp_id,        # Random effect at the experiment level
+      intercept = TRUE,                     # Include intercept
+      include_interaction = TRUE            # Include all interactions
+    ),
+
+    # Full model: Includes specified moderators and multiple random effects
+    F_full = fit_model(
+      data_subset = data_subset,
+      response_variable = response,
+      v_matrix = v_matrix,
+      moderators = moderators,              # Include specified moderators
+      random_effects = list(                # Include multiple random effects
+        ~ 1 | id_article/response_variable, # Random effect for nested structure of articles and variables
+        ~ 1 | exp_id                        # Random effect at the experiment level
+      ),
+      intercept = TRUE                      # Include intercept
+    ),
+
+    # Full interaction model: Includes all interactions among moderators and multiple random effects
+    G_full_interaction = fit_model(
+      data_subset = data_subset,
+      response_variable = response,
+      v_matrix = v_matrix,
+      moderators = moderators,              # Include specified moderators
+      random_effects = list(                # Include multiple random effects
+        ~ 1 | id_article/response_variable, # Random effect for nested structure of articles and variables
+        ~ 1 | exp_id                        # Random effect at the experiment level
+      ),
+      intercept = TRUE,                     # Include intercept
+      include_interaction = TRUE            # Include all interactions
+    )
+  )
+}
+
+##########################################################################################################################################
+# Save All Fitted Models
+##########################################################################################################################################
+
+output_dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
+
+# Save all models in one file
+saveRDS(model_results, file = file.path(output_dir, "fitted_models_all.rds"))
+cat("\nAll models have been saved successfully in a single file!\n")
+
+# Save individual models in separate files
+saveRDS(lapply(model_results, `[[`, "A_null"), file = file.path(output_dir, "fitted_models_A_null.rds"))
+saveRDS(lapply(model_results, `[[`, "B_minimal_random"), file = file.path(output_dir, "fitted_models_B_minimal_random.rds"))
+saveRDS(lapply(model_results, `[[`, "C_fixed_effects"), file = file.path(output_dir, "fitted_models_C_fixed_effects.rds"))
+saveRDS(lapply(model_results, `[[`, "D_random_effects"), file = file.path(output_dir, "fitted_models_D_random_effects.rds"))
+saveRDS(lapply(model_results, `[[`, "E_random_effects_interaction"), file = file.path(output_dir, "fitted_models_E_random_effects_interaction.rds"))
+saveRDS(lapply(model_results, `[[`, "F_full"), file = file.path(output_dir, "fitted_models_F_full.rds"))
+saveRDS(lapply(model_results, `[[`, "G_full_interaction"), file = file.path(output_dir, "fitted_models_G_full_interaction.rds"))
+
+cat("\nAll models have been saved successfully in separate files!\n")
+##########################################################################
+# End time tracking
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+cat("\nTotal time taken:", time.taken, "\n")
+##########################################################################
+
+# Last go (18/01-2025)
+# Total time taken: 23.19483 secs
+
+# Last go (18/01-2025)
+# Total time taken: 21.99915 secs
+```
+
+The code functions as intended, effectively fitting multiple models for each response variable using precomputed variance matrices and handling variations in intercept inclusion and random effects specifications. The use of parallel processing enhances efficiency, while error handling ensures robustness during model fitting. Output messages indicate some expected issues, such as missing data leading to omitted rows, multicollinearity resulting in redundant predictors, and high variance ratios that could compromise stability in certain cases. Warnings about single-level factors in random effects suggest limited variability, which may require adjustments to the random-effects structure.
+
+To improve the analysis, it is important to address missing data, potentially through imputation, and to examine multicollinearity among moderators using diagnostic measures like variance inflation factors. Stabilizing large variance ratios with transformations or alternative modeling approaches could enhance result reliability. Single-level random effects should be removed or reorganized to avoid redundancy.
+
+Performance-wise, the total runtime of approximately 23 seconds is reasonable, and the successful saving of models in both single and separate files ensures accessibility for further analysis. Future efforts should prioritize debugging high variance ratios and redundant predictors, document the handling of omitted rows, and thoroughly evaluate the fitted models for each response variable. Diagnostic plots can provide additional insights into model fit and variability, ensuring the outputs are robust and interpretable.
+
+
+
+
+
+```{r}
+####################################################################################################################################################
+# Load the Saved Models and Inspect Results
+####################################################################################################################################################
+
+# Load the saved models
+output_dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
+
+# Load models for all complexity levels
+null_model_results <- readRDS(file.path(output_dir, "fitted_models_A_null.rds"))
+minimal_random_results <- readRDS(file.path(output_dir, "fitted_models_B_minimal_random.rds"))
+fixed_effects_results <- readRDS(file.path(output_dir, "fitted_models_C_fixed_effects.rds"))
+random_effects_results <- readRDS(file.path(output_dir, "fitted_models_D_random_effects.rds"))
+random_effects_interaction_results <- readRDS(file.path(output_dir, "fitted_models_E_random_effects_interaction.rds"))
+full_results <- readRDS(file.path(output_dir, "fitted_models_F_full.rds"))
+full_interaction_results <- readRDS(file.path(output_dir, "fitted_models_G_full_interaction.rds"))
+
+# Inspect the names of the response variables available
+names(full_results)
+
+# Check the structure of the model results for a specific response variable (e.g., "Biodiversity")
+full_results[["Biodiversity"]] |> str()
+
+##########################################################################################################################################
+# Identify Response Variables with Failed Model Fits
+##########################################################################################################################################
+
+# Combine all model results into a single list for checking
+failed_fits <- list(
+  A_null = sapply(null_model_results, is.null),
+  B_minimal_random = sapply(minimal_random_results, is.null),
+  C_fixed_effects = sapply(fixed_effects_results, is.null),
+  D_random_effects = sapply(random_effects_results, is.null),
+  E_random_effects_interaction = sapply(random_effects_interaction_results, is.null),
+  F_full = sapply(full_results, is.null),
+  G_full_interaction = sapply(full_interaction_results, is.null)
+)
+
+# Response variables with any failed models
+failed_responses <- unique(unlist(lapply(failed_fits, function(x) names(x)[x])))
+if (length(failed_responses) > 0) {
+  cat("\nFailed model fits detected for the following response variables:", failed_responses, "\n")
+} else {
+  cat("\nNo failed model fits detected.\n")
+}
+
+##########################################################################################################################################
+# Analyze Successful Models (Example)
+##########################################################################################################################################
+
+# Extract successful Full Models
+successful_random_effects_models <- random_effects_results[!sapply(random_effects_results, is.null)]
+successful_random_effects_models
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+##########################################################################################################################################
+# FITTING MODELS (SUB-GROUP) FOR EACH RESPONSE VARIABLE USING PRECOMPUTED V_MATRICES
+##########################################################################################################################################
+
+# Redefining the workflow to integrate the 'cabbage approach' for incremental inclusion of moderators
+
+
+
+
+
+The updated meta-analysis workflow integrates the "cabbage approach" by incrementally adding moderators to assess their individual contributions systematically. This ensures a thorough evaluation of each moderator's role in explaining heterogeneity while providing flexibility to compare models with and without random effects. 
+
+### Key Workflow Components:
+1. **Null Model**: This intercept-only model estimates the global average effect size without moderators or random effects, serving as a baseline for each response variable.
+2. **Minimal Random Effects Model**: Captures between-experiment variability by including a random effect at the experiment level, providing insight into dataset heterogeneity.
+3. **Incremental Models**: Moderators are added stepwise:
+  - **Without Random Effects**: Evaluates isolated moderator impacts.
+- **With Random Effects**: Accounts for experimental variability while testing moderator contributions.
+4. **Base Model with Fixed and Random Effects**: A benchmark model that includes both fixed and random effects without moderators to assess the baseline effect size and heterogeneity.
+
+### Intercept Inclusion in the Workflow:
+- **Including the Intercept**: Estimates the global mean effect size, serving as a baseline for comparing deviations due to moderators. This approach is critical for understanding overall trends and relative impacts of moderators.
+- **Omitting the Intercept**: Focuses on estimating direct effects of moderators, bypassing the global mean, which may be useful for categorical variables.
+
+### Practical Considerations:
+Including the intercept improves model stability and interpretability, especially when estimating overall effects. Omitting it may introduce bias or overfitting but can clarify moderator-specific effects. The choice depends on the research question—whether to assess global trends or focus on within-moderator comparisons. This workflow balances interpretability, flexibility, and systematic evaluation of moderators, aligning well with the cabbage approach for incremental analysis.
+
+
+
+This approach ensures systematic, transparent evaluation of moderators, random effects, and their combined influence on effect sizes.
+
+```{r}
+##########################################################################################################################################
+# FITTING MODELS (SUB-GROUP) FOR EACH RESPONSE VARIABLE USING PRECOMPUTED V_MATRICES
+##########################################################################################################################################
+
+# Redefining the workflow to integrate the 'cabbage approach' for incremental inclusion of moderators
+
+##########################################################################
+# Set up the parallel processing plan
+plan(multisession, workers = parallel::detectCores() - 1)
+##########################################################################
+# Start time tracking
+start.time <- Sys.time()
+##########################################################################
+# Protocol to Fit and Save Models for Meta-Analysis with Stepwise Moderator Inclusion
+
+##########################################################################################################################################
+# Function to fit models with one moderator at a time
+fit_model_incremental <- function(data_subset, response_variable, v_matrix, moderator, random_effects = NULL, intercept = TRUE) {
+  # Print progress message
+  cat("\nFitting model for response variable:", response_variable, "with moderator:", moderator, "...\n")
+  
+  # Build the formula for the moderator
+  moderator_formula <- if (!is.null(moderator)) {
+    if (intercept) {
+      as.formula(paste("yi ~", moderator))  # Include global intercept
+    } else {
+      as.formula(paste("yi ~", moderator, "- 1"))  # Exclude global intercept
+    }
+  } else {
+    ~ 1  # Intercept-only model
+  }
+  
+  # Fit the model
+  model <- tryCatch({
+    rma.mv(
+      yi = yi,
+      V = v_matrix,
+      mods = moderator_formula,
+      random = random_effects,
+      data = data_subset,
+      method = "REML",
+      control = list(
+        optimizer = "optim",
+        optim.method = "BFGS",
+        iter.max = 1000,
+        rel.tol = 1e-8
+      )
+    )
+  }, error = function(e) {
+    cat("Error in model fitting for", response_variable, "with moderator", moderator, ":", e$message, "\n")
+    return(NULL)
+  })
+  
+  # Return fitted model or NULL if fitting failed
+  if (!is.null(model)) {
+    cat("Model fitting completed for response variable:", response_variable, "with moderator:", moderator, ".\n")
+    return(model)
+  } else {
+    return(NULL)
+  }
+}
+
+##########################################################################################################################################
+# Fit Models for Each Response Variable with Incremental Moderator Inclusion
+##########################################################################################################################################
+
+# Initialize an empty list to store model results
+model_results <- list()
+
+# Loop through each response variable to fit models
+for (response in names(v_matrices)) {
+  # Display the response variable being processed
+  cat("\nProcessing response variable:", response, "\n")
+  
+  # Subset the metadata to include only rows relevant to the current response variable
+  data_subset <- meta_data[meta_data$response_variable == response, ]
+  
+  # Extract the corresponding variance-covariance matrix for the response variable
+  v_matrix <- v_matrices[[response]]
+  
+  # Define the list of moderators to be included in the model
+  moderators <- c("tree_type", "crop_type", "age_system", "season", "soil_texture")
+  
+  # Fit models step-by-step for the response variable
+  model_results[[response]] <- list(
+    
+    # Null model: Intercept-only model, no random effects, no moderators
+    A_null = fit_model_incremental(
+      data_subset = data_subset,
+      response_variable = response,
+      v_matrix = v_matrix,
+      moderator = NULL,                     # No moderators
+      intercept = TRUE                      # Include intercept
+    ),
+    
+    # Minimal random effects model: Includes random effect at the experiment level, no moderators ------------------------ !
+    B_minimal_random_incremental = fit_model_incremental(
+      data_subset = data_subset,
+      response_variable = response,
+      v_matrix = v_matrix,
+      moderator = NULL,                     # No moderators
+      random_effects = ~ 1 | exp_id,        # Random effect at the experiment level
+      intercept = TRUE                      # Include intercept
+    ),
+    
+    # Incremental model without random effects: Adds moderators incrementally
+    C_incremental_no_random_incremental = lapply(moderators, function(moderator) {
+      fit_model_incremental(
+        data_subset = data_subset,
+        response_variable = response,
+        v_matrix = v_matrix,
+        moderator = moderator,             # Add one moderator
+        random_effects = NULL,             # No random effects
+        intercept = TRUE                   # Include intercept
+      )
+    }),
+    
+    # Incremental model with random effects: Adds moderators incrementally --------------------------------------------- !
+    D_incremental_random_incremental = lapply(moderators, function(moderator) {
+      fit_model_incremental(
+        data_subset = data_subset,
+        response_variable = response,
+        v_matrix = v_matrix,
+        moderator = moderator,             # Add one moderator
+        random_effects = ~ 1 | exp_id,     # Random effect at the experiment level
+        intercept = TRUE                   # Include intercept
+      )
+    }),
+    
+    # Base intercept-only model with both fixed and random effects (new model for testing)
+    E_intercept_fixed_random_incremental = fit_model_incremental(
+      data_subset = data_subset,
+      response_variable = response,
+      v_matrix = v_matrix,
+      moderator = NULL,                    # No moderators
+      random_effects = ~ 1 | exp_id,       # Random effect at the experiment level
+      intercept = TRUE                     # Include intercept
+    )
+  )
+}
+
+##########################################################################################################################################
+# Save All Fitted Models
+##########################################################################################################################################
+
+# Define the output directory for saving model results
+output_dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
+
+# Save all models in one file
+saveRDS(model_results, file = file.path(output_dir, "fitted_models_all_incremental.rds"))
+cat("\nAll models have been saved successfully in a single file!\n")
+
+# Save individual models in separate files
+for (response in names(model_results)) {
+  saveRDS(model_results[[response]], file = file.path(output_dir, paste0("fitted_models_", response, "_incremental.rds")))
+}
+
+cat("\nAll models have been saved successfully in separate files!\n")
+##########################################################################
+# End time tracking
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+cat("\nTotal time taken:", time.taken, "\n")
+##########################################################################
+# Last go (19/01-2025)
+# Total time taken: 45.41972 secs
+```
+
+
+
+
+
+
+```{r}
+####################################################################################################################################################
+# Load and Inspect Saved Meta-Analysis Models
+####################################################################################################################################################
+
+# Define output directory where models are saved
+output_dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
+
+####################################################################################################################################################
+# Load Saved Models for All Response Variables
+####################################################################################################################################################
+
+# List all saved model files for each response variable
+response_variable_files <- list.files(output_dir, pattern = "fitted_models_.*_incremental.rds", full.names = TRUE)
+
+# Extract response variable names from file names
+response_variable_names <- gsub("fitted_models_|_incremental.rds", "", basename(response_variable_files))
+
+# Load all models into a named list
+model_results <- lapply(response_variable_files, function(file) {
+  tryCatch({
+    readRDS(file)
+  }, error = function(e) {
+    cat("\nError loading file:", file, "\nMessage:", e$message, "\n")
+    return(NULL)
+  })
+})
+
+# Assign response variable names to the list for clarity
+names(model_results) <- response_variable_names
+
+# model_results |> str()
+
+model_results$`Crop yield`$B_minimal_random_incremental$data
+```
+
+
+
