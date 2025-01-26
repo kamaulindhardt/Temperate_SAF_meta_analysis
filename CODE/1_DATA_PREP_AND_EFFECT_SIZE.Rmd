@@ -1930,8 +1930,7 @@ for (method_name in imputation_methods) {
 # End time tracking
 end.time <- Sys.time()
 time.taken <- end.time - start.time
-cat("\nTotal time taken:", time.taken, "\n")
-
+cat("\nTotal time taken:", time.taken, units(time.taken), "\n")
 ##########################################################################
 # imputed_mids_pmm and imputed_mids_linear are the raw mids objects for PMM and linear regression respectively
 # imputed_datasets contains completed and capped datasets
@@ -4471,7 +4470,7 @@ cat("Imputed Data - Between-study variance (tau^2):", rma_imp$tau2, "\n")
 end.time <- Sys.time()
 # Calculate time taken
 time.taken <- end.time - start.time
-time.taken
+cat("\nTotal time taken:", time.taken, units(time.taken), "\n")
 ##############################################################
 # Last go (12/01-2025)
 # Advarsel: 184 studies with NAs omitted from model fitting.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Non-Imputed Data - Heterogeneity (I^2): 9.354748 
@@ -4940,7 +4939,7 @@ summary(stepwise_model)
 end.time <- Sys.time()
 # Calculate time taken
 time.taken <- end.time - start.time
-time.taken
+cat("\nTotal time taken:", time.taken, units(time.taken), "\n")
 ##############################################################
 # Last go (24/01-2025)
 # Start:  AIC=-3165.5
