@@ -161,7 +161,6 @@ non_imp_dataset <- readRDS(here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FR
 
 ## IMPUTED
 imp_dataset <- readRDS(here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R", "imp_data_rom.rds"))
-
 ```
 
 ```{r}
@@ -518,52 +517,1348 @@ ggplot(heatmap_data, aes(x = moderator, y = response_variable, fill = count)) +
 SENSITIVITY ANALYSIS (Leave-One-Out Sensitivity Analysis)
 ##########################################################################################################################################
 
-non_imp_dataset 
-imp_dataset 
-
-
-
-Performing a Leave-One-Out (LOO) sensitivity analysis on the full datasets and full model can be justified. This analysis would complement the LOO performed on each individual meta-regression model and provide additional insights. Here’s a detailed explanation:
-
-Justification for LOO Sensitivity Analysis on Full Model
-Assess Overall Model Robustness:
-
-Applying LOO sensitivity analysis to the full model allows you to evaluate the robustness of the overall meta-analytic findings. It helps identify if specific studies have a disproportionate influence on the aggregated results.
-This is particularly useful when you have concerns about the quality or heterogeneity of the included studies. If the removal of a single study drastically changes the overall effect size or model fit, this study might need further investigation.
-Comparison Between Datasets (Imputed vs Non-Imputed):
-
-Conducting LOO on both non_imp_dataset and imp_dataset allows you to compare the stability of the results between datasets with and without imputation.
-It helps validate the imputation process by checking whether imputed data introduces or mitigates influential observations.
-Insights Across All Moderators:
-
-The LOO analysis on individual meta-regression models examines the impact of leaving out observations within each moderator level. However, performing LOO on the full model assesses the overall influence of each study across all moderators combined.
-This provides a broader view of the dataset and highlights influential studies that might not be detected when focusing only on specific moderators.
-Pros and Cons of LOO on the Full Model
-Pros:
-Comprehensive Sensitivity Check: It provides a complete picture of the influence of each study across the entire dataset.
-Validation of Imputed Data: It allows you to test the robustness of results obtained from imputed datasets, helping ensure that imputation did not introduce bias.
-Identification of Influential Studies: It can detect influential studies that have a large impact on the overall meta-analytic effect size or variance components.
-Cons:
-Computational Intensity: The LOO analysis on the full model can be computationally expensive, especially with large datasets and complex random-effects structures.
-Potential Overlap: If individual meta-regression models are already analyzed with LOO, the full-model LOO might yield redundant information. However, this risk is mitigated by focusing on the broader dataset perspective.
-Complex Interpretation: If a study is found to be influential in the full model LOO but not in specific meta-regression models, interpretation can be challenging. It may indicate complex interactions or issues with the overall model specification.
-Implementation Plan
-You can implement the LOO sensitivity analysis on the full model using both imputed and non-imputed datasets. Here’s how to proceed:
-
-Fit the Full Model on each dataset (non_imp_dataset, imp_dataset, non_imp_dataset_imputed, imp_dataset_imputed).
-Run LOO Sensitivity Analysis using a function that iteratively removes one study at a time and refits the model.
-Summarize the Results: Report changes in the effect size, heterogeneity statistics (I²), and model fit metrics (AIC, BIC, LogLik).
-
-Why Split by Response Variable?
-Distinct Moderation Effects: Response variables (e.g., ecosystem services like greenhouse gas emissions, soil quality, etc.) likely differ in how moderators (e.g., tree type, crop type, season) influence them. Splitting allows the model to isolate the unique relationships within each response variable.
-
-Interpretability: Without splitting, estimates may conflate effects across distinct response variables, making it difficult to attribute results to a specific ecosystem service.
-
-Appropriate LOO Sensitivity: Running LOO sensitivity on mixed-response datasets can be misleading, as the omitted studies might affect multiple response variables differently, introducing biases or artifacts.
-
-Fits the Cabbage Approach: This methodology inherently groups analyses by discrete categories, and splitting by response variable mirrors that logic.
 
 ```{r}
+#########################################################################
+###############################################################################
+###################################################################################
+########################################################################################
+#############################################################################################
+####################################################################################################
+
+# WORING ON THE IMPUTED DATASET
+meta_data <- imp_dataset
+
+####################################################################################################
+#############################################################################################
+########################################################################################
+###################################################################################
+###############################################################################
+#########################################################################
 
 ```
+
+```{r}
+# Load effect sizes from the structured_results data
+
+structured_results <- readRDS(here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R", "structured_results_all_effect_sizes.rds"))
+```
+
+
+
+```{r}
+##########################################################################################################################################
+# DYNAMIC LEAVE-ONE-OUT SENSITIVITY ANALYSIS ON STUDY EFFECTS - USING A SIMPLER rma MODEL
+##########################################################################################################################################
+
+##########################################################################
+# Set up the parallel processing plan
+plan(multisession, workers = parallel::detectCores() - 1)
+##########################################################################
+# Start time tracking
+start.time <- Sys.time()
+##########################################################################
+
+# Define the function for Leave-One-Out (LOO) sensitivity analysis
+conduct_loo_analysis <- function(meta_data, model_formula_function, random_effects_formula) {
+  
+  # Extract unique studies
+  unique_studies <- unique(meta_data$id_article)
+  
+  # Initialize an empty list to store LOO results
+  loo_results <- list()
+  
+  # Iterate through each study
+  for (study in unique_studies) {
+    cat("Excluding study:", study, "\n")
+    
+    # Subset the data excluding the current study
+    data_excluded <- meta_data[meta_data$id_article != study, ]
+    
+    # Refit the model without the excluded study using the provided model formula function
+    loo_model <- tryCatch({
+      model_formula_function(
+        data = data_excluded,
+        random_effects_formula = random_effects_formula
+      )
+    }, error = function(e) {
+      cat("Error in fitting model for study:", study, "-", e$message, "\n")
+      return(NULL)
+    })
+    
+    # Store the results
+    loo_results[[as.character(study)]] <- loo_model
+  }
+  
+  return(loo_results)
+}
+
+# Define model formula functions
+minimal_random_effects_model <- function(data, random_effects_formula) {
+  rma.mv(
+    yi = yi,
+    V = vi,
+    mods = ~ 1,  # Intercept-only model
+    random = random_effects_formula,
+    data = data,
+    method = "REML",
+    control = list(iter.max = 2000, rel.tol = 1e-9)
+  )
+}
+
+full_model <- function(data, random_effects_formula) {
+  rma.mv(
+    yi = yi,
+    V = vi,
+    mods = as.formula("~ tree_type + crop_type + age_system + season + soil_texture"),
+    random = random_effects_formula,
+    data = data,
+    method = "REML",
+    control = list(iter.max = 2000, rel.tol = 1e-9)
+  )
+}
+
+##########################################################################################################################################
+# RUN DYNAMIC LEAVE-ONE-OUT ANALYSIS PER RESPONSE VARIABLE
+##########################################################################################################################################
+
+# Set the model formula function to use for LOO analysis (e.g., minimal_random_effects_model or full_model)
+model_to_use <- minimal_random_effects_model  # Change this to full_model if needed
+
+# Define random effects structure
+random_effects_formula <- ~ 1 | exp_id
+
+# Initialize a list to store results for each response variable
+response_specific_results <- list()
+
+# Loop through each response variable and conduct LOO analysis
+for (response in unique(meta_data$response_variable)) {
+  cat("Processing response variable:", response, "\n")
+  
+  # Subset the data for the current response variable
+  data_subset <- meta_data[meta_data$response_variable == response, ]
+  
+  # Conduct Leave-One-Out (LOO) sensitivity analysis for the current response variable
+  response_specific_results[[response]] <- conduct_loo_analysis(
+    meta_data = data_subset,
+    model_formula_function = model_to_use,
+    random_effects_formula = random_effects_formula
+  )
+}
+##########################################################################
+# End time tracking
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+cat("\nTotal time taken:", time.taken, units(time.taken), "\n")
+##########################################################################
+# Last go (26/01-2025)
+# Total time taken: 13.77877 secs 
+
+# Processing response variable: Biodiversity 
+# Excluding study: 1 
+# Excluding study: 4 
+# Excluding study: 7 
+# Excluding study: 9 
+# Excluding study: 15 
+# Excluding study: 18 
+# Excluding study: 25 
+# Excluding study: 29 
+# Excluding study: 35 
+# Processing response variable: Crop yield 
+# Excluding study: 2 
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Excluding study: 3 
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Excluding study: 10 
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Excluding study: 11 
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Excluding study: 12 
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Excluding study: 13 
+# Excluding study: 14 
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Excluding study: 16 
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Excluding study: 20 
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Excluding study: 25 
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Excluding study: 26 
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Excluding study: 30 
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Excluding study: 31 
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Excluding study: 33 
+# Excluding study: 34 
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Excluding study: 36 
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Excluding study: 37 
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Processing response variable: Water quality 
+# Excluding study: 5 
+# Error in fitting model for study: 5 - Processing terminated since k <= 1. 
+# Processing response variable: Pest and Disease 
+# Excluding study: 6 
+# Excluding study: 17 
+# Excluding study: 29 
+# Processing response variable: Soil quality 
+# Excluding study: 8 
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Excluding study: 14 
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Excluding study: 19 
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Excluding study: 21 
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Excluding study: 23 
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Excluding study: 24 
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Excluding study: 25 
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Excluding study: 27 
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Excluding study: 28 
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Excluding study: 32 
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Excluding study: 33 
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Processing response variable: Greenhouse gas emission 
+# Excluding study: 11 
+# Advarsel: Single-level factor(s) found in 'random' argument. Corresponding 'sigma2' value(s) fixed to 0.Excluding study: 22 
+# Advarsel: Single-level factor(s) found in 'random' argument. Corresponding 'sigma2' value(s) fixed to 0.Processing response variable: Product quality 
+# Excluding study: 12 
+# Excluding study: 20 
+# Excluding study: 25 
+# Excluding study: 26 
+# Excluding study: 34 
+# 
+# Total time taken: 11.29175 secs 
+```
+
+```{r}
+# response_specific_results$`Crop yield` |> str()
+```
+
+```{r}
+##########################################################################################################################################
+# INSPECT RESULTS
+##########################################################################################################################################
+
+# Summarize LOO results with detailed comparison to the full model
+summarize_loo_results <- function(loo_results, full_effect_size) {
+  summary_df <- do.call(rbind, lapply(names(loo_results), function(study) {
+    model <- loo_results[[study]]
+    if (is.null(model) || is.null(model$b)) {
+      return(data.frame(
+        Study = study,
+        Excluded_Effect_Size = NA,
+        Excluded_SE = NA,
+        Full_Effect_Size = full_effect_size,
+        Change_in_Effect_Size = NA,
+        QE = NA,
+        QE_pval = NA,
+        I2 = NA,
+        Tau2 = NA
+      ))
+    }
+    
+    # Extract effect size and standard error for the excluded study
+    excluded_effect_size <- ifelse(length(model$b) > 0, model$b[1], NA)
+    excluded_se <- ifelse(length(model$se) > 0, model$se[1], NA)
+    
+    # Calculate change in effect size with proper handling of zero or near-zero full effect size
+    if (!is.na(full_effect_size) && abs(full_effect_size) > 1e-6) {
+      change_in_effect_size <- ((excluded_effect_size - full_effect_size) / full_effect_size) * 100
+    } else {
+      change_in_effect_size <- NA
+    }
+    
+    data.frame(
+      Study = study,
+      Excluded_Effect_Size = excluded_effect_size,
+      Excluded_SE = excluded_se,
+      Full_Effect_Size = full_effect_size,
+      Change_in_Effect_Size = change_in_effect_size,
+      QE = ifelse(!is.null(model$QE), model$QE, NA),
+      QE_pval = ifelse(!is.null(model$QEp), model$QEp, NA),
+      I2 = ifelse(!is.null(model$I2), model$I2, NA),
+      Tau2 = ifelse(!is.null(model$tau2), model$tau2, NA)
+    )
+  }))
+  
+  return(summary_df)
+}
+
+
+# Generate the summary table for each response variable
+response_summary <- lapply(names(response_specific_results), function(response) {
+  cat("Summarizing LOO results for response variable:", response, "\n")
+  
+  loo_results <- response_specific_results[[response]]
+  if (is.null(loo_results) || length(loo_results) == 0) {
+    cat("No valid LOO results for response variable:", response, "\n")
+    return(data.frame(
+      Study = NA,
+      Excluded_Effect_Size = NA,
+      Excluded_SE = NA,
+      Full_Effect_Size = NA,
+      Change_in_Effect_Size = NA,
+      QE = NA,
+      QE_pval = NA,
+      I2 = NA,
+      Tau2 = NA,
+      response_variable = response
+    ))
+  }
+  
+  # Extract the full effect size from structured_results
+  full_effect_size <- structured_results %>%
+    filter(ResponseVariable == response, Model == "full_model") %>%
+    pull(Estimate)
+  
+  if (length(full_effect_size) == 0) {
+    cat("No valid full model result for response variable:", response, "\n")
+    return(data.frame(
+      Study = NA,
+      Excluded_Effect_Size = NA,
+      Excluded_SE = NA,
+      Full_Effect_Size = NA,
+      Change_in_Effect_Size = NA,
+      QE = NA,
+      QE_pval = NA,
+      I2 = NA,
+      Tau2 = NA,
+      response_variable = response
+    ))
+  }
+  
+  # Use the first valid full effect size
+  full_effect_size <- full_effect_size[1]
+  summary_df <- summarize_loo_results(loo_results, full_effect_size)
+  summary_df$response_variable <- response
+  return(summary_df)
+})
+
+# Combine results into a single data frame
+response_summary_combined <- do.call(rbind, response_summary) |> 
+  relocate(Study, response_variable, Full_Effect_Size, Excluded_Effect_Size, Change_in_Effect_Size)
+
+# Inspect the combined summary
+print(response_summary_combined)
+```
+
+```{r}
+##########################################################################################################################################
+# SUMMARIZE CONTRIBUTION OF STUDIES TO RESPONSE VARIABLES
+##########################################################################################################################################
+
+# Summarize the overall contribution of each study
+study_contribution_summary <- response_summary_combined %>%
+  group_by(Study, response_variable) %>%
+  summarise(
+    Mean_Change_in_Effect_Size = mean(abs(Change_in_Effect_Size), na.rm = TRUE),
+    Total_Change_in_Effect_Size = sum(abs(Change_in_Effect_Size), na.rm = TRUE),
+    Mean_Excluded_Effect_Size = mean(Excluded_Effect_Size, na.rm = TRUE),
+    Mean_Excluded_SE = mean(Excluded_SE, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    Study = as.numeric(Study)
+  ) %>%
+  arrange((Study))  # Correct sorting in ascending order
+
+# Inspect the summarized contributions
+print(study_contribution_summary)
+
+# Optional: Save the summary to a CSV file for further analysis
+# write.csv(study_contribution_summary, "study_contribution_summary.csv", row.names = FALSE)
+
+study_contribution_summary |> glimpse()
+```
+
+```{r}
+# Scatter plot of Excluded Effect Size vs. Mean Change
+ggplot(study_contribution_summary, aes(x = Mean_Excluded_Effect_Size, y = Mean_Change_in_Effect_Size, color = response_variable)) +
+  geom_point(size = 3) +
+  geom_smooth(method = "lm", se = FALSE, linetype = "dashed") +
+  labs(
+    title = "Excluded Effect Size vs. Mean Change in Effect Size",
+    x = "Mean Excluded Effect Size",
+    y = "Mean Change in Effect Size (%)",
+    color = "Response Variable"
+  ) +
+  theme_minimal()
+```
+```{r}
+# Faceted bar plot
+ggplot(study_contribution_summary, aes(x = reorder(as.factor(Study), -Mean_Change_in_Effect_Size), y = Mean_Change_in_Effect_Size)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  labs(
+    title = "Study Contributions by Response Variable",
+    x = "Study",
+    y = "Mean Change in Effect Size (%)"
+  ) +
+  coord_flip() +
+  facet_wrap(~response_variable, scales = "free_y") +
+  theme_minimal()
+```
+
+```{r}
+# Heatmap of Total Change in Effect Size
+ggplot(study_contribution_summary, aes(x = as.factor(Study), y = response_variable, fill = Total_Change_in_Effect_Size)) +
+  geom_tile(color = "white") +
+  scale_fill_viridis_c(option = "C") +
+  labs(
+    title = "Heatmap of Total Change in Effect Size",
+    x = "Study",
+    y = "Response Variable",
+    fill = "Total Change (%)"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+# Bar plot of Mean Change in Effect Size
+ggplot(study_contribution_summary, aes(x = reorder(as.factor(Study), -Mean_Change_in_Effect_Size), y = Mean_Change_in_Effect_Size, fill = response_variable)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(
+    title = "Mean Change in Effect Size by Study",
+    x = "Study",
+    y = "Mean Change in Effect Size (%)",
+    fill = "Response Variable"
+  ) +
+  coord_flip() +
+  theme_minimal()
+```
+
+```{r}
+glimpse(study_contribution_summary)
+
+# Check for missing or invalid values
+summary(study_contribution_summary$Mean_Change_in_Effect_Size)
+
+```
+
+```{r}
+# Caterpillar plot for LOO sensitivity analysis
+ggplot(study_contribution_summary, aes(
+  x = Mean_Change_in_Effect_Size,
+  y = reorder(Study, Mean_Change_in_Effect_Size),
+  fill = response_variable
+)) +
+  geom_bar(stat = "identity") +
+  labs(
+    title = "Caterpillar Plot: Study Influence on Effect Size",
+    x = "Mean Change in Effect Size (%)",
+    y = "Study",
+    fill = "Response Variable"
+  ) +
+  facet_wrap(~ response_variable, scales = "free_y") + # Facet by response_variable with free y-axis scale
+  theme_minimal() +
+  theme(
+    axis.text.y = element_text(size = 10),
+    legend.position = "bottom",
+    strip.text = element_text(size = 12, face = "bold") # Customize facet labels
+  )
+```
+
+```{r}
+# Ensure the Full_Effect_Size column exists
+if (!"Full_Effect_Size" %in% colnames(study_contribution_summary)) {
+  study_contribution_summary <- study_contribution_summary %>%
+    mutate(Full_Effect_Size = mean(Mean_Excluded_Effect_Size, na.rm = TRUE))
+}
+
+# Enhanced Forest Plot with Free Scales for Both Axes
+ggplot(study_contribution_summary, aes(
+  x = Mean_Excluded_Effect_Size,
+  y = reorder(Study, Mean_Excluded_Effect_Size),
+  xmin = Mean_Excluded_Effect_Size - Mean_Excluded_SE,
+  xmax = Mean_Excluded_Effect_Size + Mean_Excluded_SE,
+  color = response_variable
+)) +
+  geom_point(size = 3) +
+  geom_errorbarh(height = 0.2) +
+  geom_vline(
+    xintercept = mean(study_contribution_summary$Full_Effect_Size, na.rm = TRUE),
+    linetype = "dashed",
+    color = "red"
+  ) +
+  facet_wrap(~response_variable, scales = "free", ncol = 2) +
+  labs(
+    title = "Forest Plot: LOO Sensitivity Analysis by Response Variable",
+    x = "Effect Size (with Study Excluded)",
+    y = "Studies",
+    color = "Response Variable"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.y = element_text(size = 8),
+    axis.text.x = element_text(size = 10),
+    legend.position = "bottom",
+    strip.text = element_text(size = 10, face = "bold")
+  )
+```
+
+
+
+
+############
+# STEP 7
+##########################################################################################################################################
+PUBLICATION BIAS INVESTIGATION FOR META-ANALYSIS
+##########################################################################################################################################
+
+
+```{r}
+##########################################################################################################################################
+# PUBLICATION BIAS INVESTIGATION FOR META-ANALYSIS
+##########################################################################################################################################
+
+# This workflow is designed to assess publication bias in meta-analysis studies. 
+# It uses a combination of multivariate models (rma.mv) for complex analyses and univariate models (rma) for bias diagnostics.
+
+# **Models**:
+# 1. `Minimal_Model`: A multivariate intercept-only model to analyze general heterogeneity. ----------------------- omitted because of errors in model fitting!
+# 2. `Full_Model`: A multivariate model incorporating key moderators (e.g., crop type, soil texture, etc.). ------- omitted because of errors in model fitting!
+# 3. `Univariate_Model`: A simpler univariate model used exclusively for publication bias analysis.
+
+# **Data**:
+# The input data (`meta_data`) is split by response variables (e.g., Biodiversity, Crop Yield). 
+# Each subset is analyzed independently to fit the models and compute diagnostics.
+
+# **Tests**:
+# 1. **Egger's Test**: Evaluates funnel plot asymmetry as an indicator of bias.
+# 2. **Trim-and-Fill**: Adjusts effect sizes to account for missing studies.
+
+# The workflow ensures compatibility by using `rma` models for publication-bias-specific tests.
+
+
+# Function to fit univariate random effects model
+# Fits a univariate random-effects meta-analysis model (rma)
+univariate_random_effects_model <- function(data) {
+  tryCatch(
+    rma(
+      yi = yi,  # Effect size
+      vi = vi,  # Variance of effect size
+      data = data,  # Input dataset
+      method = "REML"  # Restricted Maximum Likelihood estimation
+    ),
+    error = function(e) {
+      message("Error fitting univariate model: ", e$message)
+      return(NULL)
+    }
+  )
+}
+
+# Function to fit and summarize models for each response variable
+fit_and_summarize_by_response <- function(data) {
+  response_data <- split(data, data$response_variable)  # Split data by response variable
+
+  response_results <- lapply(names(response_data), function(response) {
+    message("Processing response variable: ", response)
+    data_subset <- response_data[[response]]
+
+    # Fit univariate model
+    univariate_model <- univariate_random_effects_model(data_subset)
+
+    list(
+      Response = response,  # Response variable name
+      Univariate_Model = univariate_model  # Fitted univariate model
+    )
+  })
+
+  names(response_results) <- names(response_data)  # Name results by response variable
+  return(response_results)
+}
+
+# Function to calculate publication bias for each response variable
+# Performs Egger's Test and Trim-and-Fill analysis for univariate models
+calculate_publication_bias <- function(models) {
+  bias_results <- list()
+
+  for (response in names(models)) {
+    univariate_model <- models[[response]]$Univariate_Model
+
+    if (!is.null(univariate_model)) {
+      bias_results[[response]] <- list(
+        Egger_Test = tryCatch(
+          regtest(univariate_model, model = "rma"),
+          error = function(e) {
+            message("Error performing Egger's Test for response variable ", response, ": ", e$message)
+            return(NULL)
+          }
+        ),
+        Trim_and_Fill = tryCatch(
+          trimfill(univariate_model),
+          error = function(e) {
+            message("Error performing Trim-and-Fill for response variable ", response, ": ", e$message)
+            return(NULL)
+          }
+        )
+      )
+    } else {
+      message("Univariate model is not valid for response variable: ", response)
+    }
+  }
+
+  return(bias_results)
+}
+
+# Using the publication-bias modelling workflow
+response_results <- fit_and_summarize_by_response(meta_data)  # Fit models for each response variable
+bias_results <- calculate_publication_bias(response_results)  # Calculate publication bias
+
+response_results
+bias_results 
+
+# bias_results |> str()
+```
+
+```{r}
+##########################################################################################################################################
+# SAVE PUBLICATION-BIAS RESULTS INTO DATAFRAME
+##########################################################################################################################################
+
+# Save publication bias results to a structured dataframe
+save_bias_results <- function(bias_results) {
+  results_list <- lapply(names(bias_results), function(response) {
+    result <- bias_results[[response]]
+
+    # Initialize Egger's Test row
+    egger_row <- if (!is.null(result$Egger_Test)) {
+      egger <- result$Egger_Test
+      data.frame(
+        Response = response,
+        Test = "Egger's Test",
+        Z_Value = if (!is.null(egger$zval)) egger$zval else NA,
+        P_Value = if (!is.null(egger$pval)) egger$pval else NA,
+        Limit_Estimate = if (!is.null(egger$b)) egger$b[1] else NA,
+        CI_Lower = if (!is.null(egger$ci.lb)) egger$ci.lb else NA,
+        CI_Upper = if (!is.null(egger$ci.ub)) egger$ci.ub else NA,
+        Estimated_Missing_Studies = NA,
+        Adjusted_Estimate = NA
+      )
+    } else {
+      data.frame(
+        Response = response,
+        Test = "Egger's Test",
+        Z_Value = NA,
+        P_Value = NA,
+        Limit_Estimate = NA,
+        CI_Lower = NA,
+        CI_Upper = NA,
+        Estimated_Missing_Studies = NA,
+        Adjusted_Estimate = NA
+      )
+    }
+
+    # Initialize Trim-and-Fill row
+    trim_row <- if (!is.null(result$Trim_and_Fill)) {
+      trim <- result$Trim_and_Fill
+      data.frame(
+        Response = response,
+        Test = "Trim-and-Fill",
+        Z_Value = NA,
+        P_Value = NA,
+        Limit_Estimate = NA,
+        CI_Lower = if (!is.null(trim$ci.lb)) trim$ci.lb else NA,
+        CI_Upper = if (!is.null(trim$ci.ub)) trim$ci.ub else NA,
+        Estimated_Missing_Studies = if (!is.null(trim$k0)) trim$k0 else NA,
+        Adjusted_Estimate = if (!is.null(trim$b)) trim$b[1] else NA
+      )
+    } else {
+      data.frame(
+        Response = response,
+        Test = "Trim-and-Fill",
+        Z_Value = NA,
+        P_Value = NA,
+        Limit_Estimate = NA,
+        CI_Lower = NA,
+        CI_Upper = NA,
+        Estimated_Missing_Studies = NA,
+        Adjusted_Estimate = NA
+      )
+    }
+
+    # Combine rows for the current response
+    rbind(egger_row, trim_row)
+  })
+
+  # Combine all rows into a single dataframe
+  results_df <- do.call(rbind, results_list)
+  return(results_df)
+}
+
+# Save results to a dataframe for further analysis
+bias_results_df <- save_bias_results(bias_results)
+
+# Print results dataframe
+print(bias_results_df)
+
+bias_results_df |> glimpse()
+```
+
+
+
+```{r}
+# Filter for Trim-and-Fill results
+funnel_data <- bias_results_df %>% filter(Test == "Trim-and-Fill")
+
+# Add precision (1 / SE)
+funnel_data <- funnel_data %>%
+  mutate(
+    Precision = 1 / sqrt(Adjusted_Estimate + abs(CI_Upper - CI_Lower))
+  )
+
+# Funnel plot
+ggplot(funnel_data, aes(x = Adjusted_Estimate, y = Precision)) +
+  geom_point(color = "blue", size = 3) +
+  geom_errorbarh(
+    aes(xmin = CI_Lower, xmax = CI_Upper),
+    height = 0.2,
+    color = "gray"
+  ) +
+  geom_vline(
+    xintercept = mean(funnel_data$Adjusted_Estimate, na.rm = TRUE),
+    linetype = "dashed",
+    color = "red",
+    size = 1
+  ) +
+  facet_wrap(~ Response, scales = "free") +
+  theme_minimal() +
+  labs(
+    title = "Funnel Plot with Trim-and-Fill Adjustments",
+    x = "Effect Size",
+    y = "Precision (1/SE)"
+  ) +
+  theme(
+    strip.text = element_text(size = 12, face = "bold"),
+    axis.text = element_text(size = 10),
+    plot.title = element_text(hjust = 0.5)
+  )
+
+```
+
+```{r}
+egger_data <- bias_results_df |> dplyr::filter(Test == "Egger's Test")
+ggplot(egger_data, aes(x = CI_Lower, y = CI_Upper)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "blue") +
+  theme_minimal() +
+  labs(title = "Egger's Regression Plot for Funnel Plot Asymmetry",
+       x = "Effect Size (Lower CI)",
+       y = "Effect Size (Upper CI)")
+```
+
+```{r}
+trim_data <- bias_results_df |> dplyr::filter(Test == "Trim-and-Fill")
+ggplot(trim_data, aes(x = Response, y = Estimated_Missing_Studies, fill = Adjusted_Estimate > 0)) +
+  geom_col() +
+  theme_minimal() +
+  labs(title = "Number of Missing Studies Estimated (Trim-and-Fill)",
+       x = "Response Variable",
+       y = "Estimated Missing Studies") +
+  scale_fill_manual(values = c("red", "green"), name = "Adjusted Estimate Positive")
+
+```
+
+```{r}
+# Filter data for Trim-and-Fill results
+forest_data <- bias_results_df %>%
+  filter(Test == "Trim-and-Fill") %>%
+  mutate(Response = factor(Response, levels = rev(Response))) # Reverse levels for proper ordering on y-axis
+
+# Custom colors for each response variable
+custom_colors <- c(
+  "Biodiversity" = "#FF9999",
+  "Greenhouse gas emission" = "#66C266",
+  "Product quality" = "#FFC000",
+  "Crop yield" = "#FF9933",
+  "Pest and Disease" = "#33CCCC",
+  "Soil quality" = "#9966CC",
+  "Water quality" = "#9999FF"
+)
+
+# Plot with ggplot2
+ggplot(forest_data, aes(
+  x = Adjusted_Estimate,
+  y = Response,
+  xmin = CI_Lower,
+  xmax = CI_Upper,
+  color = Response
+)) +
+  geom_point(size = 3) +
+  geom_errorbarh(height = 0.2, size = 0.8) +
+  scale_color_manual(values = custom_colors) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "gray") +
+  geom_text_repel(
+    aes(label = paste0("Imputed: ", Estimated_Missing_Studies)),
+    hjust = 0,
+    nudge_x = 0.02,
+    nudge_y = -0.3, # Adjust this value to move the text downward
+    size = 4,
+    color = "black"
+  ) +
+  labs(
+    title = "Trim-and-Fill Adjusted Estimates with CIs",
+    x = "Adjusted Effect Size",
+    y = NULL,
+    color = "Response Variable"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    legend.position = "none",
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    axis.text.y = element_text(color = "black"),
+    axis.text.x = element_text(color = "black")
+  )
+
+```
+
+
+### The Trim-and-Fill Test and Results: A Report Summary
+
+The **Trim-and-Fill** method is a statistical tool used in meta-analysis to detect and adjust for **publication bias**, which occurs when studies with significant or positive results are more likely to be published, leading to distorted overall effect size estimates. This method ensures that meta-analytic conclusions are robust and unbiased.
+
+#### Key Steps in the Trim-and-Fill Process:
+1. **Detection of Funnel Plot Asymmetry**: A symmetrical funnel plot indicates no publication bias, while asymmetry suggests missing studies, often small studies with non-significant results.
+2. **Trimming**: Studies causing asymmetry are temporarily removed to create symmetry.
+3. **Filling**: Missing studies are imputed on the underreported side of the funnel plot.
+4. **Re-estimation**: A new meta-analysis is performed with the original and imputed studies to calculate the **adjusted effect size** and its confidence intervals (CIs).
+
+#### Trim-and-Fill Results:
+The method outputs **adjusted estimates** that reflect the effect sizes after accounting for missing studies, along with:
+- **Confidence Intervals (CIs)**: Indicating the range of plausible values for the adjusted effect size. If the CI includes zero, the adjusted estimate is not statistically significant.
+- **Estimated Missing Studies**: The number of studies imputed to restore symmetry.
+- **Direction of Bias**: Identifies the likely side where studies were underreported.
+
+#### Purpose and Insights:
+The Trim-and-Fill method evaluates whether the original meta-analytic estimate is robust to potential bias. A large difference between unadjusted and adjusted effect sizes indicates significant publication bias, while minimal changes suggest robustness.
+
+---
+
+### Forest Plot Interpretation of Trim-and-Fill Results
+The forest plot provides a visual summary of the Trim-and-Fill adjusted effect sizes and their corresponding CIs for various response variables:
+
+1. **Adjusted Effect Sizes**: Represented by dots along horizontal bars (CIs), showing the mean effect size after adjusting for missing studies.
+2. **Confidence Intervals (CIs)**: Bars extending from each dot. If they cross the vertical line at zero, the result is not statistically significant.
+3. **Response Variables**: Listed on the y-axis, such as **Biodiversity**, **Crop yield**, and **Water quality**.
+4. **Significance**: 
+   - Positive or negative estimates excluding zero indicate significance.
+   - Wide CIs suggest higher uncertainty, while narrow CIs indicate precision.
+
+---
+
+### Observations:
+- **Significant Findings**: "Water quality" has a positive adjusted estimate with CIs excluding zero, indicating statistical significance.
+- **Negative Adjustments**: "Crop yield" and "Product quality" show negative adjusted estimates, with precise but non-significant results.
+- **High Uncertainty**: "Pest and Disease" has wide CIs, indicating variability or uncertainty in its adjusted effect size.
+
+This analysis demonstrates the importance of adjusting for publication bias, revealing both robust and potentially biased estimates across response variables. The plot provides clear, publication-ready visual insights for understanding the impact of bias adjustments in meta-analysis.
+
+
+
+############
+# STEP 8
+##########################################################################################################################################
+MODERATOR ANALYSIS - INFLUENCE OF SILVOARABLE AGROFORESTRY CHARACTERISTICS
+##########################################################################################################################################
+
+
+```{r}
+##########################################################################################################################################
+# MODERATOR ANALYSIS - INFLUENCE OF SILVOARABLE AGROFORESTRY CHARACTERISTICS (MODERATORS)
+##########################################################################################################################################
+
+
+# Define a function to extract and summarize moderator model results for each response variable
+analyze_moderator_influence <- function(model_results) {
+  # Extract response variables from the results
+  response_variables <- names(model_results)
+
+  # Iterate over each response variable to analyze moderators
+  moderator_summaries <- lapply(response_variables, function(response) {
+    cat("Analyzing response variable:", response, "\n")
+    
+    # Extract moderator models for the current response
+    moderator_models <- model_results[[response]]$moderator_models
+
+    # Summarize the moderator influence
+    summaries <- lapply(names(moderator_models), function(moderator) {
+      cat("  Moderator:", moderator, "\n")
+      
+      # Extract the model for the current moderator
+      mod_model <- moderator_models[[moderator]]
+      
+      # Extract coefficients, standard errors, and p-values
+      coef_summary <- data.frame(
+        Term = rownames(mod_model$b),
+        Estimate = mod_model$b[, 1],
+        SE = mod_model$se,
+        Zval = mod_model$zval,
+        Pval = mod_model$pval,
+        CI.Lower = mod_model$ci.lb,
+        CI.Upper = mod_model$ci.ub
+      )
+
+      return(coef_summary)
+    })
+
+    # Combine summaries for all moderators into a single data frame
+    combined_summary <- do.call(rbind, summaries)
+    combined_summary$Moderator <- rep(names(moderator_models), sapply(summaries, nrow))
+    combined_summary$ResponseVariable <- response
+
+    return(combined_summary)
+  })
+
+  # Combine summaries for all response variables into a single data frame
+  full_summary <- do.call(rbind, moderator_summaries)
+  return(full_summary)
+}
+
+# Call the function and store the results
+moderator_influence_summary <- analyze_moderator_influence(model_results)
+
+# Post-process the summarized influence of moderators
+# Update the post-process function to calculate heterogeneity explained for each response variable
+post_process_moderators_by_response <- function(summary) {
+  # Separate higher-level and lower-level moderators
+  higher_level <- summary %>%
+    filter(!grepl("[a-zA-Z]+[0-9]+", Moderator))
+  
+  # Calculate proportion of heterogeneity explained by higher-level moderators, grouped by ResponseVariable
+  heterogeneity_explained <- higher_level %>%
+    group_by(ResponseVariable, Moderator) %>%
+    summarise(
+      ProportionExplained = mean(Estimate^2 / SE^2, na.rm = TRUE),
+      MeanPValue = mean(Pval, na.rm = TRUE),
+      .groups = "drop"
+    )
+  
+  list(
+    HigherLevel = higher_level,
+    HeterogeneityExplainedByResponse = heterogeneity_explained
+  )
+}
+
+# Call the updated function
+post_processed_results_by_response <- post_process_moderators_by_response(moderator_influence_summary)
+
+# View the proportion of heterogeneity explained by response variable and moderator
+post_processed_results_by_response$HeterogeneityExplainedByResponse
+
+
+post_processed_results_higher_level <- post_processed_results$HigherLevel |> relocate(
+  ResponseVariable,
+  Moderator,
+  Term,
+  Estimate,
+  SE,
+  Pval,
+  Zval,
+  CI.Lower,
+  CI.Lower
+)
+
+# Define the file path for saving
+output_file <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R", "post_processed_results_higher_level.xlsx")
+# Save the dataframe to an Excel file
+write.xlsx(post_processed_results_higher_level, file = output_file, row.names = FALSE)
+cat("The post_processed_results_higher_level data has been saved to:", output_file, "\n")
+
+
+# View summaries
+post_processed_results$HeterogeneityExplained
+post_processed_results_higher_level |> str()
+
+post_processed_results_higher_level 
+```
+
+```{r}
+# Visualize ProportionExplained for Overall and Response Variable-Specific Situations
+
+# Function to visualize ProportionExplained
+visualize_proportion_explained <- function(post_processed_results) {
+  # Extract data for overall situation
+  overall_data <- post_processed_results$HeterogeneityExplained
+
+  # Extract data for response variable-specific situation
+  response_specific_data <- post_processed_results$HigherLevel %>%
+    group_by(ResponseVariable, Moderator) %>%
+    summarise(
+      ProportionExplained = mean(Estimate^2 / SE^2, na.rm = TRUE),
+      .groups = "drop"
+    )
+
+  # Plot overall situation
+  overall_plot <- ggplot(overall_data, aes(x = reorder(Moderator, ProportionExplained), y = ProportionExplained)) +
+    geom_bar(stat = "identity", fill = "skyblue") +
+    # scale_y_continuous(breaks = c(0, 100, 200, 300, 400), limits = c(0, 450)) +
+    coord_flip() +
+    labs(
+      title = "Proportion of Explained Heterogeneity (Overall)",
+      x = "Moderator",
+      y = "Proportion Explained (%)"
+    ) +
+    theme_minimal()
+
+  # Plot response variable-specific situation
+  response_plot <- ggplot(response_specific_data, aes(x = reorder(Moderator, ProportionExplained), y = ProportionExplained, fill = ResponseVariable)) +
+    geom_bar(stat = "identity", position = "dodge") +
+    ggbreak::scale_y_break(c(15, 300), scales = 0.5) +
+    ggbreak::scale_y_break(c(400, 450), scales = 0.5) + # Add two breaks for the y-axis
+    coord_flip() +
+    labs(
+      title = "Proportion of Explained Heterogeneity (By Response Variable)",
+      x = "Moderator",
+      y = "Proportion Explained (%)",
+      fill = "Response Variable"
+    ) +
+    theme_minimal()
+
+  # Return both plots
+  list(
+    OverallPlot = overall_plot,
+    ResponseSpecificPlot = response_plot
+  )
+}
+
+# Generate plots
+plots <- visualize_proportion_explained(post_processed_results)
+
+# Print plots
+print(plots$OverallPlot)
+print(plots$ResponseSpecificPlot)
+```
+
+
+Updated Interpretation of Moderators' Effects on Model Heterogeneity
+
+1. Significance of Moderators (P-value Interpretation):
+- **P-values** reflect whether the moderator has a statistically significant effect on the response variable. 
+  - A **P-value < 0.05** suggests strong evidence that the moderator significantly affects the heterogeneity in effect sizes.
+  - Higher P-values indicate weaker evidence for significant effects, meaning the moderator’s influence may not be consistent across the response variables.
+
+2. Magnitude of Effects (Estimate and SE):
+- The **Estimate** represents the effect size or influence of each moderator term.
+  - Positive values suggest that the moderator increases heterogeneity or variability.
+  - Negative values suggest it reduces variability or explains heterogeneity in a systematic way.
+- The **Standard Error (SE)** indicates the precision of the estimate.
+  - Lower SE values imply higher confidence in the estimates, whereas higher SEs indicate less precise estimates.
+
+3. Confidence Intervals (CI.Lower and CI.Upper):
+- The confidence intervals provide the range within which the true effect size is likely to fall.
+  - Moderators with confidence intervals that **exclude zero** are more likely to have consistent and meaningful effects.
+
+4. Specific Moderators' Contributions:
+1. **Tree Type**:
+   - While some terms (e.g., "tree_typeTimber") have moderate P-values (e.g., ~0.19), the confidence intervals often include zero, indicating less consistent influence.
+   - Moderators under "tree_type" show mixed evidence, with high variability between terms.
+2. **Crop Type**:
+   - Some subcategories (e.g., "crop_typeLegume") exhibit low P-values (e.g., < 0.001) and confidence intervals excluding zero, suggesting significant effects.
+   - This moderator likely contributes moderately to explaining heterogeneity in effect sizes.
+3. **Age System**:
+   - Terms such as "age_systemYoung" consistently show low P-values (<0.01) and confidence intervals excluding zero, highlighting a strong and significant influence on heterogeneity.
+   - This moderator seems to have one of the most consistent and impactful effects.
+4. **Season**:
+   - The influence of "season" varies, with subcategories like "seasonWinter" having moderate P-values (~0.13) and wider confidence intervals.
+   - Its effects are less consistent compared to age system or crop type.
+5. **Soil Texture**:
+   - Subcategories like "soil_textureSand" often show significant effects (P-values < 0.05), with narrow confidence intervals excluding zero.
+   - This suggests that soil texture is a critical moderator for explaining heterogeneity.
+
+5. Proportion of Heterogeneity Explained:
+- Combining the above data with the proportion of heterogeneity explained reveals:
+  - **Age System** consistently explains the highest proportion of heterogeneity (e.g., 95.47%).
+  - **Soil Texture** follows closely, explaining ~82.4%.
+  - **Crop Type** and **Season** contribute moderately (64.5% and 45.2%, respectively).
+  - **Tree Type** has a lower overall contribution (~50.6%).
+
+Summary:
+- **Key Moderators:** "Age System" and "Soil Texture" are the most impactful, with consistently significant effects and the highest proportions of heterogeneity explained.
+- **Moderate Contributors:** "Crop Type" and "Season" show variable but important contributions to explaining heterogeneity.
+- **Least Impactful:** "Tree Type" appears to have inconsistent effects, with many subcategories not significantly contributing to heterogeneity.
+
+
+
+```{r}
+##########################################################################################################################################
+# PUBLICATION BIAS ASSESSMENT - FUNNEL PLOTS
+##########################################################################################################################################
+
+
+# Custom colors for each response variable
+custom_colors <- c(
+  "Biodiversity" = "#FF9999",
+  "Greenhouse gas emission" = "#66C266",
+  "Product quality" = "#FFC000",
+  "Crop yield" = "#FF9933",
+  "Pest and Disease" = "#33CCCC",
+  "Soil quality" = "#9966CC",
+  "Water quality" = "#9999FF"
+)
+
+
+# Function to generate contour-enhanced funnel plots for each response variable
+create_contour_funnel_plots <- function(model_results) {
+  # Loop through each response variable and generate a funnel plot
+  for (response in names(model_results)) {
+    model <- model_results[[response]]$full_model
+
+    # Skip if the model is NULL
+    if (is.null(model)) {
+      message(paste("No valid model for", response))
+      next
+    }
+
+    # Generate and display the contour-enhanced funnel plot
+    tryCatch({
+      funnel(
+        model, 
+        level = c(90, 95, 99),  # Contours for statistical significance
+        refline = 0,            # Center the funnel at 0
+        legend = TRUE,          # Add a legend for the shaded regions
+        main = paste("Contour-Enhanced Funnel Plot for", response)
+      )
+    }, error = function(e) {
+      message(paste("Error generating contour funnel plot for", response, ":", e$message))
+    })
+  }
+}
+
+# Example usage with the model_results object
+create_contour_funnel_plots(model_results)
+
+```
+
+Systematic Interpretation of Contour-Enhanced Funnel Plots Across All Response Variables
+
+General Insights Across All Plots:
+1. **Centering and Symmetry**:
+   - All funnel plots are centered at `0`, representing the null hypothesis of no effect.
+   - Symmetry in some plots (e.g., **Biodiversity**, **Soil Quality**, **Product Quality**) suggests minimal evidence of publication bias, while asymmetry in others (e.g., **Greenhouse Gas Emissions**, **Crop Yield**, **Water Quality**) indicates potential bias or heterogeneity in reported effects.
+
+2. **Shaded Regions**:
+   - Most studies cluster in the **white region** (\( p > 0.10 \)), reflecting non-significant findings across the majority of studies.
+   - A smaller number of studies extend into the **light gray** (\( 0.05 < p \leq 0.10 \)), **medium gray** (\( 0.01 < p \leq 0.05 \)), and **dark gray** (\( p \leq 0.01 \)) regions, indicating marginally significant to highly significant results.
+   - The distribution of points in these shaded regions highlights varying levels of statistical significance across response variables.
+
+3. **Funnel Width**:
+   - The funnel shape consistently broadens as standard error increases, reflecting greater variability in effect sizes for less precise studies (higher standard error). This is consistent with expectations for meta-analyses.
+
+4. **Potential Bias**:
+   - Symmetrical plots (e.g., **Biodiversity**, **Soil Quality**) show little evidence of bias, while skewed plots (e.g., **Greenhouse Gas Emissions**, **Crop Yield**, **Water Quality**) suggest possible **publication bias** or genuine heterogeneity.
+
+Individual Response Variable Insights:
+
+1. **Biodiversity**:
+   - **Symmetry**: The symmetrical distribution around `0` suggests minimal publication bias.
+   - **Findings**: Most studies are non-significant, clustering in the white region.
+   - **Conclusion**: No strong evidence of bias; results are consistent with null or minor effects.
+
+2. **Greenhouse Gas Emissions**:
+   - **Asymmetry**: Skewed to the right, indicating studies reporting positive effects are more frequent.
+   - **Findings**: Non-significant results dominate, with fewer highly significant studies.
+   - **Conclusion**: Potential publication bias favoring positive results; further statistical tests are recommended.
+
+3. **Product Quality**:
+   - **Symmetry**: Studies are distributed evenly around the null, with fewer significant findings.
+   - **Findings**: Most studies fall in the non-significant range.
+   - **Conclusion**: Minimal evidence of bias, indicating balanced reporting of positive and negative results.
+
+4. **Crop Yield**:
+   - **Asymmetry**: Skewed toward positive effects, with non-significant findings dominating.
+   - **Findings**: The distribution suggests potential publication bias or selective reporting.
+   - **Conclusion**: Asymmetry raises concerns; statistical tests (e.g., Egger’s test) are needed.
+
+5. **Pest and Disease**:
+   - **Symmetry**: Moderate symmetry with more studies closer to the center of the funnel.
+   - **Findings**: Non-significant results dominate, with limited significant findings.
+   - **Conclusion**: No substantial bias detected, but further analysis can confirm.
+
+6. **Soil Quality**:
+   - **Symmetry**: Highly symmetrical distribution, indicating a balanced representation of effects.
+   - **Findings**: Predominantly non-significant findings, with very few highly significant studies.
+   - **Conclusion**: Strong indication of no publication bias; results are consistent.
+
+7. **Water Quality**:
+   - **Asymmetry**: Right-skewed, with studies favoring positive effects.
+   - **Findings**: Non-significant results are prevalent, with few moderately significant results.
+   - **Conclusion**: Potential bias or heterogeneity; further exploration of data characteristics is needed.
+
+Overall Conclusion:
+- Symmetrical funnel plots (e.g., **Biodiversity**, **Soil Quality**, **Product Quality**) suggest **minimal publication bias** and consistent results.
+- Asymmetric plots (e.g., **Greenhouse Gas Emissions**, **Crop Yield**, **Water Quality**) highlight potential **publication bias** or **genuine heterogeneity**, warranting further statistical tests like Egger’s regression or subgroup analysis.
+
+
+
+
+
+```{r}
+##########################################################################################################################################
+# PUBLICATION BIAS ASSESSMENT - EGGER'S TEST
+##########################################################################################################################################
+
+
+# Refit models using rma
+refit_rma_models <- function(model_results) {
+  rma_models <- list()
+  
+  for (response in names(model_results)) {
+    tryCatch({
+      # Assuming `yi` and `vi` are your effect sizes and variances
+      model_data <- model_results[[response]]$data
+      if (is.null(model_data)) next
+      
+      rma_model <- rma(yi = model_data$EffectSize, 
+                       vi = model_data$Variance, 
+                       data = model_data,
+                       method = "REML")
+      
+      rma_models[[response]] <- rma_model
+      cat(paste("Model refitted for", response, "\n"))
+    }, error = function(e) {
+      message(paste("Error refitting model for", response, ":", e$message))
+    })
+  }
+  
+  return(rma_models)
+}
+
+# Example usage
+rma_models <- refit_rma_models(model_results)
+
+
+# Run Egger's test on the refitted rma models
+run_eggers_test <- function(rma_models) {
+  results <- list()
+  
+  for (response in names(rma_models)) {
+    model <- rma_models[[response]]
+    if (is.null(model)) next
+    
+    tryCatch({
+      egger_test <- regtest(model, model = "lm", predictor = "sei")
+      results[[response]] <- egger_test
+      cat(paste("\nEgger's Test for", response, ":\n"))
+      print(egger_test)
+    }, error = function(e) {
+      message(paste("Error running Egger's test for", response, ":", e$message))
+    })
+  }
+  
+  return(results)
+}
+
+# Run Egger's test on refitted models
+eggers_results <- run_eggers_test(rma_models)
+
+```
+
+
+```{r}
+##########################################################################################################################################
+# DATA PREP FOR FOREST PLOTS 
+##########################################################################################################################################
+
+# Debugging: Inspect the structure of model_results
+# print("Inspecting model_results:")
+# str(model_results)
+# Generic Function to Extract Relevant Data for Forest Plots
+# Generic Function to Extract Relevant Data for Forest Plots
+
+extract_forest_plot_data <- function(model_results) {
+  forest_data_list <- list() # Initialize list
+
+  for (response in names(model_results)) {
+    model <- model_results[[response]]$full_model
+
+    if (is.null(model)) {
+      message(paste("No model found for", response))
+      next
+    }
+
+    tryCatch({
+      effect_sizes <- model$yi  # Extract effect sizes
+      variances <- model$vi    # Extract variances
+
+      # Match labels (id_obs) to valid rows in the model
+      valid_rows <- model$data[model$not.na, ]  # Subset retained rows
+      labels <- valid_rows$id_obs  # Extract labels corresponding to valid rows
+
+      # Check for length alignment
+      if (length(effect_sizes) != length(variances) || length(effect_sizes) != length(labels)) {
+        stop(paste("Mismatch in data dimensions for", response))
+      }
+
+      # Create the data frame
+      forest_data <- data.frame(
+        Study = labels,
+        EffectSize = effect_sizes,
+        Variance = variances,
+        ResponseVariable = response
+      )
+
+      forest_data_list[[response]] <- forest_data # Store in the list
+    }, error = function(e) {
+      message(paste("Error extracting data for", response, ":", e$message))
+    })
+  }
+
+  return(forest_data_list) # Return list of data frames
+}
+
+
+
+# Example usage with model_results
+forest_plot_data <- extract_forest_plot_data(model_results)
+
+# Print the structure of the extracted data
+str(forest_plot_data)
+
+```
+
+```{r}
+##########################################################################################################################################
+# FOREST PLOTS 
+##########################################################################################################################################
+
+# Function to create a forest plot for a given response variable
+create_forest_plot <- function(data, response_variable, output_path = NULL) {
+  # Filter data for the selected response variable
+  plot_data <- data[[response_variable]]
+  
+  if (is.null(plot_data)) {
+    stop(paste("No data found for", response_variable))
+  }
+  
+  # Calculate confidence intervals
+  plot_data <- plot_data %>%
+    mutate(
+      CI_lower = EffectSize - 1.96 * sqrt(Variance),
+      CI_upper = EffectSize + 1.96 * sqrt(Variance)
+    )
+  
+  # Create the forest plot
+  forest_plot <- ggplot(plot_data, aes(x = EffectSize, y = reorder(Study, EffectSize))) +
+    geom_point(size = 3, color = "blue") +  # Effect size points
+    geom_errorbarh(aes(xmin = CI_lower, xmax = CI_upper), height = 0.2, color = "gray") +  # Error bars
+    theme_minimal() +
+    labs(
+      title = paste("Forest Plot for", response_variable),
+      x = "Effect Size (with 95% CI)",
+      y = "Study",
+      caption = "Note: Horizontal bars indicate 95% confidence intervals."
+    ) +
+    theme(
+      plot.title = element_text(size = 14, face = "bold"),
+      axis.text.y = element_text(size = 10),
+      axis.text.x = element_text(size = 10),
+      axis.title = element_text(size = 12),
+      plot.caption = element_text(size = 9, face = "italic")
+    )
+  
+  # Display the plot
+  print(forest_plot)
+  
+  # Save the plot to file if output_path is provided
+  if (!is.null(output_path)) {
+    ggsave(output_path, plot = forest_plot, width = 10, height = 8)
+  }
+}
+
+# Example usage:
+# Generate a forest plot for "Biodiversity" and save it
+create_forest_plot(forest_plot_data, "Biodiversity", output_path = "Biodiversity_Forest_Plot.png")
+
+# Generate a forest plot for "Crop yield" and display it
+create_forest_plot(forest_plot_data, "Crop yield")
+
+```
+
+
+
+
 

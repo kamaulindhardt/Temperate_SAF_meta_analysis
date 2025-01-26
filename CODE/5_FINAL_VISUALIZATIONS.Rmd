@@ -160,12 +160,484 @@ imp_dataset <- readRDS(file.path(output_dir, "imp_dataset.rds"))
 ```
 
 ```{r}
-imp_dataset_imputed |> glimpse()
+# Custom colors for each response variable
+custom_colors <- c(
+  "Biodiversity" = "#FF9999",
+  "Greenhouse gas emission" = "#66C266",
+  "Product quality" = "#FFC000",
+  "Crop yield" = "#FF9933",
+  "Pest and Disease" = "#33CCCC",
+  "Soil quality" = "#9966CC",
+  "Water quality" = "#9999FF"
+)
 ```
+
+
+```{r}
+imp_dataset |> glimpse()
+```
+
 
 
 #############
 # STEP 1
+##########################################################################################################################################
+MAP OF STUDIES' GEOGRAPHIC DISTRIBUTION - SPATIAL DISTRIBUTION 
+##########################################################################################################################################
+
+
+Publication-ready map that visualizes the ecosystem services (response variables) reported in each study (id_article),
+```{r}
+# Step 1: Simplify the dataset for visualization
+geo_data <- imp_dataset %>%
+  group_by(lat = final_lat, lon = final_lon, response_variable) %>%
+  summarize(
+    n_studies = n_distinct(id_article),
+    .groups = "drop"
+  ) %>%
+  filter(!is.na(lat) & !is.na(lon)) # Remove rows with missing coordinates
+
+# Step 2: Base world map
+world_map <- map_data("world")
+
+
+# Step 4: Create the map
+geo_distribution_of_studies_map <- ggplot() +
+  # Add base map polygons
+  geom_polygon(
+    data = world_map,
+    aes(x = long, y = lat, group = group),
+    fill = "gray90", color = "gray70", size = 0.4
+  ) +
+   # Add jittered points for studies
+  geom_jitter(
+    data = geo_data,
+    aes(x = lon, y = lat, color = response_variable, size = as.factor(n_studies)),
+    alpha = 0.8,
+    width = 0.8,  # Adjust jitter width (longitude)
+    height = 0.75  # Adjust jitter height (latitude)
+  ) +
+  # Apply custom colors
+  scale_color_manual(values = custom_colors, name = "Ecosystem Service") +
+  scale_size_manual(
+    name = "n studies for the given locataion",
+    values = c(2, 3, 4, 5, 6, 7), # Assign size values for bins 1-6
+    breaks = as.character(1:6),  # Ensure breaks correspond to whole numbers
+    labels = as.character(1:6)   # Labels for the legend
+  ) +
+  # Add labels and theme adjustments
+  labs(
+    title = "Geographical Distribution of Ecosystem Services in Silvoarable Agroforestry Studies (Northern Hemisphere)",
+    x = "Longitude",
+    y = "Latitude"
+  ) +
+  coord_cartesian(ylim = c(20, 90)) +  # Restrict to the northern hemisphere
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5, size = 16),
+    legend.title = element_text(face = "bold"),
+    legend.position = "right",
+    panel.grid = element_blank(),
+    axis.line = element_line(color = "gray50")
+  )
+
+geo_distribution_of_studies_map
+```
+
+
+
+
+
+
+
+#############
+# STEP 2
+##########################################################################################################################################
+TEMPORAL DISTRIBUTION
+##########################################################################################################################################
+
+
+Step 2: Distribution of Studies Over Time
+
+```{r}
+# Define a function for generating the chart
+create_stacked_bar_chart <- function(data, id_column, custom_colors, title = "Distribution Over Time", y_label = "Count") {
+  
+  # Prepare the data: Count unique entries by year and response variable
+  grouped_data <- data |>
+    mutate(Year = as.integer(format(as.Date(study_year_start), "%Y"))) |>
+    distinct(!!sym(id_column), Year, response_variable) |>  # Dynamically use id_column
+    count(Year, response_variable)
+  
+  # Create the stacked bar chart
+  ggplot(grouped_data, aes(x = Year, y = n, fill = response_variable)) +
+    geom_bar(stat = "identity", position = "stack", color = "black") +
+    scale_fill_manual(values = custom_colors) +
+    scale_x_continuous(
+      breaks = seq(min(grouped_data$Year, na.rm = TRUE), max(grouped_data$Year, na.rm = TRUE), by = 5),  # Adjust as needed
+      labels = scales::number_format(scale = 1, accuracy = 1)
+    ) +
+    labs(
+      title = title,
+      subtitle = "Stacked by Response Variable",
+      x = "Year",
+      y = y_label,
+      fill = "Response Variable"
+    ) +
+    theme_minimal() +
+    theme(
+      plot.title = element_text(face = "bold", size = 16, hjust = 0.5),
+      plot.subtitle = element_text(size = 12, hjust = 0.5),
+      axis.title = element_text(size = 12, face = "bold"),
+      legend.title = element_text(face = "bold"),
+      axis.text.x = element_text(angle = 45, hjust = 1)
+    )
+}
+
+# Define custom color palette
+
+# Generate chart for id_article (studies)
+chart_studies <- create_stacked_bar_chart(
+  data = imp_dataset,
+  id_column = "id_article",  # Switch to "id_obs" for observations
+  custom_colors = custom_colors,
+  title = "Distribution of Studies Over Time",
+  y_label = "Number of Studies"
+)
+
+# Generate chart for id_obs (observations)
+chart_observations <- create_stacked_bar_chart(
+  data = imp_dataset,
+  id_column = "id_obs",
+  custom_colors = custom_colors,
+  title = "Distribution of Observations Over Time",
+  y_label = "Number of Observations"
+)
+
+# Print the chart for studies
+print(chart_studies)
+
+# Print the chart for observations
+print(chart_observations)
+```
+
+```{r}
+# Function to create cumulative data in long format with proper carry-forward logic
+prepare_cumulative_data <- function(data, id_column) {
+  data |>
+    mutate(Year = as.integer(format(as.Date(study_year_start), "%Y"))) |> # Extract Year
+    distinct(!!sym(id_column), Year, response_variable) |>               # Ensure unique id_column
+    count(Year, response_variable) |>                                   # Count unique ids per year
+    complete(Year = seq(min(Year, na.rm = TRUE), max(Year, na.rm = TRUE), by = 1),  # Add missing years
+             response_variable,                                          # Ensure all response_variables exist for all years
+             fill = list(n = 0)) |>                                      # Fill missing counts with 0
+    group_by(response_variable) |>                                      # Group by response_variable
+    arrange(Year) |>                                                    # Ensure correct year order within each group
+    mutate(cumulative_n = cumsum(n)) |>                                 # Calculate cumulative sum
+    ungroup()                                                           # Remove grouping
+}
+
+# Function to plot cumulative stacked area chart
+create_cumulative_chart <- function(data, custom_colors, title = "Cumulative Distribution Over Time", y_label = "Cumulative Count") {
+  ggplot(data, aes(x = Year, y = cumulative_n, fill = response_variable)) +
+    geom_area(alpha = 0.8, color = "black", size = 0.3) +
+    scale_fill_manual(values = custom_colors) +
+    scale_x_continuous(
+      breaks = seq(min(data$Year, na.rm = TRUE), max(data$Year, na.rm = TRUE), by = 5)
+    ) +
+    labs(
+      title = title,
+      subtitle = "Cumulative Count Stacked by Response Variable",
+      x = "Year",
+      y = y_label,
+      fill = "Response Variable"
+    ) +
+    theme_minimal() +
+    theme(
+      plot.title = element_text(face = "bold", size = 16, hjust = 0.5),
+      plot.subtitle = element_text(size = 12, hjust = 0.5),
+      axis.title = element_text(size = 12, face = "bold"),
+      legend.title = element_text(face = "bold"),
+      axis.text.x = element_text(angle = 45, hjust = 1)
+    )
+}
+
+# Define custom color palette
+
+
+# Prepare cumulative data for articles
+cumulative_data_articles <- prepare_cumulative_data(
+  data = imp_dataset,
+  id_column = "id_article"
+)
+
+# Generate the cumulative chart for articles
+cumulative_articles_chart <- create_cumulative_chart(
+  data = cumulative_data_articles,
+  custom_colors = custom_colors,
+  title = "Cumulative Number of Articles Over Time",
+  y_label = "Cumulative Articles"
+)
+
+# Print the chart
+print(cumulative_articles_chart)
+```
+
+```{r}
+n_distinct(imp_dataset$id_article)
+```
+
+```{r}
+
+# Function to prepare cumulative data for each response_variable
+prepare_cumulative_data <- function(data) {
+  data |>
+    mutate(Year = as.integer(format(as.Date(study_year_start), "%Y"))) |> # Extract Year
+    distinct(id_article, Year, response_variable) |>                     # Ensure unique id_article per Year & response_variable
+    group_by(Year, response_variable) |>                                 # Group by Year & response_variable
+    summarise(unique_articles = n_distinct(id_article), .groups = "drop") |> # Count unique id_articles per group
+    complete(Year = seq(min(Year, na.rm = TRUE), max(Year, na.rm = TRUE), by = 1),  # Add missing years
+             response_variable,                                          # Ensure all response_variables exist for all years
+             fill = list(unique_articles = 0)) |>                        # Fill missing counts with 0
+    group_by(response_variable) |>                                      # Group by response_variable
+    arrange(Year) |>                                                    # Ensure correct year order within each group
+    mutate(cumulative_n = cumsum(unique_articles)) |>                   # Calculate cumulative sum
+    ungroup()                                                           # Remove grouping
+}
+
+# Function to prepare cumulative data for the total unique articles
+prepare_unique_articles <- function(data) {
+  data %>%
+    mutate(Year = as.integer(format(as.Date(study_year_start), "%Y"))) %>%  # Extract year from date column
+    group_by(id_article) %>%  # Group by id_article
+    summarise(first_year = min(Year, na.rm = TRUE), .groups = "drop") %>%  # Get the first year each article appears
+    count(first_year, name = "unique_articles") %>%  # Count unique articles by their first year
+    arrange(first_year) %>%  # Ensure data is sorted by year
+    mutate(cumulative_unique = cumsum(unique_articles)) %>%  # Calculate cumulative sum
+    rename(Year = first_year)  # Rename column for consistency
+}
+
+# Function to create the cumulative chart
+create_cumulative_chart <- function(data, unique_articles_data, custom_colors, title = "Cumulative Distribution Over Time", y_label = "Cumulative Count") {
+  ggplot(data, aes(x = Year, y = cumulative_n, fill = response_variable)) +
+    geom_area(alpha = 0.8, color = "black", size = 0.3) +  # Stacked area chart
+    geom_line(data = unique_articles_data, aes(x = Year, y = cumulative_unique), 
+              inherit.aes = FALSE, color = "black", size = 1.2) +  # Black line for cumulative unique articles
+    scale_fill_manual(values = custom_colors) +
+    scale_x_continuous(
+      breaks = seq(min(data$Year, na.rm = TRUE), max(data$Year, na.rm = TRUE), by = 5)
+    ) +
+    labs(
+      title = title,
+      subtitle = "Cumulative Count Stacked by Response Variable with Total Unique Articles",
+      x = "Year",
+      y = y_label,
+      fill = "Response Variable"
+    ) +
+    theme_minimal() +
+    theme(
+      plot.title = element_text(face = "bold", size = 16, hjust = 0.5),
+      plot.subtitle = element_text(size = 12, hjust = 0.5),
+      axis.title = element_text(size = 12, face = "bold"),
+      legend.title = element_text(face = "bold"),
+      axis.text.x = element_text(angle = 45, hjust = 1)
+    )
+}
+
+# Define custom color palette
+
+
+# Prepare the data
+cumulative_data_articles <- prepare_cumulative_data(imp_dataset)  # Data for the stacked area chart
+cumulative_unique_articles <- prepare_unique_articles(imp_dataset)  # Data for the black line
+
+# Generate the cumulative chart
+cumulative_articles_chart <- create_cumulative_chart(
+  data = cumulative_data_articles,
+  unique_articles_data = cumulative_unique_articles,
+  custom_colors = custom_colors,
+  title = "Cumulative Number of Articles Over Time",
+  y_label = "Cumulative Articles"
+)
+
+# Print the chart
+print(cumulative_articles_chart)
+```
+```{r}
+n_distinct(imp_dataset$id_article)  # Should match the final value in cumulative_unique
+print(cumulative_unique_articles) |> glimpse() # Ensure no year surpasses the total unique articles
+```
+
+
+```{r}
+# Prepare the data: Count unique studies by year and response variable
+stacked_data <- imp_dataset |>
+  mutate(Year = as.integer(format(as.Date(study_year_start), "%Y"))) |>
+  distinct(id_article, Year, response_variable) |>  # Ensure unique studies
+  count(Year, response_variable)
+
+# Define custom color palette
+
+
+# Create stacked bar chart
+studies_over_time <- stacked_data |> 
+  ggplot(aes(x = Year, y = n, fill = response_variable)) +
+  geom_bar(stat = "identity", position = "stack", color = "black") +
+  scale_fill_manual(values = custom_colors) +
+  scale_x_continuous(
+    breaks = seq(min(stacked_data$Year), max(stacked_data$Year), by = 5),  # Adjust as needed
+    labels = scales::number_format(scale = 1, accuracy = 1)
+  ) +
+  labs(
+    title = "Distribution of Studies Over Time",
+    subtitle = "Stacked by Response Variable",
+    x = "Year",
+    y = "Number of Studies",
+    fill = "Response Variable"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold", size = 16, hjust = 0.5),
+    plot.subtitle = element_text(size = 12, hjust = 0.5),
+    axis.title = element_text(size = 12, face = "bold"),
+    legend.title = element_text(face = "bold"),
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+studies_over_time
+```
+
+
+```{r}
+# Histogram for the distribution of unique studies over time
+imp_dataset |> 
+  distinct(id_article, study_year_start) |> 
+ggplot(aes(x = as.Date(study_year_start))) +
+  geom_histogram(binwidth = 1, fill = "lightgreen", color = "black") +
+  labs(title = "Distribution of Unique Studies Over Time", x = "Year", y = "Number of Studies") +
+  theme_minimal()
+```
+
+Step 3: Distribution of Studies Across Moderators
+
+```{r}
+# Bar plot for crop_type
+data_distribution_crop_type <- 
+  imp_dataset |> 
+  ggplot(aes(x = crop_type)) +
+  geom_bar(fill = "cornflowerblue") +
+  labs(title = "Distribution of Entries Across Tree-Crop Combinations", x = "Tree-Crop Combination", y = "Number of Entries") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+data_distribution_crop_type
+```
+```{r}
+# Bar plot for season
+data_distribution_season <- 
+  imp_dataset |>
+  ggplot(aes(x = season)) +
+  geom_bar(fill = "darkorange") +
+  labs(title = "Distribution of Entries Across Seasons", x = "Season", y = "Number of Entries") +
+  theme_minimal()
+
+data_distribution_season
+```
+
+```{r}
+# Bar plot for alley width category
+```
+
+Step 4: Effect Size Distribution
+
+
+
+Step 5: Explore Moderators and Levels
+
+```{r}
+# Faceted bar plots for different moderators
+data_distribution_moderator_levels_seasen <- 
+  imp_dataset |> 
+  ggplot(aes(x = response_variable)) +
+  geom_bar(aes(fill = season)) +
+  facet_wrap(~ crop_type) +
+  labs(title = "Number of Entries by Response Variable and Season", x = "Response Variable", y = "Number of Entries") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+data_distribution_moderator_levels_seasen
+```
+
+Step 6: Distribution in Space (Using generated Categorized Location Column)
+
+```{r}
+# Bar plot for the number of studies per sub_region
+data_distribution_studies_agroclimregion <- 
+  imp_dataset |> 
+  ggplot(aes(x = sub_region)) +
+  geom_bar(fill = "steelblue") +
+  labs(title = "Number of Studies Per Continent", x = "Continent", y = "Number of Studies") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(size = 12, angle = 45, hjust = 1))
+
+data_distribution_studies_agroclimregion
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#############
+# STEP 2
 ##########################################################################################################################################
 FORREST PLOT - OVERALL EFFECT SIZE DISTRIBUTION
 ##########################################################################################################################################
@@ -902,393 +1374,6 @@ forest_plot_free_x
 
 
 
-
-
-
-
-
-
-
-#############
-# STEP 1
-##########################################################################################################################################
-SPATIAL DISTRIBUTION 
-##########################################################################################################################################
-
-```{r}
-# Step 1: Filter distinct studies based on coordinates
-distinct_studies <- imp_dataset |> 
-  filter(!is.na(final_lat) & !is.na(final_lon)) |> 
-  distinct(id_article, .keep_all = TRUE)
-
-# Step 2: Convert the data to an 'sf' object
-study_points_sf <- st_as_sf(
-  distinct_studies,
-  coords = c("final_lon", "final_lat"),
-  crs = 4326,    # Coordinate Reference System (WGS84)
-  remove = FALSE # Keep the original longitude and latitude columns
-)
-
-# Step 3: Get the world map data using 'rnaturalearth'
-world_map <- ne_countries(scale = "medium", returnclass = "sf")
-
-# Step 4: Create the map using 'ggplot2'
-map_plot <- ggplot(data = world_map) +
-  geom_sf() +  # Plot the world map
-  geom_sf(data = study_points_sf, aes(color = response_variable), size = 3, alpha = 0.7) +
-  scale_color_viridis_d(option = "C") +  # Use a color palette for points
-  theme_minimal() +
-  labs(
-    title = "Geographical Distribution of Distinct Studies",
-    x = "Longitude",
-    y = "Latitude",
-    color = "Study Location"
-  ) +
-  theme(
-    legend.position = "top"
-  )
-
-# Step 5: Display the map
-map_plot
-```
-
-
-
-#############
-# STEP 1
-##########################################################################################################################################
-TEMPORAL DISTRIBUTION
-##########################################################################################################################################
-
-```{r}
-imp_dataset |> glimpse()
-```
-
-Step 2: Distribution of Studies Over Time
-
-```{r}
-# Define a function for generating the chart
-create_stacked_bar_chart <- function(data, id_column, custom_colors, title = "Distribution Over Time", y_label = "Count") {
-  
-  # Prepare the data: Count unique entries by year and response variable
-  grouped_data <- data |>
-    mutate(Year = as.integer(format(as.Date(study_year_start), "%Y"))) |>
-    distinct(!!sym(id_column), Year, response_variable) |>  # Dynamically use id_column
-    count(Year, response_variable)
-  
-  # Create the stacked bar chart
-  ggplot(grouped_data, aes(x = Year, y = n, fill = response_variable)) +
-    geom_bar(stat = "identity", position = "stack", color = "black") +
-    scale_fill_manual(values = custom_colors) +
-    scale_x_continuous(
-      breaks = seq(min(grouped_data$Year, na.rm = TRUE), max(grouped_data$Year, na.rm = TRUE), by = 5),  # Adjust as needed
-      labels = scales::number_format(scale = 1, accuracy = 1)
-    ) +
-    labs(
-      title = title,
-      subtitle = "Stacked by Response Variable",
-      x = "Year",
-      y = y_label,
-      fill = "Response Variable"
-    ) +
-    theme_minimal() +
-    theme(
-      plot.title = element_text(face = "bold", size = 16, hjust = 0.5),
-      plot.subtitle = element_text(size = 12, hjust = 0.5),
-      axis.title = element_text(size = 12, face = "bold"),
-      legend.title = element_text(face = "bold"),
-      axis.text.x = element_text(angle = 45, hjust = 1)
-    )
-}
-
-# Define custom color palette
-
-# Generate chart for id_article (studies)
-chart_studies <- create_stacked_bar_chart(
-  data = imp_dataset,
-  id_column = "id_article",  # Switch to "id_obs" for observations
-  custom_colors = custom_colors,
-  title = "Distribution of Studies Over Time",
-  y_label = "Number of Studies"
-)
-
-# Generate chart for id_obs (observations)
-chart_observations <- create_stacked_bar_chart(
-  data = imp_dataset,
-  id_column = "id_obs",
-  custom_colors = custom_colors,
-  title = "Distribution of Observations Over Time",
-  y_label = "Number of Observations"
-)
-
-# Print the chart for studies
-print(chart_studies)
-
-# Print the chart for observations
-print(chart_observations)
-```
-
-```{r}
-# Function to create cumulative data in long format with proper carry-forward logic
-prepare_cumulative_data <- function(data, id_column) {
-  data |>
-    mutate(Year = as.integer(format(as.Date(study_year_start), "%Y"))) |> # Extract Year
-    distinct(!!sym(id_column), Year, response_variable) |>               # Ensure unique id_column
-    count(Year, response_variable) |>                                   # Count unique ids per year
-    complete(Year = seq(min(Year, na.rm = TRUE), max(Year, na.rm = TRUE), by = 1),  # Add missing years
-             response_variable,                                          # Ensure all response_variables exist for all years
-             fill = list(n = 0)) |>                                      # Fill missing counts with 0
-    group_by(response_variable) |>                                      # Group by response_variable
-    arrange(Year) |>                                                    # Ensure correct year order within each group
-    mutate(cumulative_n = cumsum(n)) |>                                 # Calculate cumulative sum
-    ungroup()                                                           # Remove grouping
-}
-
-# Function to plot cumulative stacked area chart
-create_cumulative_chart <- function(data, custom_colors, title = "Cumulative Distribution Over Time", y_label = "Cumulative Count") {
-  ggplot(data, aes(x = Year, y = cumulative_n, fill = response_variable)) +
-    geom_area(alpha = 0.8, color = "black", size = 0.3) +
-    scale_fill_manual(values = custom_colors) +
-    scale_x_continuous(
-      breaks = seq(min(data$Year, na.rm = TRUE), max(data$Year, na.rm = TRUE), by = 5)
-    ) +
-    labs(
-      title = title,
-      subtitle = "Cumulative Count Stacked by Response Variable",
-      x = "Year",
-      y = y_label,
-      fill = "Response Variable"
-    ) +
-    theme_minimal() +
-    theme(
-      plot.title = element_text(face = "bold", size = 16, hjust = 0.5),
-      plot.subtitle = element_text(size = 12, hjust = 0.5),
-      axis.title = element_text(size = 12, face = "bold"),
-      legend.title = element_text(face = "bold"),
-      axis.text.x = element_text(angle = 45, hjust = 1)
-    )
-}
-
-# Define custom color palette
-
-
-# Prepare cumulative data for articles
-cumulative_data_articles <- prepare_cumulative_data(
-  data = imp_dataset,
-  id_column = "id_article"
-)
-
-# Generate the cumulative chart for articles
-cumulative_articles_chart <- create_cumulative_chart(
-  data = cumulative_data_articles,
-  custom_colors = custom_colors,
-  title = "Cumulative Number of Articles Over Time",
-  y_label = "Cumulative Articles"
-)
-
-# Print the chart
-print(cumulative_articles_chart)
-```
-
-```{r}
-n_distinct(imp_dataset$id_article)
-```
-
-```{r}
-
-# Function to prepare cumulative data for each response_variable
-prepare_cumulative_data <- function(data) {
-  data |>
-    mutate(Year = as.integer(format(as.Date(study_year_start), "%Y"))) |> # Extract Year
-    distinct(id_article, Year, response_variable) |>                     # Ensure unique id_article per Year & response_variable
-    group_by(Year, response_variable) |>                                 # Group by Year & response_variable
-    summarise(unique_articles = n_distinct(id_article), .groups = "drop") |> # Count unique id_articles per group
-    complete(Year = seq(min(Year, na.rm = TRUE), max(Year, na.rm = TRUE), by = 1),  # Add missing years
-             response_variable,                                          # Ensure all response_variables exist for all years
-             fill = list(unique_articles = 0)) |>                        # Fill missing counts with 0
-    group_by(response_variable) |>                                      # Group by response_variable
-    arrange(Year) |>                                                    # Ensure correct year order within each group
-    mutate(cumulative_n = cumsum(unique_articles)) |>                   # Calculate cumulative sum
-    ungroup()                                                           # Remove grouping
-}
-
-# Function to prepare cumulative data for the total unique articles
-prepare_unique_articles <- function(data) {
-  data %>%
-    mutate(Year = as.integer(format(as.Date(study_year_start), "%Y"))) %>%  # Extract year from date column
-    group_by(id_article) %>%  # Group by id_article
-    summarise(first_year = min(Year, na.rm = TRUE), .groups = "drop") %>%  # Get the first year each article appears
-    count(first_year, name = "unique_articles") %>%  # Count unique articles by their first year
-    arrange(first_year) %>%  # Ensure data is sorted by year
-    mutate(cumulative_unique = cumsum(unique_articles)) %>%  # Calculate cumulative sum
-    rename(Year = first_year)  # Rename column for consistency
-}
-
-# Function to create the cumulative chart
-create_cumulative_chart <- function(data, unique_articles_data, custom_colors, title = "Cumulative Distribution Over Time", y_label = "Cumulative Count") {
-  ggplot(data, aes(x = Year, y = cumulative_n, fill = response_variable)) +
-    geom_area(alpha = 0.8, color = "black", size = 0.3) +  # Stacked area chart
-    geom_line(data = unique_articles_data, aes(x = Year, y = cumulative_unique), 
-              inherit.aes = FALSE, color = "black", size = 1.2) +  # Black line for cumulative unique articles
-    scale_fill_manual(values = custom_colors) +
-    scale_x_continuous(
-      breaks = seq(min(data$Year, na.rm = TRUE), max(data$Year, na.rm = TRUE), by = 5)
-    ) +
-    labs(
-      title = title,
-      subtitle = "Cumulative Count Stacked by Response Variable with Total Unique Articles",
-      x = "Year",
-      y = y_label,
-      fill = "Response Variable"
-    ) +
-    theme_minimal() +
-    theme(
-      plot.title = element_text(face = "bold", size = 16, hjust = 0.5),
-      plot.subtitle = element_text(size = 12, hjust = 0.5),
-      axis.title = element_text(size = 12, face = "bold"),
-      legend.title = element_text(face = "bold"),
-      axis.text.x = element_text(angle = 45, hjust = 1)
-    )
-}
-
-# Define custom color palette
-
-
-# Prepare the data
-cumulative_data_articles <- prepare_cumulative_data(imp_dataset)  # Data for the stacked area chart
-cumulative_unique_articles <- prepare_unique_articles(imp_dataset)  # Data for the black line
-
-# Generate the cumulative chart
-cumulative_articles_chart <- create_cumulative_chart(
-  data = cumulative_data_articles,
-  unique_articles_data = cumulative_unique_articles,
-  custom_colors = custom_colors,
-  title = "Cumulative Number of Articles Over Time",
-  y_label = "Cumulative Articles"
-)
-
-# Print the chart
-print(cumulative_articles_chart)
-```
-```{r}
-n_distinct(imp_dataset$id_article)  # Should match the final value in cumulative_unique
-print(cumulative_unique_articles) |> glimpse() # Ensure no year surpasses the total unique articles
-```
-
-
-```{r}
-# Prepare the data: Count unique studies by year and response variable
-stacked_data <- imp_dataset |>
-  mutate(Year = as.integer(format(as.Date(study_year_start), "%Y"))) |>
-  distinct(id_article, Year, response_variable) |>  # Ensure unique studies
-  count(Year, response_variable)
-
-# Define custom color palette
-
-
-# Create stacked bar chart
-studies_over_time <- stacked_data |> 
-  ggplot(aes(x = Year, y = n, fill = response_variable)) +
-  geom_bar(stat = "identity", position = "stack", color = "black") +
-  scale_fill_manual(values = custom_colors) +
-  scale_x_continuous(
-    breaks = seq(min(stacked_data$Year), max(stacked_data$Year), by = 5),  # Adjust as needed
-    labels = scales::number_format(scale = 1, accuracy = 1)
-  ) +
-  labs(
-    title = "Distribution of Studies Over Time",
-    subtitle = "Stacked by Response Variable",
-    x = "Year",
-    y = "Number of Studies",
-    fill = "Response Variable"
-  ) +
-  theme_minimal() +
-  theme(
-    plot.title = element_text(face = "bold", size = 16, hjust = 0.5),
-    plot.subtitle = element_text(size = 12, hjust = 0.5),
-    axis.title = element_text(size = 12, face = "bold"),
-    legend.title = element_text(face = "bold"),
-    axis.text.x = element_text(angle = 45, hjust = 1)
-  )
-
-studies_over_time
-```
-
-
-```{r}
-# Histogram for the distribution of unique studies over time
-imp_dataset |> 
-  distinct(id_article, study_year_start) |> 
-ggplot(aes(x = as.Date(study_year_start))) +
-  geom_histogram(binwidth = 1, fill = "lightgreen", color = "black") +
-  labs(title = "Distribution of Unique Studies Over Time", x = "Year", y = "Number of Studies") +
-  theme_minimal()
-```
-
-Step 3: Distribution of Studies Across Moderators
-
-```{r}
-# Bar plot for crop_type
-data_distribution_crop_type <- 
-  imp_dataset |> 
-  ggplot(aes(x = crop_type)) +
-  geom_bar(fill = "cornflowerblue") +
-  labs(title = "Distribution of Entries Across Tree-Crop Combinations", x = "Tree-Crop Combination", y = "Number of Entries") +
-  theme_minimal() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-
-data_distribution_crop_type
-```
-```{r}
-# Bar plot for season
-data_distribution_season <- 
-  imp_dataset |>
-  ggplot(aes(x = season)) +
-  geom_bar(fill = "darkorange") +
-  labs(title = "Distribution of Entries Across Seasons", x = "Season", y = "Number of Entries") +
-  theme_minimal()
-
-data_distribution_season
-```
-
-```{r}
-# Bar plot for alley width category
-```
-
-Step 4: Effect Size Distribution
-
-
-
-Step 5: Explore Moderators and Levels
-
-```{r}
-# Faceted bar plots for different moderators
-data_distribution_moderator_levels_seasen <- 
-  imp_dataset |> 
-  ggplot(aes(x = response_variable)) +
-  geom_bar(aes(fill = season)) +
-  facet_wrap(~ crop_type) +
-  labs(title = "Number of Entries by Response Variable and Season", x = "Response Variable", y = "Number of Entries") +
-  theme_minimal() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-
-data_distribution_moderator_levels_seasen
-```
-
-Step 6: Distribution in Space (Using generated Categorized Location Column)
-
-```{r}
-# Bar plot for the number of studies per sub_region
-data_distribution_studies_agroclimregion <- 
-  imp_dataset |> 
-  ggplot(aes(x = sub_region)) +
-  geom_bar(fill = "steelblue") +
-  labs(title = "Number of Studies Per Continent", x = "Continent", y = "Number of Studies") +
-  theme_minimal() +
-  theme(axis.text.x = element_text(size = 12, angle = 45, hjust = 1))
-
-data_distribution_studies_agroclimregion
-```
 
 
 
