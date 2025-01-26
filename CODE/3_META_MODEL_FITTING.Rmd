@@ -504,10 +504,22 @@ calculate_v_matrix <- function(data, correlation = 0.5) {
 ```
 
 ```{r, results = 'hide'}
+#########################################################################
+###############################################################################
+###################################################################################
+########################################################################################
+#############################################################################################
+####################################################################################################
+
 # WORING ON THE IMPUTED DATASET
 meta_data <- imp_dataset
 
-
+####################################################################################################
+#############################################################################################
+########################################################################################
+###################################################################################
+###############################################################################
+#########################################################################
 
 
 # Directory for saving results
@@ -642,7 +654,7 @@ fit_models_all <- function(data_subset, response_variable, v_matrix, moderators,
     cat("Error in null model:", e$message, "\n")
     return(NULL)
   })
-  ############################################################################################# ---------- ! (chosen model) !
+  ############################################################################################# 
   # Minimal random effects model
   results$minimal_random_effects <- tryCatch({
     rma.mv(
@@ -680,7 +692,7 @@ fit_models_all <- function(data_subset, response_variable, v_matrix, moderators,
   })
   names(results$moderator_models) <- moderators
   
-  #############################################################################################
+  ############################################################################################# <-------------- ! (chosen model) !
   # Full model with all moderators (no interaction)
   results$full_model <- tryCatch({
     rma.mv(
@@ -1575,7 +1587,7 @@ model_results$`Crop yield`
 extract_heterogeneity_stats <- function(model_results) {
   heterogeneity_stats <- lapply(names(model_results), function(response) {
     
-    model <- model_results[[response]]$full_model   # <------------------------------- !(chosen model)!
+    model <- model_results[[response]]$full_model    # <------------------------------- !(chosen model)!
     if (is.null(model)) return(NULL)
 
     # Calculate I2 manually if tau2 is 0
@@ -1638,7 +1650,7 @@ In summary, while the models reveal significant heterogeneity across most respon
 assess_publication_bias <- function(model_results) {
   publication_bias <- lapply(names(model_results), function(response) {
     
-    model <- model_results[[response]]$interaction_model  # <------------------------------- !(chosen model)!
+    model <- model_results[[response]]$full_model   # <------------------------------- !(chosen model)!
     if (is.null(model)) return(NULL)
 
     # Perform Egger's test
@@ -1680,44 +1692,106 @@ publication_bias_results <- assess_publication_bias(model_results)
 ```
 
 ```{r}
-##########################################################################################################################################
-# C: Conduct leave-one-out sensitivity analysis
-##########################################################################################################################################
-conduct_sensitivity_analysis <- function(model_results) {
-  sensitivity_analysis <- lapply(names(model_results), function(response) {
-    
-    model <- model_results[[response]]$interaction_model  # <------------------------------- !(chosen model)!
-    if (is.null(model)) return(NULL)
+meta_data |> glimpse()
+```
 
-    # Perform leave-one-out sensitivity analysis
-    leave_one_out <- tryCatch({
-      leave1out(model)
+
+```{r}
+##########################################################################################################################################
+# LEAVE-ONE-OUT SENSITIVITY ANALYSIS ON STUDY EFFECTS
+##########################################################################################################################################
+
+# Load necessary library
+library(metafor)
+
+# Define the function for Leave-One-Out (LOO) sensitivity analysis
+conduct_loo_analysis <- function(meta_data, full_model_formula, random_effects_formula) {
+  
+  # Extract unique studies
+  unique_studies <- unique(meta_data$id_article)
+  
+  # Initialize an empty list to store LOO results
+  loo_results <- list()
+  
+  # Iterate through each study
+  for (study in unique_studies) {
+    cat("Excluding study:", study, "\n")
+    
+    # Subset the data excluding the current study
+    data_excluded <- meta_data[meta_data$id_article != study, ]
+    
+    # Refit the full model without the excluded study
+    loo_model <- tryCatch({
+      rma.mv(
+        yi = yi,
+        V = vi,
+        mods = full_model_formula,
+        random = random_effects_formula,
+        data = data_excluded,
+        method = "REML",
+        control = list(iter.max = 2000, rel.tol = 1e-9)
+      )
     }, error = function(e) {
+      cat("Error in fitting model for study:", study, "-", e$message, "\n")
       return(NULL)
     })
-
-    list(
-      Response_Variable = response,
-      Leave_One_Out_Results = leave_one_out
-    )
-  })
-
-  # Combine into a data frame for easier inspection
-  sensitivity_summary <- do.call(rbind, lapply(sensitivity_analysis, function(x) {
-    if (!is.null(x)) {
-      data.frame(
-        Response_Variable = x$Response_Variable,
-        Leave_One_Out_Count = if (!is.null(x$Leave_One_Out_Results)) nrow(x$Leave_One_Out_Results) else 0
-      )
-    }
-  }))
-
-  list(Summary = sensitivity_summary, Full_Results = sensitivity_analysis)
+    
+    # Store the results
+    loo_results[[as.character(study)]] <- loo_model
+  }
+  
+  return(loo_results)
 }
 
-# Conduct sensitivity analysis
-sensitivity_analysis_results <- conduct_sensitivity_analysis(model_results)
+# Define the full model formula and random effects structure
+full_model_formula <- as.formula("~ tree_type + crop_type + age_system + season + soil_texture")
+random_effects_formula <- ~ 1 | exp_id
+
+# Conduct Leave-One-Out (LOO) sensitivity analysis
+loo_results <- conduct_loo_analysis(
+  meta_data = meta_data,
+  full_model_formula = full_model_formula,
+  random_effects_formula = random_effects_formula
+)
 ```
+
+
+```{r}
+##########################################################################################################################################
+# INSPECT RESULTS
+##########################################################################################################################################
+
+# Summarize LOO results
+summarize_loo_results <- function(loo_results) {
+  summary_df <- do.call(rbind, lapply(names(loo_results), function(study) {
+    model <- loo_results[[study]]
+    if (is.null(model)) {
+      return(data.frame(
+        Study = study,
+        QE = NA,
+        QE_pval = NA,
+        I2 = NA,
+        Tau2 = NA
+      ))
+    }
+    data.frame(
+      Study = study,
+      QE = model$QE,
+      QE_pval = model$QEp,
+      I2 = model$I2,
+      Tau2 = model$tau2
+    )
+  }))
+  return(summary_df)
+}
+
+# Generate the summary table
+loo_summary <- summarize_loo_results(loo_results)
+
+# Display the summary
+print(loo_summary)
+```
+
 
 
 ```{r}
