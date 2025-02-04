@@ -201,7 +201,7 @@ geo_data <- imp_dataset %>%
 world_map <- map_data("world")
 
 
-# Step 4: Create the map
+# Step 3: Create the enhanced map
 geo_distribution_of_studies_map <- ggplot() +
   # Add base map polygons
   geom_polygon(
@@ -209,38 +209,41 @@ geo_distribution_of_studies_map <- ggplot() +
     aes(x = long, y = lat, group = group),
     fill = "gray90", color = "gray70", size = 0.4
   ) +
-   # Add jittered points for studies
-  geom_jitter(
+  # Add jittered points for studies
+  geom_point(
     data = geo_data,
-    aes(x = lon, y = lat, color = response_variable, size = as.factor(n_studies)),
+    aes(x = lon, y = lat, color = response_variable, size = n_studies),
     alpha = 0.8,
-    width = 0.8,  # Adjust jitter width (longitude)
-    height = 0.75  # Adjust jitter height (latitude)
+    position = position_jitter(width = 0.8, height = 0.75)
   ) +
   # Apply custom colors
   scale_color_manual(values = custom_colors, name = "Ecosystem Service") +
-  scale_size_manual(
-    name = "n studies for the given locataion",
-    values = c(2, 3, 4, 5, 6, 7), # Assign size values for bins 1-6
-    breaks = as.character(1:6),  # Ensure breaks correspond to whole numbers
-    labels = as.character(1:6)   # Labels for the legend
+  scale_size_continuous(
+    name = "Number of Studies",
+    range = c(3, 12),  # Adjust size range for better visibility
+    breaks = c(1, 2, 5, 20, 30),  # Customize breaks based on study count
+    labels = c("1", "2", "5", "20", "30+")
   ) +
-  # Add labels and theme adjustments
+  # Add labels and enhance the theme
   labs(
-    title = "Geographical Distribution of Ecosystem Services in Silvoarable Agroforestry Studies (Northern Hemisphere)",
+    title = "Geographical Distribution of Ecosystem Services in Silvoarable Agroforestry Studies",
+    subtitle = "Larger Map for Clearer Visualization",
     x = "Longitude",
     y = "Latitude"
   ) +
-  coord_cartesian(ylim = c(20, 90)) +  # Restrict to the northern hemisphere
+  coord_quickmap() +  # Quick world map projection
   theme_minimal(base_size = 14) +
   theme(
-    plot.title = element_text(face = "bold", hjust = 0.5, size = 16),
+    plot.title = element_text(face = "bold", hjust = 0.5, size = 18),
+    plot.subtitle = element_text(hjust = 0.5, size = 14),
     legend.title = element_text(face = "bold"),
     legend.position = "right",
     panel.grid = element_blank(),
-    axis.line = element_line(color = "gray50")
+    axis.line = element_line(color = "gray50"),
+    legend.box = "vertical"
   )
 
+# Display the map
 geo_distribution_of_studies_map
 ```
 

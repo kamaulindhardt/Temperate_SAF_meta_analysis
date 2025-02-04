@@ -24639,4 +24639,710 @@ for (plot in funnel_plots) {
 ```
 
 
+```{r}
+##########################################################################################################################################
+# MODERATOR ANALYSIS - INFLUENCE OF SILVOARABLE AGROFORESTRY CHARACTERISTICS (MODERATORS)
+##########################################################################################################################################
+
+
+# Define a function to extract and summarize moderator model results for each response variable
+analyze_moderator_influence <- function(model_results) {
+  # Extract response variables from the results
+  response_variables <- names(model_results)
+  
+  # Iterate over each response variable to analyze moderators
+  moderator_summaries <- lapply(response_variables, function(response) {
+    cat("Analyzing response variable:", response, "\n")
+    
+    # Extract moderator models for the current response
+    moderator_models <- model_results[[response]]$moderator_models
+    
+    # Summarize the moderator influence
+    summaries <- lapply(names(moderator_models), function(moderator) {
+      cat("  Moderator:", moderator, "\n")
+      
+      # Extract the model for the current moderator
+      mod_model <- moderator_models[[moderator]]
+      
+      # Extract coefficients, standard errors, and p-values
+      coef_summary <- data.frame(
+        Term = rownames(mod_model$b),
+        Estimate = mod_model$b[, 1],
+        SE = mod_model$se,
+        Zval = mod_model$zval,
+        Pval = mod_model$pval,
+        CI.Lower = mod_model$ci.lb,
+        CI.Upper = mod_model$ci.ub
+      )
+      
+      return(coef_summary)
+    })
+    
+    # Combine summaries for all moderators into a single data frame
+    combined_summary <- do.call(rbind, summaries)
+    combined_summary$Moderator <- rep(names(moderator_models), sapply(summaries, nrow))
+    combined_summary$ResponseVariable <- response
+    
+    return(combined_summary)
+  })
+  
+  # Combine summaries for all response variables into a single data frame
+  full_summary <- do.call(rbind, moderator_summaries)
+  return(full_summary)
+}
+
+# Call the function and store the results
+moderator_influence_summary <- analyze_moderator_influence(model_results)
+
+# Post-process the summarized influence of moderators
+# Update the post-process function to calculate heterogeneity explained for each response variable
+post_process_moderators_by_response <- function(summary) {
+  # Separate higher-level and lower-level moderators
+  higher_level <- summary %>%
+    filter(!grepl("[a-zA-Z]+[0-9]+", Moderator))
+  
+  # Calculate proportion of heterogeneity explained by higher-level moderators, grouped by ResponseVariable
+  heterogeneity_explained <- higher_level %>%
+    group_by(ResponseVariable, Moderator) %>%
+    summarise(
+      ProportionExplained = mean(Estimate^2 / SE^2, na.rm = TRUE),
+      MeanPValue = mean(Pval, na.rm = TRUE),
+      .groups = "drop"
+    )
+  
+  list(
+    HigherLevel = higher_level,
+    HeterogeneityExplainedByResponse = heterogeneity_explained
+  )
+}
+
+# Call the updated function
+post_processed_results_by_response <- post_process_moderators_by_response(moderator_influence_summary)
+
+# View the proportion of heterogeneity explained by response variable and moderator
+post_processed_results_by_response$HeterogeneityExplainedByResponse
+
+
+post_processed_results_higher_level <- post_processed_results_by_response$HigherLevel |> relocate(
+  ResponseVariable,
+  Moderator,
+  Term,
+  Estimate,
+  SE,
+  Pval,
+  Zval,
+  CI.Lower,
+  CI.Lower
+)
+
+# Define the file path for saving
+output_file <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R", "post_processed_results_higher_level.xlsx")
+# Save the dataframe to an Excel file
+write.xlsx(post_processed_results_higher_level, file = output_file, row.names = FALSE)
+cat("The post_processed_results_higher_level data has been saved to:", output_file, "\n")
+
+
+# View summaries
+post_processed_results_by_response$HeterogeneityExplained
+
+
+post_processed_results_higher_level |> glimpse()
+
+post_processed_results_by_response |> glimpse()
+```
+
+
+
+
+# Function to calculate proportion of heterogeneity explained using tau^2
+calculate_heterogeneity_explained <- function(model_results) {
+  results <- list()
+  
+  for (response in names(model_results)) {
+    mod_models <- model_results[[response]]$moderator_models
+    full_model <- model_results[[response]]$full_model
+    
+    if (is.null(mod_models) || is.null(full_model)) next
+    
+    # Extract tau^2 from the full model (without moderators)
+    tau2_null <- full_model$tau2
+    
+    for (moderator in names(mod_models)) {
+      mod_model <- mod_models[[moderator]]
+      
+      # Extract tau^2 from the model with the moderator
+      tau2_mod <- mod_model$tau2
+      
+      # Calculate proportion of heterogeneity explained
+      proportion_explained <- (tau2_null - tau2_mod) / tau2_null * 100
+      
+      # Ensure the proportion does not exceed 100%
+      proportion_explained <- min(proportion_explained, 100)
+      
+      # Store results
+      results[[length(results) + 1]] <- data.frame(
+        ResponseVariable = response,
+        Moderator = moderator,
+        Tau2_Null = tau2_null,
+        Tau2_Moderated = tau2_mod,
+        ProportionExplained = proportion_explained
+      )
+    }
+  }
+  
+  return(do.call(rbind, results))
+}
+
+# Run the corrected heterogeneity calculation
+heterogeneity_results <- calculate_heterogeneity_explained(model_results)
+
+# Print results
+print(heterogeneity_results)
+
+
+# Define the file path for saving
+# output_file <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R", "post_processed_results_higher_level.xlsx")
+# Save the dataframe to an Excel file
+# write.xlsx(post_processed_results_higher_level, file = output_file, row.names = FALSE)
+# cat("The post_processed_results_higher_level data has been saved to:", output_file, "\n")
+
+
+# View summaries
+post_processed_results_by_response$HeterogeneityExplained
+
+post_processed_results_higher_level |> glimpse()
+post_processed_results_by_response |> glimpse()
+
+post_processed_results_by_response
+
+
+```{r}
+##########################################################################################################################################
+# MODERATOR ANALYSIS - INFLUENCE OF SILVOARABLE AGROFORESTRY CHARACTERISTICS (MODERATORS)
+##########################################################################################################################################
+
+# Define a function to extract and summarize moderator model results for each response variable
+analyze_moderator_influence <- function(model_results) {
+  # Extract response variables from the results
+  response_variables <- names(model_results)
+  
+  # Iterate over each response variable to analyze moderators
+  moderator_summaries <- lapply(response_variables, function(response) {
+    cat("Analyzing response variable:", response, "\n")
+    
+    # Extract moderator models for the current response
+    moderator_models <- model_results[[response]]$moderator_models
+    
+    # Summarize the moderator influence
+    summaries <- lapply(names(moderator_models), function(moderator) {
+      cat("  Moderator:", moderator, "\n")
+      
+      # Extract the model for the current moderator
+      mod_model <- moderator_models[[moderator]]
+      
+      # Extract coefficients, standard errors, and p-values
+      coef_summary <- data.frame(
+        Term = rownames(mod_model$b),
+        Estimate = mod_model$b[, 1],
+        SE = mod_model$se,
+        Zval = mod_model$zval,
+        Pval = mod_model$pval,
+        CI.Lower = mod_model$ci.lb,
+        CI.Upper = mod_model$ci.ub
+      )
+      
+      return(coef_summary)
+    })
+    
+    # Combine summaries for all moderators into a single data frame
+    combined_summary <- do.call(rbind, summaries)
+    combined_summary$Moderator <- rep(names(moderator_models), sapply(summaries, nrow))
+    combined_summary$ResponseVariable <- response
+    
+    return(combined_summary)
+  })
+  
+  # Combine summaries for all response variables into a single data frame
+  full_summary <- do.call(rbind, moderator_summaries)
+  return(full_summary)
+}
+
+# Call the function and store the results
+moderator_influence_summary <- analyze_moderator_influence(model_results)
+
+# Post-process the summarized influence of moderators
+# Update the post-process function to calculate heterogeneity explained for each response variable
+post_process_moderators_by_response <- function(summary) {
+  # Separate higher-level and lower-level moderators
+  higher_level <- summary %>%
+    filter(!grepl("[a-zA-Z]+[0-9]+", Moderator))
+  
+  # Calculate proportion of heterogeneity explained by higher-level moderators, grouped by ResponseVariable
+  heterogeneity_explained <- higher_level %>%
+    group_by(ResponseVariable, Moderator) %>%
+    summarise(
+      ProportionExplained = mean(Estimate^2 / SE^2, na.rm = TRUE),
+      MeanPValue = mean(Pval, na.rm = TRUE),
+      .groups = "drop"
+    )
+  
+  list(
+    HigherLevel = higher_level,
+    HeterogeneityExplainedByResponse = heterogeneity_explained
+  )
+}
+
+# Call the updated function
+post_processed_results_by_response <- post_process_moderators_by_response(moderator_influence_summary)
+
+# View the proportion of heterogeneity explained by response variable and moderator
+post_processed_results_by_response$HeterogeneityExplainedByResponse
+
+
+post_processed_results_higher_level <- post_processed_results_by_response$HigherLevel |> relocate(
+  ResponseVariable,
+  Moderator,
+  Term,
+  Estimate,
+  SE,
+  Pval,
+  Zval,
+  CI.Lower,
+  CI.Lower
+)
+
+
+# View summaries
+post_processed_results_by_response$HeterogeneityExplained
+post_processed_results_higher_level |> glimpse()
+post_processed_results_by_response |> glimpse()
+
+post_processed_results_by_response
+```
+
+
+
+####################################################################################################
+# DEBUGGING: EXPLAINED HETEROGENEITY ANALYSIS
+####################################################################################################
+
+
+# Function to extract τ² values from fitted models and calculate explained heterogeneity
+calculate_explained_heterogeneity <- function(model_results) {
+  
+  heterogeneity_results <- list()  # Store results
+  
+  for (response in names(model_results)) {
+    # Extract the full (null) model (without moderators)
+    full_model <- model_results[[response]]$full_model
+    
+    # Skip if the full model does not exist
+    if (is.null(full_model)) {
+      message(paste("Skipping", response, "as full model is missing."))
+      next
+    }
+    
+    # Extract τ² from the full model (null model without moderators)
+    tau2_null <- if ("tau2" %in% names(full_model)) full_model$tau2 else NA
+    if (length(tau2_null) > 1) tau2_null <- sum(tau2_null)  # Handle cases where tau2 is a vector
+    
+    # Print τ² to debug if it's being extracted correctly
+    cat("\nResponse Variable:", response, " | τ² (Null Model):", tau2_null, "\n")
+    
+    # Extract moderator models for this response variable
+    moderator_models <- model_results[[response]]$moderator_models
+    
+    if (is.null(moderator_models)) {
+      message(paste("No moderator models found for", response))
+      next
+    }
+    
+    # Store results for each moderator
+    moderator_results <- lapply(names(moderator_models), function(moderator) {
+      mod_model <- moderator_models[[moderator]]  # Get the model for this moderator
+      
+      # Extract τ² for the moderated model
+      tau2_moderated <- if ("tau2" %in% names(mod_model)) mod_model$tau2 else NA
+      if (length(tau2_moderated) > 1) tau2_moderated <- sum(tau2_moderated)  # Handle vector τ²
+      
+      # Print τ² to debug
+      cat("  Moderator:", moderator, "| τ² (Moderated Model):", tau2_moderated, "\n")
+      
+      # Calculate the proportion of explained heterogeneity
+      proportion_explained <- ifelse(!is.na(tau2_null) && tau2_null > 0, 
+                                     ((tau2_null - tau2_moderated) / tau2_null) * 100, 
+                                     NA)  # Prevent division by zero
+      
+      # Ensure proportions are not negative
+      proportion_explained <- max(proportion_explained, 0, na.rm = TRUE)
+      
+      # Return as a data frame
+      return(data.frame(
+        ResponseVariable = response,
+        Moderator = moderator,
+        Tau2_Null = tau2_null,
+        Tau2_Moderated = tau2_moderated,
+        ProportionExplained = proportion_explained
+      ))
+    })
+    
+    # Combine results for all moderators of this response variable
+    heterogeneity_results[[response]] <- do.call(rbind, moderator_results)
+  }
+  
+  # Convert results list into a single data frame
+  results_df <- do.call(rbind, heterogeneity_results)
+  
+  # Print debugging output
+  print(results_df)
+  
+  return(results_df)
+}
+
+# Run the function to debug τ² extraction
+heterogeneity_results <- calculate_explained_heterogeneity(model_results)
+
+
+
+
+####################################################################################################
+# FUNCTION TO FIT INCREMENTAL MODELS AND ASSESS MODERATOR EFFECT ON HETEROGENEITY
+####################################################################################################
+
+
+# Function to fit models and assess heterogeneity explained by moderators
+fit_and_evaluate_moderators <- function(data, response_variable, v_matrix, moderators, random_effects) {
+  results <- list()
+  
+  cat("\nProcessing response variable:", response_variable, "\n")
+  
+  #############################################################################################
+  # Null model: Global average without moderators (Baseline τ²)
+  results$null_model <- tryCatch({
+    rma.mv(
+      yi = yi,
+      V = v_matrix,
+      random = random_effects,
+      data = data,
+      method = "REML",
+      control = list(iter.max = 2000, rel.tol = 1e-9)
+    )
+  }, error = function(e) {
+    cat("Error in null model:", e$message, "\n")
+    return(NULL)
+  })
+  
+  if (is.null(results$null_model)) return(NULL)
+  
+  # Extract τ² from the null model
+  tau2_null <- sum(results$null_model$tau2)  # Handles cases where tau2 is a vector
+  
+  # Print τ² for debugging
+  cat("τ² (Null Model):", tau2_null, "\n")
+  
+  #############################################################################################
+  # Fit separate models for each moderator
+  moderator_results <- map(moderators, function(moderator) {
+    cat("Fitting model for moderator:", moderator, "\n")
+    
+    mod_model <- tryCatch({
+      rma.mv(
+        yi = yi,
+        V = v_matrix,
+        mods = as.formula(paste("~", moderator)),
+        random = random_effects,
+        data = data,
+        method = "REML",
+        control = list(iter.max = 2000, rel.tol = 1e-9)
+      )
+    }, error = function(e) {
+      cat("Error in moderator model for", moderator, ":", e$message, "\n")
+      return(NULL)
+    })
+    
+    if (is.null(mod_model)) return(NULL)
+    
+    # Extract τ² from the moderated model
+    tau2_moderated <- sum(mod_model$tau2)
+    
+    # Print τ² for debugging
+    cat("  τ² (Moderated Model -", moderator, "):", tau2_moderated, "\n")
+    
+    # Calculate explained heterogeneity
+    proportion_explained <- ifelse(tau2_null > 0, ((tau2_null - tau2_moderated) / tau2_null) * 100, NA)
+    
+    # Ensure proportion is between 0 and 100
+    proportion_explained <- max(min(proportion_explained, 100), 0, na.rm = TRUE)
+    
+    return(data.frame(
+      ResponseVariable = response_variable,
+      Moderator = moderator,
+      Tau2_Null = tau2_null,
+      Tau2_Moderated = tau2_moderated,
+      ProportionExplained = proportion_explained
+    ))
+  })
+  
+  # Combine results into a dataframe
+  results_df <- do.call(rbind, moderator_results)
+  
+  return(results_df)
+}
+
+##########################################################################
+# Fit Models and Calculate Heterogeneity Explained for Each Response Variable
+##########################################################################
+
+# Load the saved v_matrices
+dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
+v_matrices <- readRDS(file.path(dir, "v_matrices_by_response_variable.rds"))
+
+
+# Initialize an empty list to store model results
+heterogeneity_results <- list()
+
+# Loop through each response variable to fit models and assess heterogeneity
+for (response in names(v_matrices)) {
+  cat("\n-------------------------\nAnalyzing:", response, "\n-------------------------\n")
+  
+  # Subset the data for the current response variable
+  data_subset <- meta_data[meta_data$response_variable == response, ]
+  
+  # Extract the variance-covariance matrix for the response variable
+  v_matrix <- v_matrices[[response]]
+  
+  # Define the moderators to include in the model
+  moderators <- c("tree_type", "crop_type") # , "age_system", "season", "soil_texture"
+  
+  # Define random effects structure
+  random_effects <- ~ 1 | exp_id
+  
+  # Fit models and assess heterogeneity explained
+  heterogeneity_results[[response]] <- fit_and_evaluate_moderators(
+    data = data_subset,
+    response_variable = response,
+    v_matrix = v_matrix,
+    moderators = moderators,
+    random_effects = random_effects
+  )
+}
+
+# Convert list to dataframe
+heterogeneity_results_df <- do.call(rbind, heterogeneity_results)
+
+# Print and return results
+print(heterogeneity_results_df)
+heterogeneity_results_df
+
+
+```{r}
+for (response in names(model_results)) {
+  full_model <- model_results[[response]]$full_model
+  if (!is.null(full_model)) {
+    cat("Response:", response, " - Full model tau2 =", full_model$tau2, "\n")
+  }
+  
+  moderator_models <- model_results[[response]]$moderator_models
+  if (!is.null(moderator_models)) {
+    for (moderator in names(moderator_models)) {
+      mod_model <- moderator_models[[moderator]]
+      cat("  Moderator:", moderator, " - tau2 =", mod_model$tau2, "\n")
+    }
+  }
+}
+```
+# Calculate the Proportion of Explained Heterogeneity
+
+if (!is.null(null_model) && !is.null(full_model)) {
+  proportion_explained <- ((tau2_null - tau2_full) / tau2_null) * 100
+  proportion_explained <- max(min(proportion_explained, 100), 0)  # Ensure within 0-100%
+  
+  cat("\nProportion of Explained Heterogeneity:", proportion_explained, "%\n")
+} else {
+  cat("\nCannot compute explained heterogeneity due to missing models.\n")
+}
+
+
+
+```{r}
+# Define the moderators
+moderators <- c("tree_type", "crop_type", "age_system", "season", "soil_texture")
+
+# Initialize a data frame to store results
+heterogeneity_results <- data.frame()
+
+# Fit the Null Model (NO RANDOM EFFECTS)
+null_model <- tryCatch({
+  rma(
+    yi = yi,
+    vi = diag(v_matrix),  # Use diagonal for within-study variance
+    data = data_subset,
+    method = "REML",
+    control = list(iter.max = 2000, rel.tol = 1e-9)
+  )
+}, error = function(e) {
+  message("Error in null model: ", e$message)
+  return(NULL)
+})
+
+# Extract tau² from the null model
+if (!is.null(null_model)) {
+  tau2_null <- null_model$tau2
+  cat("τ² (Null Model):", tau2_null, "\n")
+} else {
+  cat("⚠ Warning: τ² (Null Model) is 0 or model fitting failed.\n")
+  tau2_null <- NA
+}
+
+# Fit separate models for each moderator
+for (moderator in moderators) {
+  cat("\nFitting model for moderator:", moderator, "\n")
+  
+  mod_model <- tryCatch({
+    rma(
+      yi = yi,
+      vi = diag(v_matrix),
+      mods = as.formula(paste("~", moderator)),  # Single moderator model
+      data = data_subset,
+      method = "REML",
+      control = list(iter.max = 2000, rel.tol = 1e-9)
+    )
+  }, error = function(e) {
+    message("Error in model for", moderator, ":", e$message)
+    return(NULL)
+  })
+  
+  # Extract tau² from the moderator model
+  if (!is.null(mod_model)) {
+    tau2_moderated <- mod_model$tau2
+    cat("  τ² (Model with", moderator, "):", tau2_moderated, "\n")
+    
+    # Calculate proportion of explained heterogeneity
+    proportion_explained <- ifelse(tau2_null > 0, ((tau2_null - tau2_moderated) / tau2_null) * 100, NA)
+    proportion_explained <- max(min(proportion_explained, 100), 0)  # Ensure between 0-100%
+    
+    # Store results
+    heterogeneity_results <- rbind(heterogeneity_results, 
+                                   data.frame(ResponseVariable = response_variable,
+                                              Moderator = moderator,
+                                              Tau2_Null = tau2_null,
+                                              Tau2_Moderated = tau2_moderated,
+                                              ProportionExplained = proportion_explained))
+  } else {
+    cat("⚠ Warning: Model for", moderator, "failed.\n")
+  }
+}
+
+# Print results
+heterogeneity_results
+```
+
+
+
+
+
+```{r}
+# Visualize Proportion Explained for Overall and Response Variable-Specific Situations
+
+# Function to visualize ProportionExplained
+visualize_proportion_explained <- function(post_processed_results) {
+  # Extract data for overall situation
+  overall_data <- post_processed_results$HeterogeneityExplained
+  
+  # Extract data for response variable-specific situation
+  response_specific_data <- post_processed_results$HigherLevel %>%
+    group_by(ResponseVariable, Moderator) %>%
+    summarise(
+      ProportionExplained = mean(Estimate^2 / SE^2, na.rm = TRUE),
+      .groups = "drop"
+    )
+  
+  # Plot overall situation
+  overall_plot <- ggplot(overall_data, aes(x = reorder(Moderator, ProportionExplained), y = ProportionExplained)) +
+    geom_bar(stat = "identity", fill = "skyblue") +
+    # scale_y_continuous(breaks = c(0, 100, 200, 300, 400), limits = c(0, 450)) +
+    coord_flip() +
+    labs(
+      title = "Proportion of Explained Heterogeneity (Overall)",
+      x = "Moderator",
+      y = "Proportion Explained (%)"
+    ) +
+    theme_minimal()
+  
+  # Plot response variable-specific situation
+  response_plot <- ggplot(response_specific_data, aes(x = reorder(Moderator, ProportionExplained), y = ProportionExplained, fill = ResponseVariable)) +
+    geom_bar(stat = "identity", position = "dodge") +
+    ggbreak::scale_y_break(c(15, 300), scales = 0.5) +
+    ggbreak::scale_y_break(c(400, 450), scales = 0.5) + # Add two breaks for the y-axis
+    coord_flip() +
+    labs(
+      title = "Proportion of Explained Heterogeneity (By Response Variable)",
+      x = "Moderator",
+      y = "Proportion Explained (%)",
+      fill = "Response Variable"
+    ) +
+    theme_minimal()
+  
+  # Return both plots
+  list(
+    OverallPlot = overall_plot,
+    ResponseSpecificPlot = response_plot
+  )
+}
+
+# Generate plots
+plots <- visualize_proportion_explained(post_processed_results_by_response)
+
+# Print plots
+print(plots$OverallPlot)
+print(plots$ResponseSpecificPlot)
+```
+
+
+Updated Interpretation of Moderators' Effects on Model Heterogeneity
+
+1. Significance of Moderators (P-value Interpretation):
+- **P-values** reflect whether the moderator has a statistically significant effect on the response variable. 
+  - A **P-value < 0.05** suggests strong evidence that the moderator significantly affects the heterogeneity in effect sizes.
+  - Higher P-values indicate weaker evidence for significant effects, meaning the moderator’s influence may not be consistent across the response variables.
+
+2. Magnitude of Effects (Estimate and SE):
+- The **Estimate** represents the effect size or influence of each moderator term.
+  - Positive values suggest that the moderator increases heterogeneity or variability.
+  - Negative values suggest it reduces variability or explains heterogeneity in a systematic way.
+- The **Standard Error (SE)** indicates the precision of the estimate.
+  - Lower SE values imply higher confidence in the estimates, whereas higher SEs indicate less precise estimates.
+
+3. Confidence Intervals (CI.Lower and CI.Upper):
+- The confidence intervals provide the range within which the true effect size is likely to fall.
+  - Moderators with confidence intervals that **exclude zero** are more likely to have consistent and meaningful effects.
+
+4. Specific Moderators' Contributions:
+  1. **Tree Type**:
+  - While some terms (e.g., "tree_typeTimber") have moderate P-values (e.g., ~0.19), the confidence intervals often include zero, indicating less consistent influence.
+- Moderators under "tree_type" show mixed evidence, with high variability between terms.
+2. **Crop Type**:
+  - Some subcategories (e.g., "crop_typeLegume") exhibit low P-values (e.g., < 0.001) and confidence intervals excluding zero, suggesting significant effects.
+- This moderator likely contributes moderately to explaining heterogeneity in effect sizes.
+3. **Age System**:
+  - Terms such as "age_systemYoung" consistently show low P-values (<0.01) and confidence intervals excluding zero, highlighting a strong and significant influence on heterogeneity.
+- This moderator seems to have one of the most consistent and impactful effects.
+4. **Season**:
+  - The influence of "season" varies, with subcategories like "seasonWinter" having moderate P-values (~0.13) and wider confidence intervals.
+- Its effects are less consistent compared to age system or crop type.
+5. **Soil Texture**:
+  - Subcategories like "soil_textureSand" often show significant effects (P-values < 0.05), with narrow confidence intervals excluding zero.
+- This suggests that soil texture is a critical moderator for explaining heterogeneity.
+
+5. Proportion of Heterogeneity Explained:
+  - Combining the above data with the proportion of heterogeneity explained reveals:
+  - **Age System** consistently explains the highest proportion of heterogeneity (e.g., 95.47%).
+- **Soil Texture** follows closely, explaining ~82.4%.
+- **Crop Type** and **Season** contribute moderately (64.5% and 45.2%, respectively).
+- **Tree Type** has a lower overall contribution (~50.6%).
+
+Summary:
+  - **Key Moderators:** "Age System" and "Soil Texture" are the most impactful, with consistently significant effects and the highest proportions of heterogeneity explained.
+- **Moderate Contributors:** "Crop Type" and "Season" show variable but important contributions to explaining heterogeneity.
+- **Least Impactful:** "Tree Type" appears to have inconsistent effects, with many subcategories not significantly contributing to heterogeneity.
 

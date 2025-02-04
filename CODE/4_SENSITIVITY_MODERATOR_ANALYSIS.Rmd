@@ -105,6 +105,7 @@ suppressWarnings({
     # Data Visualization
     ggplot2,          # Data visualization package (part of tidyverse)
     patchwork,        # ggplot2 API for sequentially building up a plot
+    ggrepel,          # Provides text and label geoms for ' ggplot2' that help to avoid overlapping text labels
     ###################################################################################################################
     # Spatial Data
     tidygeocoder,     # Unified interface for performing both forward and reverse geocoding queries
@@ -162,6 +163,16 @@ non_imp_dataset <- readRDS(here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FR
 ## IMPUTED
 imp_dataset <- readRDS(here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R", "imp_data_rom.rds"))
 ```
+
+
+loading fitted models
+
+```{r}
+# Save all models in a combined file
+model_results <- readRDS(here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R", "fitted_models_all_new.rds"))
+```
+
+
 
 ```{r}
 imp_dataset |> glimpse()
@@ -1345,172 +1356,471 @@ This analysis demonstrates the importance of adjusting for publication bias, rev
 MODERATOR ANALYSIS - INFLUENCE OF SILVOARABLE AGROFORESTRY CHARACTERISTICS
 ##########################################################################################################################################
 
+```{r}
+# model_results$`Crop yield`$full_model$tau2
+
+# model_results$`Crop yield`$moderator_model$tau2
+```
+
 
 ```{r}
-##########################################################################################################################################
-# MODERATOR ANALYSIS - INFLUENCE OF SILVOARABLE AGROFORESTRY CHARACTERISTICS (MODERATORS)
-##########################################################################################################################################
+####################################################################################################
+# MODERATOR ANALYSIS - PROPORTION OF EXPLAINED HETEROGENEITY USING RE-FITTED MODELS NO RANDOM INTERCEPT
+####################################################################################################
+
+# Define response variable
+response_variable <- "Crop yield"  # Change accordingly
+
+# Subset data for the response variable
+data_subset <- meta_data[meta_data$response_variable == response_variable, ]
+
+# Extract the variance-covariance matrix
+v_matrix <- v_matrices[[response_variable]]
+
+# Define the moderators to include in the model
+moderators <- c("tree_type", "crop_type", "age_system", "season", "soil_texture")
+
+# Define the random effects structure
+random_effects <- list(~ 1 | exp_id)
+
+# Print data checks
+print(dim(data_subset))
+print(head(data_subset))
+```
+```{r}
+# Fit the Null Model
+# null_model <- tryCatch({
+#   rma.mv(
+#     yi = yi,
+#     V = v_matrix,
+#     random = random_effects,
+#     data = data_subset,
+#     method = "REML",
+#     control = list(iter.max = 2000, rel.tol = 1e-9)
+#   )
+# }, error = function(e) {
+#   message("Error in null model: ", e$message)
+#   return(NULL)
+# })
+# 
+# # Check if model fitted correctly
+# if (!is.null(null_model)) {
+#   print(null_model)
+#   tau2_null <- sum(null_model$tau2)  # Extract τ²
+#   cat("τ² (Null Model):", tau2_null, "\n")
+# } else {
+#   cat("⚠ Warning: τ² (Null Model) is 0 or model fitting failed.\n")
+# }
 
 
-# Define a function to extract and summarize moderator model results for each response variable
-analyze_moderator_influence <- function(model_results) {
-  # Extract response variables from the results
-  response_variables <- names(model_results)
-
-  # Iterate over each response variable to analyze moderators
-  moderator_summaries <- lapply(response_variables, function(response) {
-    cat("Analyzing response variable:", response, "\n")
-    
-    # Extract moderator models for the current response
-    moderator_models <- model_results[[response]]$moderator_models
-
-    # Summarize the moderator influence
-    summaries <- lapply(names(moderator_models), function(moderator) {
-      cat("  Moderator:", moderator, "\n")
-      
-      # Extract the model for the current moderator
-      mod_model <- moderator_models[[moderator]]
-      
-      # Extract coefficients, standard errors, and p-values
-      coef_summary <- data.frame(
-        Term = rownames(mod_model$b),
-        Estimate = mod_model$b[, 1],
-        SE = mod_model$se,
-        Zval = mod_model$zval,
-        Pval = mod_model$pval,
-        CI.Lower = mod_model$ci.lb,
-        CI.Upper = mod_model$ci.ub
-      )
-
-      return(coef_summary)
-    })
-
-    # Combine summaries for all moderators into a single data frame
-    combined_summary <- do.call(rbind, summaries)
-    combined_summary$Moderator <- rep(names(moderator_models), sapply(summaries, nrow))
-    combined_summary$ResponseVariable <- response
-
-    return(combined_summary)
-  })
-
-  # Combine summaries for all response variables into a single data frame
-  full_summary <- do.call(rbind, moderator_summaries)
-  return(full_summary)
-}
-
-# Call the function and store the results
-moderator_influence_summary <- analyze_moderator_influence(model_results)
-
-# Post-process the summarized influence of moderators
-# Update the post-process function to calculate heterogeneity explained for each response variable
-post_process_moderators_by_response <- function(summary) {
-  # Separate higher-level and lower-level moderators
-  higher_level <- summary %>%
-    filter(!grepl("[a-zA-Z]+[0-9]+", Moderator))
-  
-  # Calculate proportion of heterogeneity explained by higher-level moderators, grouped by ResponseVariable
-  heterogeneity_explained <- higher_level %>%
-    group_by(ResponseVariable, Moderator) %>%
-    summarise(
-      ProportionExplained = mean(Estimate^2 / SE^2, na.rm = TRUE),
-      MeanPValue = mean(Pval, na.rm = TRUE),
-      .groups = "drop"
-    )
-  
-  list(
-    HigherLevel = higher_level,
-    HeterogeneityExplainedByResponse = heterogeneity_explained
+# Fit the Null Model (NO RANDOM EFFECTS)
+null_model <- tryCatch({
+  rma(
+    yi = yi,
+    vi = diag(v_matrix),  # Use diagonal for within-study variance
+    data = data_subset,
+    method = "REML",
+    control = list(iter.max = 2000, rel.tol = 1e-9)
   )
+}, error = function(e) {
+  message("Error in null model: ", e$message)
+  return(NULL)
+})
+
+# Check if model fitted correctly
+if (!is.null(null_model)) {
+  print(null_model)
+  tau2_null <- null_model$tau2  # Extract τ²
+  cat("τ² (Null Model):", tau2_null, "\n")
+} else {
+  cat("⚠ Warning: τ² (Null Model) is 0 or model fitting failed.\n")
 }
 
-# Call the updated function
-post_processed_results_by_response <- post_process_moderators_by_response(moderator_influence_summary)
-
-# View the proportion of heterogeneity explained by response variable and moderator
-post_processed_results_by_response$HeterogeneityExplainedByResponse
-
-
-post_processed_results_higher_level <- post_processed_results$HigherLevel |> relocate(
-  ResponseVariable,
-  Moderator,
-  Term,
-  Estimate,
-  SE,
-  Pval,
-  Zval,
-  CI.Lower,
-  CI.Lower
-)
-
-# Define the file path for saving
-output_file <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R", "post_processed_results_higher_level.xlsx")
-# Save the dataframe to an Excel file
-write.xlsx(post_processed_results_higher_level, file = output_file, row.names = FALSE)
-cat("The post_processed_results_higher_level data has been saved to:", output_file, "\n")
-
-
-# View summaries
-post_processed_results$HeterogeneityExplained
-post_processed_results_higher_level |> str()
-
-post_processed_results_higher_level 
 ```
 
 ```{r}
-# Visualize ProportionExplained for Overall and Response Variable-Specific Situations
+# Fit the Full Model
 
-# Function to visualize ProportionExplained
-visualize_proportion_explained <- function(post_processed_results) {
-  # Extract data for overall situation
-  overall_data <- post_processed_results$HeterogeneityExplained
+# full_model <- tryCatch({
+#   rma.mv(
+#     yi = yi,
+#     V = v_matrix,
+#     mods = as.formula(paste("~", paste(moderators, collapse = " + "))),
+#     random = random_effects,
+#     data = data_subset,
+#     method = "REML",
+#     control = list(iter.max = 2000, rel.tol = 1e-9)
+#   )
+# }, error = function(e) {
+#   message("Error in full model: ", e$message)
+#   return(NULL)
+# })
+# 
+# # Check if full model fitted correctly
+# if (!is.null(full_model)) {
+#   print(full_model)
+#   tau2_full <- sum(full_model$tau2)  # Extract τ²
+#   cat("τ² (Full Model):", tau2_full, "\n")
+# } else {
+#   cat("⚠ Warning: τ² (Full Model) is 0 or model fitting failed.\n")
+# }
 
-  # Extract data for response variable-specific situation
-  response_specific_data <- post_processed_results$HigherLevel %>%
-    group_by(ResponseVariable, Moderator) %>%
-    summarise(
-      ProportionExplained = mean(Estimate^2 / SE^2, na.rm = TRUE),
-      .groups = "drop"
-    )
-
-  # Plot overall situation
-  overall_plot <- ggplot(overall_data, aes(x = reorder(Moderator, ProportionExplained), y = ProportionExplained)) +
-    geom_bar(stat = "identity", fill = "skyblue") +
-    # scale_y_continuous(breaks = c(0, 100, 200, 300, 400), limits = c(0, 450)) +
-    coord_flip() +
-    labs(
-      title = "Proportion of Explained Heterogeneity (Overall)",
-      x = "Moderator",
-      y = "Proportion Explained (%)"
-    ) +
-    theme_minimal()
-
-  # Plot response variable-specific situation
-  response_plot <- ggplot(response_specific_data, aes(x = reorder(Moderator, ProportionExplained), y = ProportionExplained, fill = ResponseVariable)) +
-    geom_bar(stat = "identity", position = "dodge") +
-    ggbreak::scale_y_break(c(15, 300), scales = 0.5) +
-    ggbreak::scale_y_break(c(400, 450), scales = 0.5) + # Add two breaks for the y-axis
-    coord_flip() +
-    labs(
-      title = "Proportion of Explained Heterogeneity (By Response Variable)",
-      x = "Moderator",
-      y = "Proportion Explained (%)",
-      fill = "Response Variable"
-    ) +
-    theme_minimal()
-
-  # Return both plots
-  list(
-    OverallPlot = overall_plot,
-    ResponseSpecificPlot = response_plot
+# Fit the Full Model (NO RANDOM EFFECTS)
+full_model <- tryCatch({
+  rma(
+    yi = yi,
+    vi = diag(v_matrix),
+    mods = as.formula(paste("~", paste(moderators, collapse = " + "))),
+    data = data_subset,
+    method = "REML",
+    control = list(iter.max = 2000, rel.tol = 1e-9)
   )
+}, error = function(e) {
+  message("Error in full model: ", e$message)
+  return(NULL)
+})
+
+# Check if full model fitted correctly
+if (!is.null(full_model)) {
+  print(full_model)
+  tau2_full <- full_model$tau2  # Extract τ²
+  cat("τ² (Full Model):", tau2_full, "\n")
+} else {
+  cat("⚠ Warning: τ² (Full Model) is 0 or model fitting failed.\n")
 }
 
-# Generate plots
-plots <- visualize_proportion_explained(post_processed_results)
+```
 
-# Print plots
-print(plots$OverallPlot)
-print(plots$ResponseSpecificPlot)
+```{r}
+# Calculate proportion of explained heterogeneity
+
+if (!is.null(null_model) && !is.null(full_model)) {
+  proportion_explained <- ((tau2_null - tau2_full) / tau2_null) * 100
+  proportion_explained <- max(min(proportion_explained, 100), 0)  # Ensure within 0-100%
+
+  cat("\nProportion of Explained Heterogeneity:", proportion_explained, "%\n")
+} else {
+  cat("\nCannot compute explained heterogeneity due to missing models.\n")
+}
+```
+
+Justifying the Use of a Model Without a Random Component
+
+Proportion of Explained Heterogeneity (PEH) is derived by comparing between-study variance (τ²) in models with and without moderators. To estimate PEH, the null model provides a baseline τ² representing total heterogeneity, while models incorporating moderators help partition that heterogeneity and quantify the proportion explained. However, the data structure in this analysis is too sparse to support a hierarchical random-effects model with `~ 1 | exp_id`, as the number of studies per group is too low for the model to reliably estimate variance components. This led to convergence issues, requiring a modified approach where the models were refitted without the random-effects component.
+
+Refitting was necessary because PEH is calculated as the proportionate reduction in τ² between models, and this requires the ability to fit both a null model and a moderator model under comparable conditions. Without refitting, it would be impossible to determine how much variance each moderator accounts for. The random-effects model structure introduced instability because the hierarchical variance component could not be estimated reliably, making it impractical for PEH analysis.
+
+By removing the random component, the model focuses on within-study variance while still capturing residual heterogeneity (τ²). Although this shifts the approach closer to a fixed-effects model, the key objective here is not to make population-level inferences but rather to partition variance and assess the explanatory power of moderators. The simplified model structure ensures that τ² estimates remain valid, while bootstrapping compensates for potential limitations by providing empirical uncertainty estimates.
+
+Critically, the model still accounts for variability through the study-level variance (`vi = diag(V)`), which ensures appropriate weighting of studies based on precision. While a full random-effects model is generally preferable when estimating overall heterogeneity, its use in this case was not feasible due to sparse data. Alternative approaches, such as Bayesian hierarchical modeling or aggregating studies within `exp_id`, would introduce additional assumptions or reduce statistical power. Removing the random component allowed for a more stable estimation of τ² and thus more reliable PEH calculations.
+
+This approach ensures that the PEH estimates remain interpretable and statistically valid while avoiding model complexity that would otherwise compromise the analysis. The use of bootstrapping further strengthens the robustness of these estimates, providing confidence in the validity of the findings despite the necessary modifications to the modeling approach.
+
+
+```{r}
+# Initialize an empty data frame to store results
+heterogeneity_results <- data.frame()
+
+# Define all response variables
+response_variables <- unique(meta_data$response_variable)
+
+# Loop through each response variable
+for (response_variable in response_variables) {
+  
+  cat("\n-------------------------\nProcessing:", response_variable, "\n-------------------------\n")
+  
+  # Subset data for the response variable
+  data_subset <- meta_data[meta_data$response_variable == response_variable, ]
+  
+  # Extract the variance-covariance matrix
+  v_matrix <- v_matrices[[response_variable]]
+  
+  # Skip if variance matrix is missing
+  if (is.null(v_matrix)) {
+    cat("⚠ Skipping", response_variable, "- No variance matrix found.\n")
+    next
+  }
+  
+  # Fit the Null Model (NO RANDOM EFFECTS)
+  null_model <- tryCatch({
+    rma(
+      yi = yi,
+      vi = diag(v_matrix),  # Use diagonal for within-study variance
+      data = data_subset,
+      method = "REML",
+      control = list(iter.max = 2000, rel.tol = 1e-9)
+    )
+  }, error = function(e) {
+    message("Error in null model for", response_variable, ":", e$message)
+    return(NULL)
+  })
+  
+  # Extract tau² from the null model
+  if (!is.null(null_model)) {
+    tau2_null <- null_model$tau2
+    cat("τ² (Null Model) for", response_variable, ":", tau2_null, "\n")
+  } else {
+    cat("⚠ Warning: τ² (Null Model) is 0 or model fitting failed for", response_variable, "\n")
+    next  # Skip to next response variable if null model fails
+  }
+  
+  # Loop through each moderator for this response variable
+  for (moderator in moderators) {
+    cat("\nFitting model for moderator:", moderator, "on", response_variable, "\n")
+    
+    mod_model <- tryCatch({
+      rma(
+        yi = yi,
+        vi = diag(v_matrix),
+        mods = as.formula(paste("~", moderator)),  # Single moderator model
+        data = data_subset,
+        method = "REML",
+        control = list(iter.max = 2000, rel.tol = 1e-9)
+      )
+    }, error = function(e) {
+      message("Error in model for", moderator, "on", response_variable, ":", e$message)
+      return(NULL)
+    })
+    
+    # Extract tau² from the moderator model
+    if (!is.null(mod_model)) {
+      tau2_moderated <- mod_model$tau2
+      cat("  τ² (Model with", moderator, "on", response_variable, "):", tau2_moderated, "\n")
+      
+      # Calculate proportion of explained heterogeneity
+      proportion_explained <- ifelse(tau2_null > 0, ((tau2_null - tau2_moderated) / tau2_null) * 100, NA)
+      proportion_explained <- max(min(proportion_explained, 100), 0)  # Ensure between 0-100%
+      
+      # Store results
+      heterogeneity_results <- rbind(heterogeneity_results, 
+                                     data.frame(ResponseVariable = response_variable,
+                                                Moderator = moderator,
+                                                Tau2_Null = tau2_null,
+                                                Tau2_Moderated = tau2_moderated,
+                                                ProportionExplained = proportion_explained))
+    } else {
+      cat("⚠ Warning: Model for", moderator, "on", response_variable, "failed.\n")
+    }
+  }
+}
+
+# Print results
+heterogeneity_results
+```
+
+Bootstrapping involves resampling with replacement to estimate confidence intervals for PEH. 
+This helps assess the robustness of the estimated heterogeneity explained
+
+```{r}
+# Bootstrapping for Statistical Validation
+##########################################################################
+# Start time tracking
+start.time <- Sys.time()
+##########################################################################
+# Set up parallel processing
+plan(multisession, workers = parallel::detectCores() - 1)
+##########################################################################
+
+
+# Bootstrapping is a resampling-based statistical method used to estimate the uncertainty and stability of a statistic by repeatedly sampling from the original dataset with replacement. In the context of Proportion of Explained Heterogeneity (PEH) analysis, bootstrapping provides confidence intervals (CIs) for the estimated PEH values and helps determine whether observed moderator effects are statistically robust or due to random noise.
+
+# Set number of bootstrap iterations
+n_boot <- 1000  
+
+# Initialize an empty list to store bootstrap results
+bootstrap_results <- list()
+
+# Function to compute PEH for bootstrapped samples
+bootstrap_peh <- function(data_subset, v_matrix, response_variable, moderator) {
+  # Resample data with replacement
+  boot_data <- data_subset[sample(nrow(data_subset), replace = TRUE), ]
+  
+  # Fit the null model
+  null_model <- tryCatch({
+    rma(
+      yi = yi,
+      vi = diag(v_matrix),
+      data = boot_data,
+      method = "REML",
+      control = list(iter.max = 2000, rel.tol = 1e-9)
+    )
+  }, error = function(e) NULL)
+  
+  if (is.null(null_model)) return(NA) # Return NA if null model fails
+  
+  tau2_null <- null_model$tau2  # Extract τ²
+  
+  # Fit the model with a single moderator
+  mod_model <- tryCatch({
+    rma(
+      yi = yi,
+      vi = diag(v_matrix),
+      mods = as.formula(paste("~", moderator)),
+      data = boot_data,
+      method = "REML",
+      control = list(iter.max = 2000, rel.tol = 1e-9)
+    )
+  }, error = function(e) NULL)
+  
+  if (is.null(mod_model)) return(NA) # Return NA if model fails
+  
+  tau2_moderated <- mod_model$tau2
+  
+  # Compute PEH
+  proportion_explained <- ifelse(tau2_null > 0, ((tau2_null - tau2_moderated) / tau2_null) * 100, NA)
+  proportion_explained <- max(min(proportion_explained, 100), 0)  # Ensure PEH is between 0-100%
+  
+  return(proportion_explained)
+}
+
+# Run bootstrap for each response variable and moderator
+for (response_variable in unique(meta_data$response_variable)) {
+  cat("\nBootstrapping for:", response_variable, "\n")
+  
+  # Subset data and extract variance-covariance matrix
+  data_subset <- meta_data[meta_data$response_variable == response_variable, ]
+  v_matrix <- v_matrices[[response_variable]]
+  
+  # Skip if variance matrix is missing
+  if (is.null(v_matrix)) next
+  
+  for (moderator in moderators) {
+    cat("Processing moderator:", moderator, "\n")
+    
+    # Run bootstrap
+    boot_estimates <- replicate(n_boot, bootstrap_peh(data_subset, v_matrix, response_variable, moderator))
+    
+    # Compute summary statistics
+    boot_summary <- data.frame(
+      ResponseVariable = response_variable,
+      Moderator = moderator,
+      MeanPEH = mean(boot_estimates, na.rm = TRUE),
+      LowerCI = quantile(boot_estimates, 0.025, na.rm = TRUE),
+      UpperCI = quantile(boot_estimates, 0.975, na.rm = TRUE)
+    )
+    
+    # Store results
+    bootstrap_results[[paste(response_variable, moderator, sep = "_")]] <- boot_summary
+  }
+}
+
+# Convert list to data frame
+bootstrap_results_df <- do.call(rbind, bootstrap_results)
+
+# View resulting dataframe on PEH
+bootstrap_results_df
+
+# Save the bootstrapped results as an RDS file
+# Define the output directory
+output_dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
+
+# Ensure the directory exists
+if (!dir.exists(output_dir)) {
+  dir.create(output_dir, recursive = TRUE)
+}
+
+saveRDS(
+  bootstrap_results_df,
+  file = file.path(output_dir, "bootstrapped_PEH_results.rds")
+)
+
+cat("Bootstrapped results saved to:", file.path(output_dir, "bootstrapped_PEH_results.rds"), "\n")
+
+##########################################################################
+# End time tracking
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+cat("\nTotal time taken:", time.taken, units(time.taken), "\n")
+##########################################################################
+# Last go (04/02-2025) 
+# Total time taken: 
+```
+
+```{r}
+# erify whether the total Proportion of Explained Heterogeneity (PEH) for each response variable exceeds 100% across all moderators:
+
+# View resulting dataframe on PEH
+# bootstrap_results_df
+
+# Summarize PEH per response variable
+peh_summary <- bootstrap_results_df %>%
+  group_by(ResponseVariable) %>%
+  summarise(TotalPEH = sum(MeanPEH, na.rm = TRUE)) %>%
+  mutate(Exceeds100 = TotalPEH > 100)  # Check if sum exceeds 100%
+
+# Identify response variables where total PEH exceeds 100%
+if (any(peh_summary$Exceeds100)) {
+  warning("⚠ Some response variables have a total PEH exceeding 100%! Review the calculations.")
+} else {
+  cat("✅ All response variables have a total PEH ≤ 100%.")
+}
+
+# Display results
+print(peh_summary)
+```
+
+
+```{r}
+# Convert ResponseVariable and Moderator to factors for proper ordering
+bootstrap_results_df$ResponseVariable <- factor(bootstrap_results_df$ResponseVariable, levels = unique(bootstrap_results_df$ResponseVariable))
+bootstrap_results_df$Moderator <- factor(bootstrap_results_df$Moderator, levels = unique(bootstrap_results_df$Moderator))
+
+# Create the bar plot with flipped axes
+ggplot(bootstrap_results_df, aes(x = ResponseVariable, y = MeanPEH, fill = Moderator)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.7), color = "black") +
+  geom_errorbar(aes(ymin = LowerCI, ymax = UpperCI), position = position_dodge(width = 0.7), width = 0.2) +
+  coord_flip() +  # Flip the axes
+  labs(title = "Bootstrapped Proportion of Explained Heterogeneity",
+       x = "Response Variable",
+       y = "Proportion Explained (%)",
+       fill = "Moderator") +
+  theme_minimal() +
+  theme(axis.text.y = element_text(angle = 0, hjust = 1))  # Ensure readability for y-axis labels
+```
+
+```{r}
+# Filter for selected response variables
+filtered_data <- bootstrap_results_df %>%
+  filter(ResponseVariable %in% c("Crop yield", "Soil quality", "Biodiversity"))
+
+# Create faceted bar plot with fixed x-axis
+ggplot(filtered_data, aes(x = Moderator, y = MeanPEH, fill = Moderator)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.7), color = "black") +
+  geom_errorbar(aes(ymin = LowerCI, ymax = UpperCI), position = position_dodge(width = 0.7), width = 0.2) +
+  coord_flip() +  # Flip axes
+  facet_wrap(~ResponseVariable, scales = "fixed") +  # Facet by response variable with fixed x-axis
+  labs(title = "Bootstrapped Proportion of Explained Heterogeneity (PEH)",
+       x = "Moderator",
+       y = "Proportion Explained (%)",
+       fill = "Moderator") +
+  theme_minimal() +
+  theme(axis.text.y = element_text(angle = 0, hjust = 1))  # Ensure labels remain readable
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+# Visualize Proportion Explained for Overall and Response Variable-Specific Situations
+
+
 ```
 
 
