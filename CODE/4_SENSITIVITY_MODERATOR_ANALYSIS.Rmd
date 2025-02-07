@@ -803,7 +803,10 @@ response_summary <- lapply(names(response_specific_results), function(response) 
   
   # Extract the full effect size from structured_results
   full_effect_size <- structured_results %>%
-    filter(ResponseVariable == response, Model == "full_model") %>%
+    filter(ResponseVariable == response, 
+           # Extracting from the minimal_random_effects model in the previously fitted model objects (structured_results_all_effect_sizes.rds)
+           # This is used to compare with the LOO analysis per response variable and study
+           Model == "minimal_random_effects") %>%
     pull(Estimate)
   
   if (length(full_effect_size) == 0) {
@@ -908,6 +911,9 @@ ggplot(study_contribution_summary, aes(x = as.factor(Study), y = response_variab
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 
+
+
+
 ```{r}
 # Bar plot of Mean Change in Effect Size
 ggplot(study_contribution_summary, aes(x = reorder(as.factor(Study), -Mean_Change_in_Effect_Size), y = Mean_Change_in_Effect_Size, fill = response_variable)) +
@@ -989,6 +995,15 @@ ggplot(study_contribution_summary, aes(
     legend.position = "bottom",
     strip.text = element_text(size = 10, face = "bold")
   )
+```
+```{r}
+study_contribution_summary <- study_contribution_summary %>%
+  mutate(High_Influence = ifelse(Mean_Change_in_Effect_Size > 50, "Yes", "No"))
+
+```
+```{r}
+study_contribution_summary <- study_contribution_summary %>%
+  arrange(desc(Mean_Change_in_Effect_Size))
 ```
 
 
@@ -1611,7 +1626,7 @@ heterogeneity_results
 Bootstrapping involves resampling with replacement to estimate confidence intervals for PEH. 
 This helps assess the robustness of the estimated heterogeneity explained
 
-```{r}
+```{r, eval=FALSE}
 # Bootstrapping for Statistical Validation
 ##########################################################################
 # Start time tracking

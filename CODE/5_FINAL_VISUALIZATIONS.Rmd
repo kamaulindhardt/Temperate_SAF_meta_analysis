@@ -155,8 +155,8 @@ setwd(here::here())
 output_dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
 
 # Load datasets
-non_imp_dataset <- readRDS(file.path(output_dir, "non_imp_dataset.rds"))
-imp_dataset <- readRDS(file.path(output_dir, "imp_dataset.rds"))
+non_imp_dataset <- readRDS(file.path(output_dir, "non_imp_data_rom.rds"))
+imp_dataset <- readRDS(file.path(output_dir, "imp_data_rom.rds"))
 ```
 
 ```{r}
@@ -197,8 +197,25 @@ geo_data <- imp_dataset %>%
   ) %>%
   filter(!is.na(lat) & !is.na(lon)) # Remove rows with missing coordinates
 
+geo_data
+```
+
+
+```{r}
 # Step 2: Base world map
 world_map <- map_data("world")
+
+
+# Define custom colors for response variables
+custom_colors <- c(
+  "Biodiversity" = "#FF9999",
+  "Greenhouse gas emission" = "#66C266",
+  "Product quality" = "#FFC000",
+  "Crop yield" = "#FF9933",
+  "Pest and Disease" = "#33CCCC",
+  "Soil quality" = "#9966CC",
+  "Water quality" = "#9999FF"
+)
 
 
 # Step 3: Create the enhanced map
@@ -214,15 +231,19 @@ geo_distribution_of_studies_map <- ggplot() +
     data = geo_data,
     aes(x = lon, y = lat, color = response_variable, size = n_studies),
     alpha = 0.8,
-    position = position_jitter(width = 0.8, height = 0.75)
+    position = position_jitter(width = 2, height = 1.5)
   ) +
   # Apply custom colors
-  scale_color_manual(values = custom_colors, name = "Ecosystem Service") +
+  scale_color_manual(values = custom_colors, 
+                     name = "Ecosystem Service",
+                     # Enlarges color legend symbols
+                     guide = guide_legend(override.aes = list(size = 5))
+                     ) +
   scale_size_continuous(
     name = "Number of Studies",
-    range = c(3, 12),  # Adjust size range for better visibility
-    breaks = c(1, 2, 5, 20, 30),  # Customize breaks based on study count
-    labels = c("1", "2", "5", "20", "30+")
+    range = c(4, 8),  # Adjust size range for better visibility
+    breaks = c(1, 2, 5),  # Customize breaks based on study count
+    labels = c("1", "2", "5+")
   ) +
   # Add labels and enhance the theme
   labs(
@@ -237,7 +258,7 @@ geo_distribution_of_studies_map <- ggplot() +
     plot.title = element_text(face = "bold", hjust = 0.5, size = 18),
     plot.subtitle = element_text(hjust = 0.5, size = 14),
     legend.title = element_text(face = "bold"),
-    legend.position = "right",
+    legend.position = "bottom",
     panel.grid = element_blank(),
     axis.line = element_line(color = "gray50"),
     legend.box = "vertical"
@@ -246,6 +267,463 @@ geo_distribution_of_studies_map <- ggplot() +
 # Display the map
 geo_distribution_of_studies_map
 ```
+
+```{r}
+# Define European bounding box (Longitude and Latitude limits)
+europe_bbox <- c(xmin = -15, xmax = 25, ymin = 34, ymax = 58)
+
+# Create the zoomed-in map for Europe
+geo_distribution_europe_map <- ggplot() +
+  # Add base map polygons
+  geom_polygon(
+    data = world_map,
+    aes(x = long, y = lat, group = group),
+    fill = "gray90", color = "gray70", size = 0.4
+  ) +
+  # Add jittered points for studies (Europe only)
+  geom_point(
+    data = geo_data %>% filter(lon >= europe_bbox["xmin"], lon <= europe_bbox["xmax"],
+                               lat >= europe_bbox["ymin"], lat <= europe_bbox["ymax"]),
+    aes(x = lon, y = lat, color = response_variable, size = n_studies),
+    alpha = 0.8,
+    position = position_jitter(width = 1, height = 0.8)
+  ) +
+  # Apply custom colors and increase legend dot size
+  scale_color_manual(
+    values = custom_colors,
+    name = "Ecosystem Service",
+    guide = guide_legend(override.aes = list(size = 5))  # Enlarges legend symbols
+  ) +
+  # Keep study size legend unchanged
+  scale_size_continuous(
+    name = "Number of Studies",
+    range = c(4, 8),  
+    breaks = c(1, 2, 5),  
+    labels = c("1", "2", "5+")
+  ) +
+  # Add labels and enhance the theme
+  labs(
+    title = "",
+    subtitle = "",
+    x = "Longitude",
+    y = "Latitude"
+  ) +
+  coord_cartesian(xlim = c(europe_bbox["xmin"], europe_bbox["xmax"]), ylim = c(europe_bbox["ymin"], europe_bbox["ymax"])) +  
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5, size = 18),
+    plot.subtitle = element_text(hjust = 0.5, size = 14),
+    legend.title = element_text(face = "bold"),
+    legend.position = "none",
+    panel.grid = element_blank(),
+    axis.line = element_line(color = "gray50"),
+    legend.box = "vertical"
+  )
+
+# Display the zoomed-in Europe map
+geo_distribution_europe_map
+```
+
+```{r}
+# Combining the maps in a nicely designed multiplot
+
+
+# Global map
+geo_distribution_of_studies_map
+
+# Zoomed-in Europe map
+geo_distribution_europe_map
+```
+
+
+```{r}
+imp_dataset |> glimpse()
+```
+
+```{r}
+# Load required libraries
+library(ggplot2)
+library(dplyr)
+library(sf)
+library(ggnewscale)  # Allows multiple fill scales in ggplot2
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(ggforce)  # For drawing pie charts
+```
+
+```{r}
+# Step 2: Aggregate Data at Country Level
+country_study_counts <- imp_dataset %>%
+  group_by(location) %>%
+  summarize(n_studies = n_distinct(id_article), .groups = "drop") 
+
+country_study_counts |> glimpse()
+
+# Step 3: Calculate Response Variable Proportions Per Country
+response_proportions <- imp_dataset %>%
+  group_by(location, response_variable) %>%
+  summarize(n_articles = n_distinct(id_article), .groups = "drop") %>%
+  group_by(location) %>%
+  mutate(proportion = n_articles / sum(n_articles)) 
+
+response_proportions |> glimpse()
+```
+
+```{r}
+# Load world map
+world_map <- map_data("world")
+
+world <- ne_countries(scale = "medium", returnclass = "sf")
+colnames(world)  # Check available columns
+
+# Step 2: Aggregate number of studies per country
+country_study_counts <- imp_dataset %>%
+  group_by(location) %>%
+  summarize(n_studies = n_distinct(id_article), .groups = "drop")
+
+# Ensure correct numeric format
+country_study_counts$n_studies <- as.numeric(country_study_counts$n_studies)
+
+# Step 3: Calculate response variable proportions per country
+response_proportions <- imp_dataset %>%
+  group_by(location, response_variable) %>%
+  summarize(n_articles = n_distinct(id_article), .groups = "drop") %>%
+  group_by(location) %>%
+  mutate(proportion = n_articles / sum(n_articles)) 
+
+# Step 4: Merge study counts with world map
+world_data <- world %>%
+  left_join(country_study_counts, by = c("name" = "location"))
+
+# Step 5: Compute centroids for pie chart placement
+# Convert to MULTIPOINT for countries with multiple polygons
+centroids <- world_data %>%
+  filter(!is.na(n_studies)) %>%
+  st_as_sf() %>%
+  st_centroid(of_largest_polygon = TRUE)  # Ensures correct placement
+
+# Standardize country names before merging
+country_study_counts <- country_study_counts %>%
+  mutate(location = recode(location,
+                           "UK" = "United Kingdom",
+                           "USA" = "United States of America",
+                           "Canada" = "Canada",
+                           "Hungary" = "Hungary"))
+
+response_proportions <- response_proportions %>%
+  mutate(location = recode(location,
+                           "UK" = "United Kingdom",
+                           "USA" = "United States of America",
+                           "Canada" = "Canada",
+                           "Hungary" = "Hungary"))
+
+# Merge study counts with world map
+world_data <- world %>%
+  left_join(country_study_counts, by = c("name" = "location"))
+
+unique(world_data$name)
+
+
+# Compute centroids again
+centroids <- world_data %>%
+  filter(!is.na(n_studies)) %>%
+  st_as_sf() %>%
+  st_centroid(of_largest_polygon = TRUE)  # Ensures correct placement
+
+# Merge response proportions
+pie_chart_data <- centroids %>%
+  left_join(response_proportions, by = c("name" = "location")) %>%
+  filter(!is.na(proportion))  # Remove missing proportions
+
+# pie_chart_data$sovereignt
+# 
+# world_data$sovereignt
+# 
+# centroids$sovereignt
+```
+
+
+```{r}
+# Define custom colors for response variables
+response_colors <- c(
+  "Biodiversity" = "#FF9999",
+  "Greenhouse gas emission" = "#66C266",
+  "Product quality" = "#FFC000",
+  "Crop yield" = "#FF9933",
+  "Pest and Disease" = "#33CCCC",
+  "Soil quality" = "#9966CC",
+  "Water quality" = "#9999FF"
+)
+
+# Step 1: Load world map
+world <- ne_countries(scale = "medium", returnclass = "sf")
+
+
+# Step 6: Generate the final map
+final_global_map <- ggplot() +
+  # Base map with study counts as color
+  geom_sf(data = world_data, aes(fill = n_studies), color = "black", size = 0.3) +
+  #scale_fill_viridis_c(name = "Number of Studies", na.value = "gray90", option = "magma") + 
+  # Use "Blues" scale from RColorBrewer (monochrome blue gradient)
+  scale_fill_distiller(
+    name = "Number of Studies",
+    palette = "Blues",  # Set to Brewer's "Blues" scale
+    direction = 1,  # Light to dark
+    na.value = "gray90",
+    limits = c(0, max(world_data$n_studies, na.rm = TRUE))
+  ) + 
+
+  # Add new fill scale for pie charts (prevents conflicts)
+  new_scale_fill() +
+
+  # Add pie charts at country centroids
+  geom_arc_bar(
+    data = pie_chart_data,
+    aes(
+      x0 = st_coordinates(geometry)[,1],  # X-coord (longitude)
+      y0 = st_coordinates(geometry)[,2],  # Y-coord (latitude)
+      r0 = 0, r = 3,  # Adjust radius size as needed
+      fill = response_variable,
+      amount = proportion
+    ),
+    stat = "pie",
+    inherit.aes = FALSE
+  ) +
+  scale_fill_manual(name = "Response Variable", values = response_colors) +  # Use categorical scale
+
+  # Labels & theme adjustments
+  labs(
+    title = "Geographical Distribution of Ecosystem Services in Agroforestry Studies",
+    subtitle = "Pie chart shows proportion of each response variable; color indicates study count",
+    x = "Longitude",
+    y = "Latitude"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5, size = 18),
+    plot.subtitle = element_text(hjust = 0.5, size = 14),
+    legend.title = element_text(face = "bold"),
+    legend.position = "right",
+    panel.grid = element_blank(),
+    axis.line = element_line(color = "gray50")
+  )
+
+# Display the final global map
+print(final_global_map)
+```
+
+
+
+```{r}
+# Step 1: Define European Bounding Box
+europe_bbox <- c(xmin = -10, xmax = 30, ymin = 35, ymax = 65)
+
+# Step 1: Extract all European countries (even those without studies)
+europe_all_countries <- world %>%
+  filter(continent == "Europe") %>%
+  select(name, geometry)  # Keep only necessary columns
+
+# Step 2: Merge `europe_all_countries` with study count data
+europe_all_countries <- europe_all_countries %>%
+  left_join(country_study_counts, by = c("name" = "location")) %>%
+  mutate(n_studies = ifelse(is.na(n_studies), 0, n_studies))  # Fill missing values with 0
+
+# Step 3: Filter Pie Chart Data for Europe Only (Only for Countries with Data)
+europe_pie_chart_data <- pie_chart_data %>%
+  filter(st_coordinates(geometry)[,1] >= europe_bbox["xmin"],
+         st_coordinates(geometry)[,1] <= europe_bbox["xmax"],
+         st_coordinates(geometry)[,2] >= europe_bbox["ymin"],
+         st_coordinates(geometry)[,2] <= europe_bbox["ymax"])
+
+# Step 4: Filter Pie Chart Data for Europe Only (Only for Countries with Data)
+# Step 4: Generate the Zoomed-in Europe Map
+geo_distribution_europe_map <- ggplot() +
+  # Base map: Show all countries in Europe (with or without data)
+  geom_sf(data = europe_all_countries, aes(fill = as.numeric(n_studies)), color = "black", size = 0.3) +
+  
+  # Ensure `scale_fill_viridis_c()` starts at 1, and gray out countries without data
+  # scale_fill_viridis_c(
+  #   name = "Number of Studies",
+  #   option = "viridis",
+  #   na.value = "gray90",
+  #   limits = c(1, max(europe_all_countries$n_studies, na.rm = TRUE))
+  # ) + 
+  # Use "Blues" scale from RColorBrewer (monochrome blue gradient)
+  scale_fill_distiller(
+    name = "Number of Studies",
+    palette = "Blues",  # Set to Brewer's "Blues" scale
+    direction = 1,  # Light to dark
+    na.value = "gray90",
+    limits = c(0, max(europe_all_countries$n_studies, na.rm = TRUE))
+  ) + 
+
+  # Fix: Add `new_scale_fill()` before pie charts to separate categorical colors
+  new_scale_fill() +
+
+  # Add pie charts at country centroids for response proportions (Only where data exists)
+  geom_arc_bar(
+    data = europe_pie_chart_data,
+    aes(
+      x0 = st_coordinates(geometry)[,1],  # Longitude
+      y0 = st_coordinates(geometry)[,2],  # Latitude
+      r0 = 0, r = 2,  # Adjust radius size
+      fill = response_variable,  # Ensure this is NOT mapped to `n_studies`
+      amount = proportion
+    ),
+    stat = "pie",
+    inherit.aes = FALSE
+  ) +
+  scale_fill_manual(name = "Response Variable", values = response_colors) +  # Use categorical scale
+
+  # Labels and theme adjustments
+  labs(
+    title = "Geographical Distribution of Ecosystem Services in Agroforestry Studies (Europe)",
+    subtitle = "Pie chart shows proportion of each response variable; color indicates study count",
+    x = "Longitude",
+    y = "Latitude"
+  ) +
+  coord_sf(xlim = c(europe_bbox["xmin"], europe_bbox["xmax"]), ylim = c(europe_bbox["ymin"], europe_bbox["ymax"])) +  
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5, size = 18),
+    plot.subtitle = element_text(hjust = 0.5, size = 14),
+    legend.title = element_text(face = "bold"),
+    legend.position = "right",
+    panel.grid = element_blank(),
+    axis.line = element_line(color = "gray50")
+  )
+
+# Step 5: Display the Zoomed-in Europe Map
+print(geo_distribution_europe_map)
+```
+
+```{r}
+# Generating combined map
+
+# Step 1: Define Bounding Box for Europe
+europe_bbox <- c(xmin = -10, xmax = 30, ymin = 35, ymax = 65)
+
+# Step 2: Remove Antarctica and Generate the Global Map
+global_map <- ggplot() +
+  geom_sf(data = world_data %>% filter(continent != "Antarctica"), aes(fill = n_studies), color = "black", size = 0.3) +
+  scale_fill_distiller(
+    name = "No. of Studies",  # Renamed legend
+    palette = "Greens",
+    direction = 1,
+    na.value = "gray95",
+    limits = c(0, max(world_data$n_studies, na.rm = TRUE)),
+    breaks = c(1,3,5,7,9)
+    ) + 
+  new_scale_fill() +
+  geom_arc_bar(
+    data = pie_chart_data,
+    aes(
+      x0 = st_coordinates(geometry)[,1],
+      y0 = st_coordinates(geometry)[,2],
+      r0 = 0, r = 3,
+      fill = response_variable,
+      amount = proportion
+    ),
+    stat = "pie",
+    inherit.aes = FALSE
+  ) +
+  scale_fill_manual(name = "Ecosystem Service", values = response_colors) +  # Updated legend title) +  
+  theme_void() +
+  theme(legend.position = "top") +
+  guides(fill = guide_legend(nrow = 1, ncol = 8,
+                             byrow = TRUE)) 
+
+global_map
+
+# Step 3: Generate the Zoomed-in Europe Map using BBOX
+europe_map <- ggplot() +
+  geom_sf(data = europe_all_countries, aes(fill = as.numeric(n_studies)), color = "black", size = 0.3) +
+  scale_fill_distiller(
+    palette = "Greens",
+    direction = 1,
+    na.value = "gray95",
+    limits = c(1, 8)
+  ) + 
+  new_scale_fill() +
+  geom_arc_bar(
+    data = europe_pie_chart_data,
+    aes(
+      x0 = st_coordinates(geometry)[,1],
+      y0 = st_coordinates(geometry)[,2],
+      r0 = 0, r = 2,
+      fill = response_variable,
+      amount = proportion
+    ),
+    stat = "pie",
+    inherit.aes = FALSE
+  ) +
+  scale_fill_manual(values = response_colors) +  
+  coord_sf(xlim = c(europe_bbox["xmin"], europe_bbox["xmax"]), ylim = c(europe_bbox["ymin"], europe_bbox["ymax"])) +  
+  theme_void() +
+  theme(
+    legend.position = "none",
+    panel.background = element_rect(fill = "white"),
+    panel.border = element_rect(color = "black", size = 3,
+                                fill = NA)
+  )
+
+europe_map
+
+# Step 4: Combine the Global and Europe Maps using Patchwork
+final_combined_map_of_study_geodistribution <- global_map + 
+  inset_element(europe_map, 
+                left = 0.10, 
+                bottom = 0.18, 
+                right = 0.95, 
+                top = 0.63, 
+                align_to = "panel")
+
+# Step 6: Display the Final Merged Map
+final_combined_map_of_study_geodistribution
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

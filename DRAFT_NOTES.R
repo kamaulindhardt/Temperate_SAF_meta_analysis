@@ -25346,3 +25346,521 @@ Summary:
 - **Moderate Contributors:** "Crop Type" and "Season" show variable but important contributions to explaining heterogeneity.
 - **Least Impactful:** "Tree Type" appears to have inconsistent effects, with many subcategories not significantly contributing to heterogeneity.
 
+
+
+
+
+Publication-ready map that visualizes the ecosystem services (response variables) reported in each study (id_article),
+```{r}
+# Step 1: Simplify the dataset for visualization
+geo_data <- imp_dataset %>%
+  group_by(lat = final_lat, lon = final_lon, response_variable) %>%
+  summarize(
+    n_studies = n_distinct(id_article),
+    .groups = "drop"
+  ) %>%
+  filter(!is.na(lat) & !is.na(lon)) # Remove rows with missing coordinates
+
+# Step 2: Base world map
+world_map <- map_data("world")
+# Step 3: Create the enhanced map
+geo_distribution_of_studies_map <- ggplot() +
+  # Add base map polygons
+  geom_polygon(
+    data = world_map,
+    aes(x = long, y = lat, group = group),
+    fill = "gray90", color = "gray70", size = 0.4
+  ) +
+  # Add jittered points for studies
+  geom_point(
+    data = geo_data,
+    aes(x = lon, y = lat, color = response_variable, size = n_studies),
+    alpha = 0.8,
+    position = position_jitter(width = 1, height = 0.8)
+  ) +
+  # Apply custom colors
+  scale_color_manual(values = custom_colors, name = "Ecosystem Service") +
+  scale_size_continuous(
+    name = "Number of Studies",
+    range = c(2, 5),  # Adjust size range for better visibility
+    breaks = c(1, 2, 5),  # Customize breaks based on study count
+    labels = c("1", "2", "5+")
+  ) +
+  # Add labels and enhance the theme
+  labs(
+    title = "Geographical Distribution of Ecosystem Services in Silvoarable Agroforestry Studies",
+    subtitle = "Larger Map for Clearer Visualization",
+    x = "Longitude",
+    y = "Latitude"
+  ) +
+  coord_quickmap() +  # Quick world map projection
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5, size = 18),
+    plot.subtitle = element_text(hjust = 0.5, size = 14),
+    legend.title = element_text(face = "bold"),
+    legend.position = "right",
+    panel.grid = element_blank(),
+    axis.line = element_line(color = "gray50"),
+    legend.box = "vertical"
+  )
+
+# Display the map
+geo_distribution_of_studies_map
+```
+
+```{r}
+imp_dataset |> glimpse()
+```
+
+
+```{r}
+# Count unique observations per location and response variable
+location_counts_obs <- imp_dataset %>%
+  group_by(location, response_variable) %>%
+  summarize(n_studies = n_distinct(id_obs), .groups = "drop")
+
+# Count unique studies per location and response variable
+location_counts_article <- imp_dataset %>%
+  group_by(location, response_variable) %>%
+  summarize(n_studies = n_distinct(id_article), .groups = "drop")
+
+# Check the result
+glimpse(location_counts_obs)
+location_counts_article
+```
+```{r}
+# Ensure unique lat/lon for each location
+geo_data <- imp_dataset %>%
+  select(location, final_lat, final_lon) %>%
+  distinct(location, .keep_all = TRUE) %>%
+  left_join(location_counts_obs, by = "location") %>%
+  filter(!is.na(final_lat) & !is.na(final_lon))  # Remove missing coordinates
+
+# Check the merged dataset
+glimpse(geo_data)
+```
+
+```{r}
+# Load world map
+world_map <- map_data("world")
+
+# Define custom colors for response variables
+custom_colors <- c(
+  "Biodiversity" = "#FF9999",
+  "Greenhouse gas emission" = "#66C266",
+  "Product quality" = "#FFC000",
+  "Crop yield" = "#FF9933",
+  "Pest and Disease" = "#33CCCC",
+  "Soil quality" = "#9966CC",
+  "Water quality" = "#9999FF"
+)
+
+
+# Fix longitude sign issue for USA and Canada
+geo_data <- geo_data %>%
+  mutate(final_lon = ifelse(location %in% c("USA", "Canada") & final_lon > 0, -final_lon, final_lon))
+
+# Create the updated map
+geo_distribution_of_studies_map <- ggplot() +
+  geom_polygon(
+    data = world_map,
+    aes(x = long, y = lat, group = group),
+    fill = "gray90", color = "gray70", size = 0.4
+  ) +
+  geom_point(
+    data = geo_data,
+    aes(x = final_lon, y = final_lat, color = response_variable, size = n_studies),
+    alpha = 0.8,
+    position = position_jitter(width = 10, height = 5)
+  ) +
+  scale_color_manual(values = custom_colors, name = "Ecosystem Service") +
+  scale_size_continuous(
+    name = "Number of Observations",
+    range = c(1, 8),
+    breaks = c(1, 5, 10, 20, 30, 50), 
+    labels = c("1", "5", "10", "20", "30", "50+")
+  ) +
+  labs(
+    title = "Geographical Distribution of Ecosystem Services in Silvoarable Agroforestry",
+    subtitle = "Point size indicates the number of observations per location",
+    x = "Longitude",
+    y = "Latitude"
+  ) +
+  coord_cartesian(xlim = c(-180, 180), ylim = c(-60, 90)) + # Ensure USA/Canada appear
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5, size = 18),
+    plot.subtitle = element_text(hjust = 0.5, size = 14),
+    legend.title = element_text(face = "bold"),
+    legend.position = "right",
+    panel.grid = element_blank(),
+    axis.line = element_line(color = "gray50"),
+    legend.box = "vertical"
+  )
+
+# Display the map
+print(geo_distribution_of_studies_map)
+```
+
+```{r}
+# Count unique articles per location and response variable
+location_counts_article <- imp_dataset %>%
+  group_by(location, response_variable) %>%
+  summarize(n_articles = n_distinct(id_article), .groups = "drop")
+
+# Merge with geographical coordinates while retaining unique locations
+geo_article_data <- imp_dataset %>%
+  select(location, final_lat, final_lon) %>%
+  distinct() %>%  # Ensure one row per location
+  left_join(location_counts_article, by = "location") %>%
+  # Remove rows with missing coordinates
+  filter(!is.na(final_lat) & !is.na(final_lon)) |> 
+  # Fix longitude sign issue for USA and Canada
+  mutate(final_lon = ifelse(location %in% c("USA", "Canada") & final_lon > 0, -final_lon, final_lon))
+
+
+geo_article_data
+```
+
+
+```{r}
+# Create the updated map
+geo_distribution_of_articles_map <- ggplot() +
+  geom_polygon(
+    data = world_map,
+    aes(x = long, y = lat, group = group),
+    fill = "gray90", color = "gray70", size = 0.4
+  ) +
+  geom_point(
+    data = geo_article_data,
+    aes(x = final_lon, y = final_lat, color = response_variable, size = n_articles),
+    alpha = 0.8,
+    position = position_jitter(width = 5, height = 2)
+  ) +
+  scale_color_manual(values = custom_colors, name = "Ecosystem Service") +
+  scale_size_continuous(
+    name = "Number of Articles",
+    range = c(2, 4),  # Adjust for better readability
+    breaks = c(1, 2, 3), 
+    labels = c("1", "2", "3+")
+  ) +
+  labs(
+    title = "Geographical Distribution of Published Articles on Ecosystem Services",
+    subtitle = "Point size indicates the number of unique articles per location",
+    x = "Longitude",
+    y = "Latitude"
+  ) +
+  coord_cartesian(xlim = c(-180, 180), ylim = c(-60, 90)) +  # Ensure USA/Canada appear
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5, size = 18),
+    plot.subtitle = element_text(hjust = 0.5, size = 14),
+    legend.title = element_text(face = "bold"),
+    legend.position = "right",
+    panel.grid = element_blank(),
+    axis.line = element_line(color = "gray50"),
+    legend.box = "vertical"
+  )
+
+# Display the map
+geo_distribution_of_articles_map
+```
+
+```{r}
+# Instead I want to show the number of response variables per article
+
+# Step 1: Count the number of unique response variables per article
+article_response_counts <- imp_dataset %>%
+  group_by(id_article) %>%
+  summarize(n_response_variables = n_distinct(response_variable), .groups = "drop")
+
+# Step 2: Aggregate at the location level (average number of response variables per article)
+location_response_counts <- imp_dataset %>%
+  select(location, final_lat, final_lon, id_article) %>%
+  distinct() %>%  # Keep unique article-location pairs
+  left_join(article_response_counts, by = "id_article") %>%
+  group_by(location, final_lat, final_lon) %>%
+  summarize(mean_response_variables = mean(n_response_variables), .groups = "drop")
+
+# Fix longitude sign issue for USA and Canada
+location_response_counts <- location_response_counts %>%
+  mutate(final_lon = ifelse(location %in% c("USA", "Canada") & final_lon > 0, -final_lon, final_lon))
+
+# Step 3: Create the updated map
+geo_distribution_response_variables_map <- ggplot() +
+  geom_polygon(
+    data = world_map,
+    aes(x = long, y = lat, group = group),
+    fill = "gray90", color = "gray70", size = 0.4
+  ) +
+  geom_point(
+    data = location_response_counts,
+    aes(x = final_lon, y = final_lat, size = mean_response_variables),
+    color = "darkred", alpha = 0.8,
+    position = position_jitter(width = 5, height = 3)
+  ) +
+  scale_size_continuous(
+    name = "Mean Response Variables per Article",
+    range = c(2, 10),  # Adjust size range for better visibility
+    breaks = c(1, 2, 3, 4, 5, 6), 
+    labels = c("1", "2", "3", "4", "5", "6+")
+  ) +
+  labs(
+    title = "Mean Number of Response Variables per Article",
+    subtitle = "Point size represents the mean number of response variables per article at each location",
+    x = "Longitude",
+    y = "Latitude"
+  ) +
+  coord_cartesian(xlim = c(-180, 180), ylim = c(-60, 90)) +  # Ensure all locations appear
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5, size = 18),
+    plot.subtitle = element_text(hjust = 0.5, size = 14),
+    legend.title = element_text(face = "bold"),
+    legend.position = "right",
+    panel.grid = element_blank(),
+    axis.line = element_line(color = "gray50"),
+    legend.box = "vertical"
+  )
+
+# Display the map
+print(geo_distribution_response_variables_map)
+```
+
+
+```{r}
+# Step 1: Define European Bounding Box
+europe_bbox <- c(xmin = -15, xmax = 35, ymin = 34, ymax = 72)
+
+# Step 2: Ensure `n_studies` is numeric (Fixing viridis error)
+world_data <- world_data %>%
+  mutate(n_studies = as.numeric(n_studies))  # Convert study count to numeric
+
+# Step 3: Extract Centroids for Each Country
+world_data <- world_data %>%
+  mutate(
+    centroid = st_centroid(geometry),  # Compute centroid
+    lon = st_coordinates(centroid)[,1],  # Extract longitude
+    lat = st_coordinates(centroid)[,2]   # Extract latitude
+  ) %>%
+  select(-centroid)  # Remove geometry-based centroids
+
+# Step 4: Filter Dataset for Europe Only
+europe_data <- world_data %>%
+  filter(!is.na(n_studies)) %>%  # Ensure only numeric study counts
+  filter(lon >= europe_bbox["xmin"], lon <= europe_bbox["xmax"],
+         lat >= europe_bbox["ymin"], lat <= europe_bbox["ymax"])
+
+# Step 5: Ensure `n_studies` is not a categorical variable (Double-check)
+europe_data$n_studies <- as.numeric(europe_data$n_studies)
+```
+
+
+```{r}
+# Load world map
+world_map <- map_data("world")
+
+# Define custom colors for response variables
+custom_colors <- c(
+  "Biodiversity" = "#FF9999",
+  "Greenhouse gas emission" = "#66C266",
+  "Product quality" = "#FFC000",
+  "Crop yield" = "#FF9933",
+  "Pest and Disease" = "#33CCCC",
+  "Soil quality" = "#9966CC",
+  "Water quality" = "#9999FF"
+)
+
+# Step 1: Count unique articles per location
+location_counts_article <- imp_dataset %>%
+  group_by(location) %>%
+  summarize(n_articles = n_distinct(id_article), .groups = "drop")
+
+# Step 2: Count distinct response variables per article
+article_response_counts <- imp_dataset %>%
+  group_by(id_article) %>%
+  summarize(n_response_variables = n_distinct(response_variable), .groups = "drop")
+
+# Step 3: Aggregate at the location level (mean response variables per article)
+location_response_counts <- imp_dataset %>%
+  select(location, final_lat, final_lon, id_article) %>%
+  distinct() %>%  # Keep unique article-location pairs
+  left_join(article_response_counts, by = "id_article") %>%
+  group_by(location, final_lat, final_lon) %>%
+  summarize(mean_response_variables = mean(n_response_variables), .groups = "drop")
+
+# Step 4: Merge datasets to retain latitude, longitude, and study counts
+geo_data <- imp_dataset %>%
+  select(location, final_lat, final_lon) %>%
+  distinct() %>%
+  left_join(location_counts_article, by = "location") %>%
+  left_join(location_response_counts, by = c("location", "final_lat", "final_lon")) %>%
+  filter(!is.na(final_lat) & !is.na(final_lon))  # Remove missing coordinates
+
+# Fix longitude sign issue for USA and Canada
+geo_data <- geo_data %>%
+  mutate(final_lon = ifelse(location %in% c("USA", "Canada") & final_lon > 0, -final_lon, final_lon))
+
+geo_data <- geo_data %>%
+  mutate(
+    response_variable_category = case_when(
+      mean_response_variables <= 1 ~ "1 Response",
+      mean_response_variables <= 2 ~ "2 Responses",
+      mean_response_variables <= 3 ~ "3 Responses",
+      mean_response_variables <= 4 ~ "4 Responses",
+      mean_response_variables <= 5 ~ "5 Responses",
+      TRUE ~ "6+ Responses"
+    )
+  )
+
+custom_colors <- c(
+  "1 Response" = "#FF9999",
+  "2 Responses" = "#66C266",
+  "3 Responses" = "#33CCCC",
+  "4 Responses" = "#FFC000",
+  "5 Responses" = "#FF9933",
+  "6+ Responses" = "#9966CC"
+)
+
+# Step 5: Create the final geographic map
+# Step 5: Create the final geographic map
+geo_distribution_map <- ggplot() +
+  # Add world map background
+  geom_polygon(
+    data = world_map,
+    aes(x = long, y = lat, group = group),
+    fill = "gray90", color = "gray70", size = 0.4
+  ) +
+  # Add study locations with jittered points
+  geom_point(
+    data = geo_data,
+    aes(x = final_lon, y = final_lat, color = response_variable_category, size = n_articles),
+    alpha = 0.9,
+    position = position_jitter(width = 2, height = 2)
+  ) +
+  # Define manual colors for response variable diversity
+  scale_color_manual(values = custom_colors, name = "Response Variables per Article") +
+  scale_size_continuous(
+    name = "Number of Articles",
+    range = c(2, 4),
+    breaks = c(1, 3, 5),
+    labels = c("1", "3", "5+")
+  ) +
+  # Labels and layout
+  labs(
+    title = "Geographical Distribution of Ecosystem Services in Silvoarable Agroforestry",
+    subtitle = "Point size represents the number of articles; color represents response variable diversity",
+    x = "Longitude",
+    y = "Latitude"
+  ) +
+  coord_cartesian(xlim = c(-180, 180), ylim = c(-60, 90)) +  # Ensure all locations are shown
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5, size = 18),
+    plot.subtitle = element_text(hjust = 0.5, size = 14),
+    legend.title = element_text(face = "bold"),
+    legend.position = "right",
+    panel.grid = element_blank(),
+    axis.line = element_line(color = "gray50"),
+    legend.box = "vertical"
+  )
+
+# Display the final map
+geo_distribution_map
+```
+
+
+
+
+
+
+
+
+# Generating combined map
+
+# Step 1: Define Bounding Box for Europe
+europe_bbox <- c(xmin = -10, xmax = 30, ymin = 35, ymax = 65)
+
+# Step 2: Generate the Global Map
+global_map <- ggplot() +
+  # Base map: Show all countries
+  geom_sf(data = world_data, aes(fill = n_studies), color = "black", size = 0.3) +
+  
+  # Use "Blues" scale for study counts
+  scale_fill_distiller(
+    palette = "Blues",
+    direction = 1,
+    na.value = "gray90",
+    limits = c(0, max(world_data$n_studies, na.rm = TRUE))
+  ) + 
+  
+  # Separate scales for pie chart colors
+  new_scale_fill() +
+  
+  # Add pie charts at country centroids
+  geom_arc_bar(
+    data = pie_chart_data,
+    aes(
+      x0 = st_coordinates(geometry)[,1],
+      y0 = st_coordinates(geometry)[,2],
+      r0 = 0, r = 3,
+      fill = response_variable,
+      amount = proportion
+    ),
+    stat = "pie",
+    inherit.aes = FALSE
+  ) +
+  scale_fill_manual(values = response_colors) +  
+  
+  # Remove all text, legends, and axes
+  theme_void() +
+  theme(legend.position = "none")
+
+# Step 3: Generate the Zoomed-in Europe Map using BBOX
+europe_map <- ggplot() +
+  # Base map for all European countries
+  geom_sf(data = europe_all_countries, aes(fill = as.numeric(n_studies)), color = "black", size = 0.3) +
+  
+  # Use "Blues" scale for study counts in Europe
+  scale_fill_distiller(
+    palette = "Blues",
+    direction = 1,
+    na.value = "gray90",
+    limits = c(1, max(europe_all_countries$n_studies, na.rm = TRUE))
+  ) + 
+  
+  new_scale_fill() +
+  
+  # Add pie charts at country centroids
+  geom_arc_bar(
+    data = europe_pie_chart_data,
+    aes(
+      x0 = st_coordinates(geometry)[,1],
+      y0 = st_coordinates(geometry)[,2],
+      r0 = 0, r = 2,
+      fill = response_variable,
+      amount = proportion
+    ),
+    stat = "pie",
+    inherit.aes = FALSE
+  ) +
+  scale_fill_manual(values = response_colors) +  
+  
+  # Apply bounding box limits
+  coord_sf(xlim = c(europe_bbox["xmin"], europe_bbox["xmax"]), ylim = c(europe_bbox["ymin"], europe_bbox["ymax"])) +  
+  
+  # Remove all text, legends, and axes
+  theme_void() +
+  theme(legend.position = "none")
+
+# Step 4: Combine the Global and Europe Maps using Patchwork
+combined_map <- global_map + 
+  inset_element(europe_map, 
+                left = 0.20, 
+                bottom = 0.25, 
+                right = 0.85, 
+                top = 0.75)
+
+# Step 5: Display the Final Merged Map
+print(combined_map)
