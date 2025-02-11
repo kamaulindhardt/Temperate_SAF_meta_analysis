@@ -25985,3 +25985,72 @@ forest_violin_plot <- imp_data_rom_violin |>
 # Display the plot
 forest_violin_plot
 ```
+
+```{r}
+# Step 1: Define fixed x-axis limits
+x_min <- -0.25
+x_max <- 0.65
+
+# Step 2: Create the Forest Violin Plot (without text clutter)
+forest_violin_plot <- ggplot(imp_data_rom_violin, aes(x = yi, y = response_variable, fill = response_variable)) +
+  # Violin plot to show effect size distribution
+  geom_violin(trim = FALSE, alpha = 0.5, color = "black") +
+  # Boxplot to show mean and IQR
+  geom_boxplot(width = 0.15, outlier.shape = NA, alpha = 0.8, color = "black") +
+  # Mean points for emphasis
+  stat_summary(fun = mean, geom = "point", shape = 21, size = 3, fill = "white", stroke = 1.5) +
+  # Confidence Interval Line (Horizontal Error Bars)
+  geom_errorbarh(aes(xmin = CI_Lower, xmax = CI_Upper), height = 0.2, color = "black", linewidth = 1) +
+  # Apply custom colors
+  scale_fill_manual(values = custom_colors) +
+  # Labels and theme
+  labs(
+    title = "Overall Effects of SAF on Agroecosystem Services Relative to Monocrop",
+    x = "log RR Relative to Monocrop",
+    y = "",
+    fill = "Response Variable"
+  ) +
+  # Adjust x-axis limits and add more breaks
+  scale_x_continuous(
+    limits = c(x_min, x_max),  
+    breaks = seq(x_min, x_max, by = 0.05)  # Add breaks every 0.05
+  ) +
+  # Theme adjustments
+  theme_minimal(base_size = 14) +
+  theme(
+    axis.text.x = element_text(size = 12),
+    axis.text.y = element_text(size = 12),
+    legend.position = "none",
+    panel.grid.major.y = element_line(color = "gray", linewidth = 0.5),
+    panel.grid.minor = element_blank(),
+    axis.line = element_line(linewidth = 0.5)
+  ) +
+  # Add vertical red dotted reference line at x = 0 (neutral effect line)
+  geom_vline(xintercept = 0, linetype = "dotted", color = "red", linewidth = 1.5)
+
+# Step 3: Create the CI & Study Count Text Plot
+text_plot <- ggplot(structured_summary, aes(y = ResponseVariable)) +
+  geom_text(
+    aes(
+      x = 1,  # Arbitrary x-axis position (we will remove x-axis later)
+      label = paste0("CI: [", round(CI_Lower, 2), ", ", round(CI_Upper, 2), "]\n",
+                     "Back-Transformed: [", round(ROM_Lower_Percent, 2), "%, ", 
+                     round(ROM_Upper_Percent, 2), "%]\nN=", study_count)
+    ),
+    hjust = 0, size = 5
+  ) +
+  labs(title = "Effect Size & Study Counts") +
+  theme_void() +  # Remove grid, axis lines, and background
+  theme(
+    plot.title = element_text(size = 14, hjust = 0.5, face = "bold"),
+    axis.text.y = element_blank(),  # Remove y-axis labels
+    axis.ticks.y = element_blank()
+  )
+
+# Step 4: Arrange both plots side by side
+final_plot <- forest_violin_plot + text_plot + plot_layout(widths = c(3, 1))  # Give more space to violin plot
+
+# Display the plot
+print(final_plot)
+
+```
