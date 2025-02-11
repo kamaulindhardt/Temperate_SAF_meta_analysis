@@ -25864,3 +25864,124 @@ combined_map <- global_map +
 
 # Step 5: Display the Final Merged Map
 print(combined_map)
+
+
+
+
+
+
+
+
+
+```{r}
+# Define the output folder path
+output_dir <- here::here("DATA", "OUTPUT_FROM_R", "FIGURES")
+
+# Ensure the directory exists
+if (!dir.exists(output_dir)) {
+  dir.create(output_dir, recursive = TRUE)
+}
+
+# Define the file paths for saving
+output_path_png <- file.path(output_dir, "forest_plot_density.png")
+output_path_pdf <- file.path(output_dir, "forest_plot_density.pdf")
+
+# Save the plot as PNG
+ggsave(
+  filename = output_path_png,
+  plot = forest_plot_density,
+  width = 16, height = 8, dpi = 600
+)
+
+# Save the plot as PDF
+ggsave(
+  filename = output_path_pdf,
+  plot = forest_plot_density,
+  width = 16, height = 8
+)
+```
+
+
+```{r}
+# Step 1: Ensure response variables are ordered by mean effect size
+imp_data_rom_violin <- imp_data_rom %>%
+  mutate(response_variable = fct_reorder(response_variable, yi, .fun = mean, na.rm = TRUE))
+
+# Step 1: Summarize CI & Study Counts
+summary_data <- imp_data_rom_violin %>%
+  group_by(response_variable) %>%
+  summarise(
+    mean_effect = mean(yi, na.rm = TRUE),
+    lower_CI = mean_effect - 1.96 * (sd(yi, na.rm = TRUE) / sqrt(n())),
+    upper_CI = mean_effect + 1.96 * (sd(yi, na.rm = TRUE) / sqrt(n())),
+    study_count = n_distinct(id_article)
+  ) %>%
+  ungroup()
+
+# Step 2: Define scale limits (exclude extreme outliers)
+yi_limits <- quantile(imp_data_rom_violin$yi, probs = c(0.025, 0.975), na.rm = TRUE)  # 95% range
+
+# Step 2: Define fixed x-axis limits
+x_min <- -0.25
+x_max <- 0.65
+
+# Step 3: Create the violin plot with CI & study count annotations
+forest_violin_plot <- imp_data_rom_violin |> 
+  ggplot(aes(x = yi, y = response_variable, fill = response_variable)) +
+  
+  # Violin plot to show effect size distribution
+  geom_violin(trim = FALSE, alpha = 0.5, color = "black") +
+  
+  # Boxplot to show mean and IQR
+  geom_boxplot(width = 0.2, outlier.shape = NA, alpha = 0.8, color = "black") +
+  
+  # Mean points for emphasis
+  stat_summary(fun = mean, geom = "point", shape = 21, size = 3, fill = "white", stroke = 1.5) +
+  
+  # Apply custom colors
+  scale_fill_manual(values = custom_colors) +
+  
+  # Labels and theme
+  labs(
+    title = "Overall Effects of SAF on Agroecosystem Services Relative to Monocrop",
+    x = "log-ROM Relative to Monocrop",
+    y = "",
+    fill = "Response Variable"
+  ) +
+  
+  # Adjust x-axis limits to remove extreme values
+  scale_x_continuous(limits = c(x_min, x_max),
+                     breaks = seq(x_min, x_max, by = 0.1)  # Add breaks every 0.1
+  ) +
+  
+  # Theme adjustments
+  theme_minimal(base_size = 14) +
+  theme(
+    axis.text.x = element_text(size = 12),
+    axis.text.y = element_text(size = 12),
+    legend.title = element_text(size = 14),
+    legend.text = element_text(size = 12),
+    legend.position = "none",
+    panel.grid.major.y = element_line(color = "gray", linewidth = 0.5),
+    panel.grid.minor = element_blank(),
+    axis.line = element_line(linewidth = 0.5)
+  ) +
+  
+  # Add vertical red dotted reference line at x = 0 (neutral effect line)
+  geom_vline(xintercept = 0, linetype = "dotted", color = "red", linewidth = 1) +
+  
+  # Add CI & Study Counts as Text Labels on the Right Side
+  geom_text(
+    data = summary_data,
+    aes(
+      x = 0.55,  # Position slightly outside the max x-axis
+      y = response_variable,
+      label = paste0("CI: [", round(lower_CI, 2), ", ", round(upper_CI, 2), "]\nN=", study_count)
+    ),
+    hjust = 0,  # Left-aligned text
+    size = 4.5
+  )
+
+# Display the plot
+forest_violin_plot
+```

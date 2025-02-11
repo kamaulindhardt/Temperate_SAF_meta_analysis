@@ -737,6 +737,10 @@ final_combined_map_of_study_geodistribution
 TEMPORAL DISTRIBUTION
 ##########################################################################################################################################
 
+```{r}
+imp_dataset |> glimpse()
+```
+
 
 Step 2: Distribution of Studies Over Time
 
@@ -746,7 +750,7 @@ create_stacked_bar_chart <- function(data, id_column, custom_colors, title = "Di
   
   # Prepare the data: Count unique entries by year and response variable
   grouped_data <- data |>
-    mutate(Year = as.integer(format(as.Date(study_year_start), "%Y"))) |>
+    mutate(Year = as.integer(format(as.Date(experiment_year), "%Y"))) |>
     distinct(!!sym(id_column), Year, response_variable) |>  # Dynamically use id_column
     count(Year, response_variable)
   
@@ -806,7 +810,7 @@ print(chart_observations)
 # Function to create cumulative data in long format with proper carry-forward logic
 prepare_cumulative_data <- function(data, id_column) {
   data |>
-    mutate(Year = as.integer(format(as.Date(study_year_start), "%Y"))) |> # Extract Year
+    mutate(Year = as.integer(format(as.Date(experiment_year), "%Y"))) |> # Extract Year
     distinct(!!sym(id_column), Year, response_variable) |>               # Ensure unique id_column
     count(Year, response_variable) |>                                   # Count unique ids per year
     complete(Year = seq(min(Year, na.rm = TRUE), max(Year, na.rm = TRUE), by = 1),  # Add missing years
@@ -873,7 +877,7 @@ n_distinct(imp_dataset$id_article)
 # Function to prepare cumulative data for each response_variable
 prepare_cumulative_data <- function(data) {
   data |>
-    mutate(Year = as.integer(format(as.Date(study_year_start), "%Y"))) |> # Extract Year
+    mutate(Year = as.integer(format(as.Date(experiment_year), "%Y"))) |> # Extract Year
     distinct(id_article, Year, response_variable) |>                     # Ensure unique id_article per Year & response_variable
     group_by(Year, response_variable) |>                                 # Group by Year & response_variable
     summarise(unique_articles = n_distinct(id_article), .groups = "drop") |> # Count unique id_articles per group
@@ -889,7 +893,7 @@ prepare_cumulative_data <- function(data) {
 # Function to prepare cumulative data for the total unique articles
 prepare_unique_articles <- function(data) {
   data %>%
-    mutate(Year = as.integer(format(as.Date(study_year_start), "%Y"))) %>%  # Extract year from date column
+    mutate(Year = as.integer(format(as.Date(experiment_year), "%Y"))) %>%  # Extract year from date column
     group_by(id_article) %>%  # Group by id_article
     summarise(first_year = min(Year, na.rm = TRUE), .groups = "drop") %>%  # Get the first year each article appears
     count(first_year, name = "unique_articles") %>%  # Count unique articles by their first year
@@ -953,7 +957,7 @@ print(cumulative_unique_articles) |> glimpse() # Ensure no year surpasses the to
 ```{r}
 # Prepare the data: Count unique studies by year and response variable
 stacked_data <- imp_dataset |>
-  mutate(Year = as.integer(format(as.Date(study_year_start), "%Y"))) |>
+  mutate(Year = as.integer(format(as.Date(experiment_year), "%Y"))) |>
   distinct(id_article, Year, response_variable) |>  # Ensure unique studies
   count(Year, response_variable)
 
@@ -992,8 +996,8 @@ studies_over_time
 ```{r}
 # Histogram for the distribution of unique studies over time
 imp_dataset |> 
-  distinct(id_article, study_year_start) |> 
-ggplot(aes(x = as.Date(study_year_start))) +
+  distinct(id_article, experiment_year) |> 
+ggplot(aes(x = as.Date(experiment_year))) +
   geom_histogram(binwidth = 1, fill = "lightgreen", color = "black") +
   labs(title = "Distribution of Unique Studies Over Time", x = "Year", y = "Number of Studies") +
   theme_minimal()
@@ -1055,13 +1059,88 @@ Step 6: Distribution in Space (Using generated Categorized Location Column)
 # Bar plot for the number of studies per sub_region
 data_distribution_studies_agroclimregion <- 
   imp_dataset |> 
-  ggplot(aes(x = sub_region)) +
+  ggplot(aes(x = bioclim_sub_regions)) +
   geom_bar(fill = "steelblue") +
   labs(title = "Number of Studies Per Continent", x = "Continent", y = "Number of Studies") +
   theme_minimal() +
   theme(axis.text.x = element_text(size = 12, angle = 45, hjust = 1))
 
 data_distribution_studies_agroclimregion
+```
+
+
+
+
+
+
+#############
+# STEP 3
+##########################################################################################################################################
+PROPORTION OF EFFECT SIZE DIRECTION AS NUMBER OF POSITIVE, NEUTRAL, AND NEGATIVE
+##########################################################################################################################################
+
+Based on the minimal_random_effects model
+
+```{r}
+imp_data_rom <- readRDS(here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R", "imp_data_rom.rds"))
+```
+
+```{r}
+# Step 1: Calculate Z-score, p-value, and categorize effect sizes
+imp_data_rom_calc <- imp_data_rom %>%
+  mutate(
+    Z = yi / sqrt(vi),  # Calculate Z-score
+    Pval = 2 * (1 - pnorm(abs(Z))),  # Two-tailed p-value
+    category = case_when(
+      Pval < 0.05 & yi > 0 ~ "Positive",  # Significant positive effect
+      Pval < 0.05 & yi < 0 ~ "Negative",  # Significant negative effect
+      TRUE ~ "Neutral"  # Non-significant or neutral effect
+    )
+  )
+
+# Step 2: Count effect sizes per category for each response variable
+summary_data_for_eff_calc <- imp_data_rom_calc %>%
+  count(response_variable, category, name = "count") %>%  # More efficient than group_by() + summarise(n())
+  group_by(response_variable) %>%
+  mutate(
+    total_count = sum(count),  # Total effect sizes per response variable
+    percentage = (count / total_count) * 100  # Compute proportion
+  ) %>%
+  ungroup()  # Remove grouping after calculation
+
+# Step 3: Ensure response variables are ordered by total effect sizes
+summary_data_for_eff_calc <- summary_data_for_eff_calc %>%
+  mutate(response_variable = fct_reorder(response_variable, total_count, .fun = sum))
+
+# Step 4: Create stacked bar plot for effect size proportions
+stacked_barplot <- ggplot(summary_data_for_eff_calc, aes(x = response_variable, y = percentage, fill = category)) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(values = c("Positive" = "#1b9e77", "Negative" = "#d95f02", "Neutral" = "#757575")) +
+  labs(
+    title = "Percentage of Effect Sizes by Response Variable",
+    x = "Response Variable",
+    y = "Percentage of Effect Sizes",
+    fill = "Effect Size Category"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 12),
+    axis.text.y = element_text(size = 12),
+    legend.title = element_text(size = 14),
+    legend.text = element_text(size = 12),
+    panel.grid.major.y = element_line(color = "gray", linewidth = 0.5),  # Keep only y-axis grid lines
+    panel.grid.major.x = element_blank(),  # Remove x-axis grid lines
+    panel.grid.minor = element_blank(),  # Remove minor grid lines
+    axis.line = element_line(linewidth = 0.5)  # Keep axis lines visible
+  ) +
+  scale_y_continuous(
+    limits = c(0, 100),  # Y-axis fixed between 0 and 100%
+    breaks = seq(0, 100, by = 20)  # Set breaks at 20% intervals
+  )
+
+# Step 5: Display the plot
+print(stacked_barplot)
+
 ```
 
 
@@ -1082,43 +1161,8 @@ data_distribution_studies_agroclimregion
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 #############
-# STEP 2
+# STEP 4
 ##########################################################################################################################################
 FORREST PLOT - OVERALL EFFECT SIZE DISTRIBUTION
 ##########################################################################################################################################
@@ -1136,7 +1180,7 @@ prepare_forest_data <- function(data, yi_col, vi_col, other_cols) {
 }
 
 forest_data_clean <- prepare_forest_data(
-  data = imp_dataset_imputed,
+  data = imp_dataset,
   yi_col = "yi",
   vi_col = "vi",
   other_cols = c("id_article", "id_obs", "response_variable", "crop_type", "tree_type")
@@ -1495,33 +1539,7 @@ forest_plot_density_wide
 
 
 
-```{r}
-# Define the output folder path
-output_dir <- here::here("DATA", "OUTPUT_FROM_R", "FIGURES")
 
-# Ensure the directory exists
-if (!dir.exists(output_dir)) {
-  dir.create(output_dir, recursive = TRUE)
-}
-
-# Define the file paths for saving
-output_path_png <- file.path(output_dir, "forest_plot_density.png")
-output_path_pdf <- file.path(output_dir, "forest_plot_density.pdf")
-
-# Save the plot as PNG
-ggsave(
-  filename = output_path_png,
-  plot = forest_plot_density,
-  width = 16, height = 8, dpi = 600
-)
-
-# Save the plot as PDF
-ggsave(
-  filename = output_path_pdf,
-  plot = forest_plot_density,
-  width = 16, height = 8
-)
-```
 
 
 
@@ -1860,8 +1878,355 @@ forest_plot_free_x
 
 
 
+#############
+# STEP 5
+##########################################################################################################################################
+FOREST PLOT (VIOLIN PLOT) EFFECT SIZES FOR 
+##########################################################################################################################################
+
+```{r}
+# Read the pre-saved combined evaluation results object
+evaluation_results <- readRDS(here::here("DATA", "OUTPUT_FROM_R", "MULTI_MODEL_EVALUATION_RESULTS", "evaluation_results_combined.rds")) 
+
+evaluation_results
+```
+
+```{r}
+evaluation_results$`Water quality`$minimal_random_effects
+```
+
+```{r}
+##########################################################################################################################################
+# Function to Back-Transform log-ROM to ROM in Percentage for All Response Variables
+##########################################################################################################################################
+
+# Define the function
+back_transform_logROM <- function(evaluation_results) {
+  # Initialize an empty list to store back-transformed results
+  back_transformed_results <- list()
+
+  # Iterate through each response variable in evaluation_results
+  for (response in names(evaluation_results)) {
+    cat("Processing response variable:", response, "\n")
+
+    # Extract models for the response variable
+    models <- evaluation_results[[response]]
+
+    # Initialize a list to store back-transformed values for this response variable
+    response_results <- list()
+
+    # Define a helper function to back-transform log-ROM values
+    back_transform <- function(estimate, ci.lb, ci.ub) {
+      list(
+        ROM_percent = (exp(estimate) - 1) * 100,  # Convert to percentage
+        ROM_lower_percent = (exp(ci.lb) - 1) * 100,
+        ROM_upper_percent = (exp(ci.ub) - 1) * 100
+      )
+    }
+
+    # Iterate through all models (null, minimal, moderators, full, interaction)
+    for (model_name in names(models)) {
+      model <- models[[model_name]]
+
+      # Skip if the model is NULL
+      if (is.null(model)) {
+        response_results[[model_name]] <- NULL
+        next
+      }
+
+      # Extract estimates and confidence intervals
+      if (!is.null(model$b)) {
+        response_results[[model_name]] <- back_transform(
+          estimate = model$b[1],
+          ci.lb = model$ci.lb[1],
+          ci.ub = model$ci.ub[1]
+        )
+      } else {
+        response_results[[model_name]] <- NULL
+      }
+    }
+
+    # Store the back-transformed results for this response variable
+    back_transformed_results[[response]] <- response_results
+  }
+
+  return(back_transformed_results)
+}
+
+##########################################################################################################################################
+# Example: Apply the function to evaluation_results
+##########################################################################################################################################
+
+# Assuming evaluation_results is already loaded
+back_transformed_results <- back_transform_logROM(evaluation_results)
+
+# Inspect the back-transformed results for a specific response variable
+back_transformed_results$`Water quality`$minimal_random_effects
+back_transformed_results$Biodiversity$minimal_random_effects
+```
 
 
+
+```{r}
+##########################################################################################################################################
+# Combine Raw Effect Sizes and Back-Transformed Values into a Structured Data Frame
+##########################################################################################################################################
+
+# Function to create a structured data frame
+combine_effect_sizes <- function(evaluation_results, back_transformed_results) {
+  combined_results <- data.frame(
+    ResponseVariable = character(),
+    Model = character(),
+    Estimate = numeric(),
+    CI_Lower = numeric(),
+    CI_Upper = numeric(),
+    P_Value = character(),
+    Significance = character(),
+    ROM_Percent = numeric(),
+    ROM_Lower_Percent = numeric(),
+    ROM_Upper_Percent = numeric(),
+    stringsAsFactors = FALSE
+  )
+
+  for (response in names(evaluation_results)) {
+    models <- evaluation_results[[response]]
+    back_transformed <- back_transformed_results[[response]]
+
+    for (model_name in names(models)) {
+      model <- models[[model_name]]
+      if (!is.null(model) && !is.null(model$b) && !is.null(model$ci.lb) && !is.null(model$pval)) {
+        p_value <- ifelse(model$pval[1] < 0.001, "<0.001", formatC(model$pval[1], format = "f", digits = 3))
+        significance <- if (model$pval[1] < 0.001) {
+          "***"
+        } else if (model$pval[1] < 0.01) {
+          "**"
+        } else if (model$pval[1] < 0.05) {
+          "*"
+        } else if (model$pval[1] < 0.1) {
+          "."
+        } else {
+          " "
+        }
+
+        combined_results <- rbind(combined_results, data.frame(
+          ResponseVariable = response,
+          Model = model_name,
+          Estimate = model$b[1],
+          CI_Lower = model$ci.lb[1],
+          CI_Upper = model$ci.ub[1],
+          P_Value = p_value,
+          Significance = significance,
+          ROM_Percent = back_transformed[[model_name]]$ROM_percent,
+          ROM_Lower_Percent = back_transformed[[model_name]]$ROM_lower_percent,
+          ROM_Upper_Percent = back_transformed[[model_name]]$ROM_upper_percent
+        ))
+      }
+    }
+  }
+
+  return(combined_results)
+}
+
+
+# Apply the function
+structured_results <- combine_effect_sizes(evaluation_results, back_transformed_results)
+
+
+output_dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
+# Save structured_results in a combined file
+saveRDS(structured_results, file = file.path(output_dir, "structured_results_all_effect_sizes.rds"))
+
+
+
+# Inspect the structured data frame
+structured_results |> glimpse()
+```
+
+
+```{r}
+custom_colors <- c(
+  "Biodiversity" = "#FF9999",
+  "Greenhouse gas emission" = "#66C266",
+  "Product quality" = "#FFC000",
+  "Crop yield" = "#FF9933",
+  "Pest and Disease" = "#33CCCC",
+  "Soil quality" = "#9966CC",
+  "Water quality" = "#9999FF"
+)
+```
+
+```{r}
+##########################################################################################################################################
+
+# Step 1: Compute median effect sizes for ordering
+median_effects <- imp_data_rom %>%
+  group_by(response_variable) %>%
+  summarise(median_effect = median(yi, na.rm = TRUE), .groups = "drop") %>%
+  arrange(desc(median_effect))  # Order by descending median effect size
+
+# Step 2: Calculate the number of studies (`n_studies`) and number of observations (`obs_count`) per response variable
+study_counts <- imp_data_rom %>%
+  group_by(response_variable) %>%
+  summarise(
+    n_studies = n_distinct(id_article),  # Count unique studies (articles)
+    obs_count = n(),  # Count total observations
+    .groups = "drop"
+  )
+
+# Step 3: Merge `study_counts` and `structured_summary` into `imp_data_rom_violin`
+imp_data_rom_violin <- imp_data_rom %>%
+  left_join(study_counts, by = "response_variable") %>%  # ✅ Correct: Merge study_counts
+  left_join(structured_summary, by = c("response_variable" = "ResponseVariable"))  # Merge CI & ROM transformed values
+
+# Step 4: Apply the ordered factor to `imp_data_rom_violin`
+imp_data_rom_violin <- imp_data_rom_violin %>%
+  mutate(response_variable = factor(response_variable, levels = median_effects$response_variable))
+
+# Step 5: Merge `study_counts` into `structured_summary` to include `obs_count`
+structured_summary <- structured_summary %>%
+  left_join(study_counts, by = c("ResponseVariable" = "response_variable")) %>%  # ✅ Correct: Merge study_counts here too
+  mutate(ResponseVariable = factor(ResponseVariable, levels = median_effects$response_variable))
+
+##########################################################################################################################################
+# Step 6: Define fixed x-axis limits
+x_min <- -0.25
+x_max <- 1.00
+
+# Step 7: Create the Forest Violin Plot
+forest_violin_plot <- ggplot(imp_data_rom_violin, aes(x = yi, y = response_variable, fill = response_variable)) +
+  geom_violin(trim = FALSE, alpha = 0.5, color = "black") +
+  geom_boxplot(width = 0.15, outlier.shape = NA, alpha = 0.8, color = "black") +
+  stat_summary(fun = mean, geom = "point", shape = 21, size = 3, fill = "white", stroke = 1.5) +
+  geom_errorbarh(aes(xmin = CI_Lower, xmax = CI_Upper), height = 0.2, color = "black", linewidth = 1) +
+  scale_fill_manual(values = custom_colors) +
+  labs(
+    title = "", # "Overall Effects of SAF on Agroecosystem Services Relative to Monocrop"
+    x = "log RR Relative to Monocrop",
+    y = "",
+    fill = "Response Variable"
+  ) +
+  scale_x_continuous(limits = c(x_min, x_max), breaks = seq(x_min, x_max, by = 0.05)) +
+  scale_x_break(c(0.35, 0.6), scales = "free") +
+  theme_minimal(base_size = 14) +
+  theme(
+    axis.text.x = element_text(size = 14),
+    axis.title = element_text(size = 20),
+    axis.text.x.top = element_blank(),
+    axis.title.x.top = element_blank(),
+    axis.ticks.x.top = element_blank(),
+    axis.text.y = element_text(size = 20),
+    legend.position = "none",
+    panel.grid.major.y = element_line(color = "gray", linewidth = 0.5),
+    panel.grid.minor = element_blank(),
+    axis.line = element_line(linewidth = 0.5)
+  ) +
+  geom_vline(xintercept = 0, linetype = "dotted", color = "red", linewidth = 1.5)
+
+# Step 8: Create the CI & Study Count Text Plot (Now Includes `obs_count`)
+text_plot <- ggplot(structured_summary, aes(
+    y = factor(ResponseVariable, levels = median_effects$response_variable),
+    x = -0.5
+  )) +
+  geom_text(
+    aes(
+      label = paste0(
+        "CI: [", round(CI_Lower, 3), ", ", round(CI_Upper, 3), "]\n",
+        "Back-transformed: [", round(ROM_Lower_Percent, 3), "%, ", 
+        round(ROM_Upper_Percent, 3), "%]\n",
+        "n studies = ", n_studies.y, " | n obs = ", obs_count.y
+      )
+    ),
+    hjust = 1,
+    size = 4
+  ) +
+  expand_limits(x = -5) +
+  labs(title = "") + # "Effect Size, Study & Observation Counts"
+  theme_void() +
+  theme(
+    plot.title = element_text(size = 14, hjust = 1, face = "bold"),
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank()
+  )
+
+# Step 9: Arrange both plots side by side
+forest_violin_plot_final <- forest_violin_plot + text_plot + plot_layout(widths = c(6, 1))
+
+# Display the plot
+forest_violin_plot_final
+```
+
+```{r}
+structured_summary
+```
+
+```{r}
+# Step 1: Define fixed x-axis limits
+x_min <- -0.25
+x_max <- 0.65
+
+# Step 2: Create the Forest Violin Plot (without text clutter)
+forest_violin_plot <- ggplot(imp_data_rom_violin, aes(x = yi, y = response_variable, fill = response_variable)) +
+  # Violin plot to show effect size distribution
+  geom_violin(trim = FALSE, alpha = 0.5, color = "black") +
+  # Boxplot to show mean and IQR
+  geom_boxplot(width = 0.15, outlier.shape = NA, alpha = 0.8, color = "black") +
+  # Mean points for emphasis
+  stat_summary(fun = mean, geom = "point", shape = 21, size = 3, fill = "white", stroke = 1.5) +
+  # Confidence Interval Line (Horizontal Error Bars)
+  geom_errorbarh(aes(xmin = CI_Lower, xmax = CI_Upper), height = 0.2, color = "black", linewidth = 1) +
+  # Apply custom colors
+  scale_fill_manual(values = custom_colors) +
+  # Labels and theme
+  labs(
+    title = "Overall Effects of SAF on Agroecosystem Services Relative to Monocrop",
+    x = "log RR Relative to Monocrop",
+    y = "",
+    fill = "Response Variable"
+  ) +
+  # Adjust x-axis limits and add more breaks
+  scale_x_continuous(
+    limits = c(x_min, x_max),  
+    breaks = seq(x_min, x_max, by = 0.05)  # Add breaks every 0.05
+  ) +
+  # Theme adjustments
+  theme_minimal(base_size = 14) +
+  theme(
+    axis.text.x = element_text(size = 12),
+    axis.text.y = element_text(size = 12),
+    legend.position = "none",
+    panel.grid.major.y = element_line(color = "gray", linewidth = 0.5),
+    panel.grid.minor = element_blank(),
+    axis.line = element_line(linewidth = 0.5)
+  ) +
+  # Add vertical red dotted reference line at x = 0 (neutral effect line)
+  geom_vline(xintercept = 0, linetype = "dotted", color = "red", linewidth = 1.5)
+
+# Step 3: Create the CI & Study Count Text Plot
+text_plot <- ggplot(structured_summary, aes(y = ResponseVariable)) +
+  geom_text(
+    aes(
+      x = 1,  # Arbitrary x-axis position (we will remove x-axis later)
+      label = paste0("CI: [", round(CI_Lower, 2), ", ", round(CI_Upper, 2), "]\n",
+                     "Back-Transformed: [", round(ROM_Lower_Percent, 2), "%, ", 
+                     round(ROM_Upper_Percent, 2), "%]\nN=", study_count)
+    ),
+    hjust = 0, size = 5
+  ) +
+  labs(title = "Effect Size & Study Counts") +
+  theme_void() +  # Remove grid, axis lines, and background
+  theme(
+    plot.title = element_text(size = 14, hjust = 0.5, face = "bold"),
+    axis.text.y = element_blank(),  # Remove y-axis labels
+    axis.ticks.y = element_blank()
+  )
+
+# Step 4: Arrange both plots side by side
+final_plot <- forest_violin_plot + text_plot + plot_layout(widths = c(3, 1))  # Give more space to violin plot
+
+# Display the plot
+print(final_plot)
+
+```
 
 
 
