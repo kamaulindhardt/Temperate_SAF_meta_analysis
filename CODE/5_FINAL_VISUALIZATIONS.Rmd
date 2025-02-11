@@ -2058,13 +2058,16 @@ custom_colors <- c(
 ```{r}
 ##########################################################################################################################################
 
-# Step 1: Compute median effect sizes for ordering
+# Step 1: Choose a model from structured_results (e.g., "minimal_random_effects")
+chosen_model <- "minimal_random_effects"
+
+# Step 2: Compute median effect sizes for ordering
 median_effects <- imp_data_rom %>%
   group_by(response_variable) %>%
   summarise(median_effect = median(yi, na.rm = TRUE), .groups = "drop") %>%
   arrange(desc(median_effect))  # Order by descending median effect size
 
-# Step 2: Calculate the number of studies (`n_studies`) and number of observations (`obs_count`) per response variable
+# Step 3: Calculate the number of studies (`n_studies`) and number of observations (`obs_count`) per response variable
 study_counts <- imp_data_rom %>%
   group_by(response_variable) %>%
   summarise(
@@ -2073,19 +2076,24 @@ study_counts <- imp_data_rom %>%
     .groups = "drop"
   )
 
-# Step 3: Merge `study_counts` and `structured_summary` into `imp_data_rom_violin`
+# Step 4: Extract structured summary for the chosen model
+structured_summary <- structured_results %>%
+  filter(Model == chosen_model) %>%  # ✅ Ensure the selected model is used
+  select(ResponseVariable, CI_Lower, CI_Upper, ROM_Lower_Percent, ROM_Upper_Percent, Significance)
+
+# Step 5: Merge `study_counts` into `structured_summary`
+structured_summary <- structured_summary %>%
+  left_join(study_counts, by = c("ResponseVariable" = "response_variable")) %>%  # ✅ Ensure `n_studies` & `obs_count` are included
+  mutate(ResponseVariable = factor(ResponseVariable, levels = median_effects$response_variable))  # ✅ Ensure ordering
+
+# Step 6: Merge `study_counts` and `structured_summary` into `imp_data_rom_violin`
 imp_data_rom_violin <- imp_data_rom %>%
   left_join(study_counts, by = "response_variable") %>%  # ✅ Correct: Merge study_counts
-  left_join(structured_summary, by = c("response_variable" = "ResponseVariable"))  # Merge CI & ROM transformed values
+  left_join(structured_summary, by = c("response_variable" = "ResponseVariable"))  # ✅ Merge CI & ROM transformed values
 
-# Step 4: Apply the ordered factor to `imp_data_rom_violin`
+# Step 7: Apply the ordered factor to `imp_data_rom_violin`
 imp_data_rom_violin <- imp_data_rom_violin %>%
   mutate(response_variable = factor(response_variable, levels = median_effects$response_variable))
-
-# Step 5: Merge `study_counts` into `structured_summary` to include `obs_count`
-structured_summary <- structured_summary %>%
-  left_join(study_counts, by = c("ResponseVariable" = "response_variable")) %>%  # ✅ Correct: Merge study_counts here too
-  mutate(ResponseVariable = factor(ResponseVariable, levels = median_effects$response_variable))
 
 ##########################################################################################################################################
 # Step 6: Define fixed x-axis limits
@@ -2133,7 +2141,7 @@ text_plot <- ggplot(structured_summary, aes(
         "CI: [", round(CI_Lower, 3), ", ", round(CI_Upper, 3), "]\n",
         "Back-transformed: [", round(ROM_Lower_Percent, 3), "%, ", 
         round(ROM_Upper_Percent, 3), "%]\n",
-        "n studies = ", n_studies.y, " | n obs = ", obs_count.y
+        "n studies = ", n_studies, " | n obs = ", obs_count
       )
     ),
     hjust = 1,
