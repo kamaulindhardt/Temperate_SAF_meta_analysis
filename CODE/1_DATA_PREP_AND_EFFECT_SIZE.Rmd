@@ -212,7 +212,8 @@ setwd(here::here())
 
 # Suppress warnings to avoid clutter in the console output
 suppressWarnings({
-  # Final database as 'meta-data' (v6) is having updates on the misplaced sample number (_n) and standard error (_se).
+  # Final database 'meta-data' (v7) is having updates on the misplaced sample number (_n) and standard error (_se)
+  # Moreover, the name of the study as authors and year was added 
   # Manually modifying the SD columns to "control_sd" and "silvo_sd" in Excel!
   # Also adding these columns manually: 
   # silvo_var (variance as either _se or _sd), 
@@ -225,7 +226,7 @@ suppressWarnings({
   # control_sd_info (information on whether the control_var indicate _sd [TRUE] or [FALSE]),
 
   database <- readxl::read_excel(
-    here("DATA", "Meta_data_v6.xlsx"), 
+    here("DATA", "Meta_data_v7.xlsx"), 
     sheet = "Quantatitive data"
   )
   
@@ -319,7 +320,8 @@ database_clean <- database |>
   # The exp_id variable is created as a unique identifier for experiments, 
   # based on grouping by: id_article (the article ID), location (the geographical location of the experiment), and 
   # the experiment_year (the year the experiment was conducted)
-  group_by(id_article, location, experiment_year) |>
+  # Now without id_article
+  group_by(location, experiment_year) |>
   mutate(exp_id = cur_group_id()) |>
   ungroup() |> 
   
@@ -408,7 +410,7 @@ database_clean <- database_clean |>
   # Step 2: Relocate columns to the desired order
   relocate(
     # Overall ID info
-    id_article, id_obs, treat_id, exp_id,
+    id_study, id_article, id_obs, treat_id, exp_id,
     # Response variable info
     response_variable, sub_response_variable,
     # Geographic and temporal info
@@ -576,7 +578,7 @@ database_clean_sf %>%
 database_clean <- database_clean_sf |>
   relocate(
     # Overall ID info
-    id_article, id_obs, treat_id, exp_id,
+    id_study, id_article, id_obs, treat_id, exp_id,
     # Response variable info
     response_variable, sub_response_variable,
     # Geographic and temporal info
@@ -1009,7 +1011,7 @@ database_clean_sd <- database_clean %>%
   # Relocate columns to the desired order
   relocate(
     # Overall ID info
-    id_article, id_obs, treat_id, exp_id,
+    id_study, id_article, id_obs, treat_id, exp_id,
     # Response variable info
     response_variable, sub_response_variable,
     # Geographic and temporal info
@@ -3104,7 +3106,7 @@ merged_rf_best_data <- database_clean_sd_df %>%
   ) %>% 
   relocate(
     # Overall ID info
-    id_article, id_obs, treat_id, exp_id,
+    id_study, id_article, id_obs, treat_id, exp_id,
     # Response variable info
     response_variable, sub_response_variable,
     # Geographic and temporal info
@@ -3144,7 +3146,7 @@ merged_rf_best_data |> select(
     silvo_se, silvo_sd, silvo_sd_from_se, silvo_sd_merged, silvo_sd_rf_best,
     control_se, control_sd, control_sd_from_se, control_sd_merged, control_sd_rf_best,
     # Overall ID info
-    id_article, id_obs, treat_id, exp_id,
+    id_study, id_article, id_obs, treat_id, exp_id,
     # Quantitative meta-analysis variables - mean and no. of observations
     silvo_mean, control_mean, silvo_n, control_n)|> 
   skim()
@@ -3562,7 +3564,7 @@ imp_rf_best <- merged_data |>
   # Relocate columns to the desired order 
   relocate(
     # Overall ID info
-    id_article, id_obs, treat_id, exp_id,
+    id_study, id_article, id_obs, treat_id, exp_id,
     # Response variable info
     response_variable, sub_response_variable,
     # Geographic and temporal info
@@ -3598,7 +3600,7 @@ non_imp_dataset <- database_clean_sd |>
   # Relocate columns to the desired order
   relocate(
     # Overall ID info
-    id_article, id_obs, treat_id, exp_id,
+    id_study, id_article, id_obs, treat_id, exp_id,
     # Response variable info
     response_variable, sub_response_variable,
     # Geographic and temporal info
@@ -3875,7 +3877,7 @@ differences <- imp_rf_best_uq %>%
   ) %>%
   select(
     # Overall ID info
-    id_article, id_obs, treat_id, exp_id,
+    id_study, id_article, id_obs, treat_id, exp_id,
     # Response variable info
     response_variable, sub_response_variable,
     # Geographic and temporal info
@@ -4046,7 +4048,7 @@ non_imp_data_rom <- calculate_effect_sizes(non_imp_data_prep,
   # Relocate columns to the desired order
   relocate(
     # Overall ID info
-    id_article, id_obs, treat_id, exp_id,
+    id_study, id_article, id_obs, treat_id, exp_id,
     # Effect size calculation and variance
     yi, vi,
     # Response variable info
@@ -4073,7 +4075,7 @@ imp_data_rom <- calculate_effect_sizes(imp_data_prep,
   # Relocate columns to the desired order
   relocate(
     # Overall ID info
-    id_article, id_obs, treat_id, exp_id,
+    id_study, id_article, id_obs, treat_id, exp_id,
     # Effect size calculation and variance
     yi, vi,
     # Response variable info

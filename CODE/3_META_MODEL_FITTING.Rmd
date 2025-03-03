@@ -95,6 +95,7 @@ pacman::p_load(
   skimr,             # Provides summary statistics with a more user-friendly output
   future,            # Supports parallel processing for speeding up computations
   future.apply,      # Extends the future package for parallelized versions of base R apply functions
+  furrr,             # Provides a simple and consistent way to work with futures and parallel processing
   readxl,            # Read excel files
   
   ###################################################################################################################
@@ -176,8 +177,8 @@ non_imp_dataset <- non_imp_data_rom %>%
   as.data.frame()|> 
   # select(-geometry) |> 
   relocate(
-       # Overall ID info
-    id_article, id_obs, treat_id, exp_id,
+    # Overall ID info
+    id_study, id_article, id_obs, treat_id, exp_id,
     # Effect size calculation and variance
     yi, vi,
     # Response variable info
@@ -197,8 +198,8 @@ non_imp_dataset <- non_imp_data_rom %>%
 imp_dataset <- imp_data_rom %>%
   as.data.frame()|> 
   relocate(
-       # Overall ID info
-    id_article, id_obs, treat_id, exp_id,
+    # Overall ID info
+    id_study, id_article, id_obs, treat_id, exp_id,
     # Effect size calculation and variance
     yi, vi,
     # Response variable info
@@ -448,7 +449,7 @@ assess_missing_data <- function(dataset, moderators, dataset_name = "Dataset") {
   # Step 4: Create a heatmap for missingness by response_variable
   missing_heatmap <- ggplot(missing_by_response, aes(x = moderator, y = response_variable, fill = missing_proportion)) +
     geom_tile(color = "white") +
-    scale_fill_gradient(low = "#56B1F7", high = "#132B43", na.value = "gray90", labels = percent) +
+    scale_fill_gradient(low = "#56B1F7", high = "#132B43", na.value = "gray90", labels = scales::percent) +
     labs(
       title = paste("Heatmap of Missing Data by Moderator and Response Variable -", dataset_name),
       x = "Moderator Variable",
@@ -649,6 +650,24 @@ start.time <- Sys.time()
 plan(multisession, workers = parallel::detectCores() - 1)
 ##########################################################################
 
+# Global control parameters for optimization
+control_params <- list(
+  # Specifies the optimization function to use, "optim" is the base R optimizer, allowing for flexible tuning
+  optimizer = "optim",
+  # Defines the specific optimization algorithm. "BFGS" (Broyden–Fletcher–Goldfarb–Shanno) is a quasi-Newton method
+  # This optimization algorithm is often used for unconstrained optimization problems and works well in meta-analytic models with moderate to large datasets
+  method = "BFGS",
+  # Maximum number of iterations for the optimization routine. If the models does not converge, increasing this value can help.
+  # However, very high values may lead to excessive computation time.
+  iter.max = 10000,
+  # Relative tolerance level for convergence. Determines when the optimization process should stop.
+  # Lower values (e.g., 1e-15) enforce stricter convergence, ensuring more precise results but requiring longer run times.
+  # Higher values (e.g., 1e-4) allow faster convergence but may reduce accuracy (default in metafor is 1e-10).
+  rel.tol = 1e-12
+  # Uncomment this line if you want to track optimizer progress for each individual model
+  # This will print detailed iteration steps, useful for debugging non-convergence issues.
+  # verbose = TRUE   
+)
 
 
 # Function to fit models incrementally for a response variable
@@ -663,26 +682,26 @@ fit_models_all <- function(data_subset, response_variable, v_matrix, moderators,
     rma.mv(
       yi = yi,
       V = v_matrix,
-      random = random_effects,
+      # random = random_effects, # Remove 'random = random_effects to resemple a true null model
       data = data_subset,
       method = "REML",
-      control = list(iter.max = 2000, rel.tol = 1e-9)
+      control = control_params
     )
   }, error = function(e) {
     cat("Error in null model:", e$message, "\n")
     return(NULL)
   })
-  ############################################################################################# 
-  # Minimal random effects model
+  ############################################################################################# <-------------- ! (chosen model) !
+  # Minimal random effects model: Intercept-only model
   results$minimal_random_effects <- tryCatch({
     rma.mv(
       yi = yi,
       V = v_matrix,
-      mods = ~ 1,  # Intercept-only model
-      random = random_effects,
+      mods = ~ 1,  # Intercept-only model, explicitly estimates an intercept
+      random = random_effects,  # Including a random effects structure
       data = data_subset,
       method = "REML",
-      control = list(iter.max = 2000, rel.tol = 1e-9)
+      control = control_params
     )
   }, error = function(e) {
     cat("Error in minimal random effects model:", e$message, "\n")
@@ -690,7 +709,7 @@ fit_models_all <- function(data_subset, response_variable, v_matrix, moderators,
   })
   
   #############################################################################################
-  # Incremental models for each moderator (no interaction)
+  # Incremental models for each moderator (no interaction):
   results$moderator_models <- map(moderators, ~ {
     moderator <- .x
     tryCatch({
@@ -701,7 +720,7 @@ fit_models_all <- function(data_subset, response_variable, v_matrix, moderators,
         random = random_effects,
         data = data_subset,
         method = "REML",
-        control = list(iter.max = 2000, rel.tol = 1e-9)
+        control = control_params
       )
     }, error = function(e) {
       cat("Error in moderator model for", moderator, ":", e$message, "\n")
@@ -710,8 +729,8 @@ fit_models_all <- function(data_subset, response_variable, v_matrix, moderators,
   })
   names(results$moderator_models) <- moderators
   
-  ############################################################################################# <-------------- ! (chosen model) !
-  # Full model with all moderators (no interaction)
+  ############################################################################################# 
+  # Full model with all moderators (no interaction):
   results$full_model <- tryCatch({
     rma.mv(
       yi = yi,
@@ -720,15 +739,15 @@ fit_models_all <- function(data_subset, response_variable, v_matrix, moderators,
       random = random_effects,
       data = data_subset,
       method = "REML",
-      control = list(iter.max = 2000, rel.tol = 1e-9)
+      control = control_params
     )
   }, error = function(e) {
     cat("Error in full model:", e$message, "\n")
     return(NULL)
   })
 
-  #############################################################################################
-  # Full interaction model with all moderators
+  ############################################################################################# 
+  # Full interaction model with all moderators (with interaction): 
   results$interaction_model <- tryCatch({
     rma.mv(
       yi = yi,
@@ -737,7 +756,7 @@ fit_models_all <- function(data_subset, response_variable, v_matrix, moderators,
       random = random_effects,
       data = data_subset,
       method = "REML",
-      control = list(iter.max = 2000, rel.tol = 1e-9)
+      control = control_params
     )
   }, error = function(e) {
     cat("Error in interaction model:", e$message, "\n")
@@ -763,10 +782,33 @@ for (response in names(v_matrices)) {
   v_matrix <- v_matrices[[response]]
 
   # Define the moderators to include in the model
-  moderators <- c("tree_type", "crop_type", "age_system", "season", "soil_texture")
+  moderators <- c("tree_type", "crop_type", "age_system", "season", "soil_texture", "no_tree_per_m", "tree_height", "alley_width")
+  # moderators <- c("tree_type", "crop_type", "age_system", "season", "soil_texture")
 
-  # Define random effects structure
-  random_effects <- ~ 1 | exp_id
+  # Define random effects structure 
+  # Previously defined as [~ 1 | exp_id], 
+  # but now defined as ~ 1 | id_article/location*experiment_year where location-year is included as a crossed random effect
+  # Actually the random effects structure is now [~ 1 | id_article/location]
+  
+  random_effects <- list(~ 1 | id_article/exp_id)
+  
+  # random_effects <- list(~ 1 | id_article)
+  
+  # random_effects <- list(~ 1 | exp_id)
+  
+  # random_effects <- list(~ 1 | id_article/location * experiment_year)
+  
+#   random_effects <- list(
+#   ~ 1 | id_article,                  # Study-level variance
+#   ~ 1 | location,                    # Location variance
+#   ~ 1 | experiment_year,             # Year variance
+#   ~ 1 | location*experiment_year     # Interaction variance
+# )
+#   random_effects <- list(
+#   ~ 1 | id_article,                  # Study-level variance
+#   ~ 1 | location,                    # Location variance
+#   ~ 1 | experiment_year              # Year variance
+# )
 
   # Fit models incrementally using the cabbage approach
   model_results[[response]] <- fit_models_all(
@@ -803,6 +845,9 @@ cat("\nTotal time taken:", time.taken, units(time.taken), "\n")
 # Last go (25/01-2025) 
 # Total time taken: 31.73879 secs 
 
+# Last go (01/03-2025) 
+# Total time taken: 49.73181 secs
+
 # Processing response variable: Biodiversity 
 # Advarsel: Redundant predictors dropped from the model.Advarsel: 14 rows with NAs omitted from model fitting.Advarsel: 14 rows with NAs omitted from model fitting.Advarsel: Redundant predictors dropped from the model.Advarsel: 14 rows with NAs omitted from model fitting.Advarsel: Redundant predictors dropped from the model.
 # Processing response variable: Greenhouse gas emission 
@@ -814,40 +859,22 @@ cat("\nTotal time taken:", time.taken, units(time.taken), "\n")
 # Processing response variable: Pest and Disease 
 # Advarsel: Redundant predictors dropped from the model.Advarsel: Redundant predictors dropped from the model.Advarsel: Redundant predictors dropped from the model.
 # Processing response variable: Soil quality 
-# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Redundant predictors dropped from the model.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Redundant predictors dropped from the model.Error in interaction model: Optimizer (nlminb) did not achieve convergence (convergence = 1). 
-# 
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Redundant predictors dropped from the model.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Redundant predictors dropped from the model.
 # Processing response variable: Water quality 
-# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Redundant predictors dropped from the model.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Redundant predictors dropped from the model.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Redundant predictors dropped from the model.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Redundant predictors dropped from the model.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Redundant predictors dropped from the model.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Redundant predictors dropped from the model.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Redundant predictors dropped from the model.
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Single-level factor(s) found in 'random' argument. Corresponding 'sigma2' value(s) fixed to 0.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Single-level factor(s) found in 'random' argument. Corresponding 'sigma2' value(s) fixed to 0.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Redundant predictors dropped from the model.Advarsel: Single-level factor(s) found in 'random' argument. Corresponding 'sigma2' value(s) fixed to 0.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Redundant predictors dropped from the model.Advarsel: Single-level factor(s) found in 'random' argument. Corresponding 'sigma2' value(s) fixed to 0.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Redundant predictors dropped from the model.Advarsel: Single-level factor(s) found in 'random' argument. Corresponding 'sigma2' value(s) fixed to 0.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Redundant predictors dropped from the model.Advarsel: Single-level factor(s) found in 'random' argument. Corresponding 'sigma2' value(s) fixed to 0.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Redundant predictors dropped from the model.Advarsel: Single-level factor(s) found in 'random' argument. Corresponding 'sigma2' value(s) fixed to 0.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Redundant predictors dropped from the model.Advarsel: Single-level factor(s) found in 'random' argument. Corresponding 'sigma2' value(s) fixed to 0.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Redundant predictors dropped from the model.Advarsel: Single-level factor(s) found in 'random' argument. Corresponding 'sigma2' value(s) fixed to 0.
 # All models have been saved successfully!
 # 
-# Total time taken: 31.73879 secs 
+# Total time taken: 49.73181 secs
 ```
 
+```{r}
+# Cross-checking data
+# table(meta_data$id_article, meta_data$location, meta_data$experiment_year)
+# table(meta_data$location, meta_data$experiment_year)
+```
+
+
 Explanations of the above Multi-Model Fitting 
-
-Descriptions of the 'Hierarchical Complexity Approach' Multi-Model Fitting for Temperate Silvoarable Agroforrestry and Ecosystem Services Meta-Analysis
-
-In this study we decided to employ a hierarchical complexity approach for meta-analysis multi-model fitting aligned with Carrillo-Reche et al. (2023) [https://www.sciencedirect.com/science/article/pii/S0167880923002232], aka the "Cabbage approach" to evaluate the effects of silvoarable agroforestry systems across multiple response variables. Meta-analytic models were constructed using the `rma.mv` function from the **metafor** package, accounting for random effects and systematically including moderators to assess their contribution to heterogeneity reduction and effect size estimation.
-
-Model Construction and Fitting
-Models were fitted incrementally for each response variable, starting with a null model to estimate the global average effect size without moderators. A minimal random effects model introduced random variability at the experiment level (`~ 1 | exp_id`) to account for between-study differences. Moderator models were then constructed to examine the independent effects of moderators such as `tree_type`, `crop_type`, `age_system`, `season`, and `soil_texture`. A full model combined all moderators additively, while a full interaction model evaluated interaction terms between all moderators. Convergence criteria were tightened by increasing the maximum iterations (`iter.max = 2000`) and reducing the relative tolerance (`rel.tol = 1e-9`) to improve model stability.
-
-Error and Warning Analysis
-During model fitting, several warnings and errors were encountered, highlighting potential limitations in the dataset or model structure. Redundant predictors were dropped due to collinearity or lack of variability, affecting models for all response variables (see the resulting output messages from the multi-model fitting code chunk above). For instance, in cases like `tree_type` and `crop_type`, collinearity led to the exclusion of certain predictors. Observations with missing values in moderators were omitted, particularly for `Biodiversity`, where 14 rows were removed. High variance ratio warnings indicated extreme variability in sampling variances, notably for `Crop yield`, `Soil quality`, and `Water quality`, leading to unstable parameter estimates. Convergence failures occurred for the full interaction model in `Soil quality` and `Water quality`, likely due to excessive complexity and insufficient data for interaction terms.
-
-Alternatively, we could have fitted the Full model only with selected interaction pairs of moderators?
-
-# Full model with selected moderator interactions
-  interaction_pairs <- list(
-    c("tree_type", "crop_type"),
-    c("age_system", "season"),
-    c("season", "soil_texture")
-  )
-
-  [...]
-
-Model Outcomes
-The null and minimal random effects models were generally successful, providing baseline estimates and capturing between-study heterogeneity. However, the interaction models often failed to converge, particularly when all moderators and their interactions were included. This highlights the challenges of modeling complex interactions in datasets with limited observations or high heterogeneity.
 
 
 
@@ -929,10 +956,24 @@ for (response in names(evaluation_results)) {
 cat("\nEvaluation results of the multi-model fitting have been saved successfully!\n")
 ```
 
+
+
+
+
+#############
+# STEP 4
+##########################################################################################################################################
+MODEL EVALUATION AND SELECTION
+##########################################################################################################################################
+
+
 ```{r}
-evaluation_results$Biodiversity |> str()
+# evaluation_results$Biodiversity |> str()
 
 # evaluation_results$Biodiversity
+
+evaluation_results$`Crop yield`$minimal_random_effects
+evaluation_results$Biodiversity$minimal_random_effects
 ```
 
 
@@ -985,7 +1026,7 @@ extract_model_stats <- function(models, response_variable) {
 
   if (!is.null(models$minimal_random_effects)) {
     stats <- rbind(stats, data.frame(
-      Model = "Minimal Random Effects",
+      Model = "Minimal Random Effects Model",
       t(get_stats(models$minimal_random_effects)),
       ResponseVariable = response_variable
     ))
@@ -1029,26 +1070,51 @@ all_model_stats <- do.call(rbind, lapply(names(model_results), function(response
 }))
 
 all_model_stats |> glimpse()
+
+# Excluding the incremental models for each moderator
+all_model_stats_models <- all_model_stats |> 
+  filter(!str_detect(Model, "Moderator"))
+
+all_model_stats_models |> glimpse()
 ```
 
 ```{r}
 ##########################################################################
 # Calculate relative AIC difference compared to Null Model for each response variable
-relative_aic <- all_model_stats |> 
-  group_by(ResponseVariable) |> 
-  mutate(RelativeAIC = AIC - AIC[Model == "Null Model"]) |> 
-  ungroup()
+# Function to compute adjusted relative AIC and BIC for all cases
+calculate_relative_metrics <- function(model_stats) {
+  model_stats %>%
+    group_by(ResponseVariable) %>%
+    mutate(
+      # Compute relative AIC and BIC using the Null Model as a baseline
+      RelativeAIC = AIC - first(AIC[Model == "Null Model"]),
+      RelativeBIC = BIC - first(BIC[Model == "Null Model"]),
+      
+      # Determine adjustment dynamically: if AIC or BIC decreases, use absolute value transformation
+      AdjustedRelativeAIC = if_else(abs(RelativeAIC) < abs(first(AIC[Model == "Null Model"])), 
+                                    abs(RelativeAIC), RelativeAIC),
+      AdjustedRelativeBIC = if_else(abs(RelativeBIC) < abs(first(BIC[Model == "Null Model"])), 
+                                    abs(RelativeBIC), RelativeBIC)
+    ) %>%
+    ungroup()
+}
 
-relative_aic
+# Apply function to compute adjusted AIC/BIC metrics
+relative_aic_bic_adjusted <- calculate_relative_metrics(all_model_stats_models) |> 
+  relocate(ResponseVariable, Model, AIC, BIC, RelativeAIC, RelativeBIC)
 
+# Display adjusted AIC/BIC metrics dataset
+# relative_aic_bic_adjusted |> glimpse()
 
 # Define the file path for saving
-output_file <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R", "relative_aic.xlsx")
+output_file <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R", "relative_aic_bic_adjusted.xlsx")
 # Save the dataframe to an Excel file
-write.xlsx(relative_aic, file = output_file, row.names = FALSE)
+write.xlsx(relative_aic_bic_adjusted, file = output_file, row.names = FALSE)
 cat("The relative AIC data has been saved to:", output_file, "\n")
 
 ##########################################################################
+# Display adjusted AIC/BIC metrics dataset
+relative_aic_bic_adjusted
 ```
 
 ```{r}
@@ -1057,7 +1123,7 @@ cat("The relative AIC data has been saved to:", output_file, "\n")
 ##########################################################################
 
 # Plot AIC values for all models with faceting
-plot_aic <- all_model_stats |> 
+plot_aic <- relative_aic_bic_adjusted |> 
   ggplot(aes(x = ResponseVariable, y = AIC, fill = ResponseVariable)) +
   geom_bar(stat = "identity", position = position_dodge()) +
   facet_wrap(~ Model, scales = "free_y") +
@@ -1082,7 +1148,7 @@ plot_aic
 # Modify plot to use pseudo-log-scale on the y-axis with faceting
 ##########################################################################
 
-plot_aic_log <- all_model_stats |> 
+plot_aic_log <- relative_aic_bic_adjusted |> 
   ggplot(aes(x = ResponseVariable, y = log10(AIC), fill = ResponseVariable)) +
   geom_bar(stat = "identity", position = position_dodge()) +
   facet_wrap(~ Model, scales = "free_y") +
@@ -1110,7 +1176,7 @@ plot_aic_log
 ##########################################################################
 
 # Plot AIC values for all models
-plot_aic_models <- all_model_stats |> 
+plot_aic_models <- relative_aic_bic_adjusted |> 
   ggplot(aes(x = fct_reorder(Model, AIC), y = AIC, fill = ResponseVariable)) +
   geom_bar(stat = "identity", position = position_dodge()) +
   coord_flip() +
@@ -1131,7 +1197,7 @@ plot_aic_models <- all_model_stats |>
 plot_aic_models
 
 # Modify plot to use pseudo-log-scale on the x-axis (log-transformed AIC)
-plot_aic_log_models <- all_model_stats |> 
+plot_aic_log_models <- relative_aic_bic_adjusted |> 
   ggplot(aes(x = fct_reorder(Model, AIC), y = log10(AIC), fill = ResponseVariable)) +
   geom_bar(stat = "identity", position = position_dodge()) +
   coord_flip() +
@@ -1159,7 +1225,7 @@ plot_aic_log_models
 ##########################################################################
 
 # Plot relative AIC values for all models
-plot_relative_aic <- relative_aic |> 
+plot_relative_aic <- relative_aic_bic_adjusted |> 
   ggplot(aes(x = Model, y = RelativeAIC, fill = ResponseVariable)) +
   geom_bar(stat = "identity", position = position_dodge()) +
   coord_flip() +
@@ -1180,77 +1246,7 @@ plot_relative_aic <- relative_aic |>
 plot_relative_aic
 ```
 
-Streamlined Interpretation of AIC Values
-
-The relative AIC values provide a comparison of model performance against the Null Model for each response variable. Negative relative AIC values indicate better model performance, while positive values indicate poorer performance. For `Product Quality` and `Water Quality`, the absolute AIC values (which were negative) require special attention, as positive relative differences in these cases reflect better model performance.
-
-**Key Insights by Response Variable:**
-
-1. **Biodiversity:**
-   - Both the `Full Model` and `Interaction Model` demonstrate significantly better performance than the Null Model, with **relative AIC values of -656** and **-645**, respectively, underscoring the importance of moderators in explaining biodiversity outcomes.
-   - The `Minimal Random Effects Model` shows no improvement over the Null Model, indicating that adding random effects alone does not enhance performance.
-
-2. **Crop Yield:**
-   - The `Interaction Model` and the `Full Model` show substantial improvements over the Null Model, with **relative AIC values of -1191** and **-894**, respectively. This highlights the critical role of both moderators and their interactions in explaining crop yield variability.
-   - The `Null Model` and `Minimal Random Effects Model` perform identically, showing no added value from random effects alone.
-
-3. **Greenhouse Gas Emissions:**
-   - The `Full Model` and `Interaction Model` exhibit **exceptional improvements** over the Null Model, with **relative AIC values of -3156** and **-3150**, respectively. These results emphasize the necessity of including multiple moderators to capture the complex dynamics of emissions data.
-   - Similar to crop yield, the `Minimal Random Effects Model` offers no improvement over the Null Model.
-
-4. **Pest and Disease:**
-   - Both the `Full Model` and the `Interaction Model` show improved performance, with **relative AIC values of -391** and **-392**, respectively, demonstrating the value of including moderators for pest and disease data.
-   - However, interactions between moderators (captured in the `Interaction Model`) do not improve the relative AIC further, indicating that the additional complexity is unnecessary.
-   - The `Minimal Random Effects Model` performs comparably to the Null Model.
-
-5. **Product Quality:**
-   - Positive relative AIC values for the `Interaction Model` (**84**) and the `Full Model` (**44**) indicate that these models outperform the Null Model in terms of absolute AIC values, contrary to initial expectations.
-   - The `Interaction Model` shows the greatest improvement, indicating that capturing interactions between moderators is essential for better explaining product quality outcomes.
-   - The `Minimal Random Effects Model` performs similarly to the Null Model, offering no substantial benefit.
-
-6. **Soil Quality:**
-   - The `Full Model` demonstrates a substantial improvement with a **relative AIC value of -950**, indicating that capturing high complexity significantly enhances model performance for soil quality.
-   - The absence of data for the `Interaction Model` suggests potential model-fitting issues when including interactions among moderators.
-   - The `Minimal Random Effects Model` adds no value compared to the Null Model.
-
-7. **Water Quality:**
-   - Positive relative AIC values for the `Interaction Model` (**19**) and the `Full Model` (**19**) suggest these models outperform the Null Model in terms of absolute AIC values, similar to product quality.
-   - The additional complexity of interactions between moderators does not further improve performance, as seen in the similar relative AIC values for the `Full Model` and `Interaction Model`.
-   - The `Minimal Random Effects Model` again shows no improvement over the Null Model.
-
-**General Observations:**
-- **Complex models like the Full and Interaction Models generally outperform simpler models**, especially for complex response variables such as greenhouse gas emissions, crop yield, and biodiversity.
-- **Product Quality and Water Quality require attention to absolute AIC values**, as positive relative AIC values reflect better performance due to negative absolute AICs.
-- Moderators play a critical role in improving model performance, but their interactions are selectively important, as shown for product quality and crop yield.
-
-Implications:
-This refined analysis confirms the importance of tailoring model complexity and moderator interactions to specific response variables. While complex models are crucial for variables with significant variability or interactions, simpler models suffice for others, provided they capture the essential dynamics.
-
-
 ```{r}
-##########################################################################################################################################
-# Add Relative BIC and Adjust Selection Criteria
-##########################################################################################################################################
-
-# Add Relative BIC to the dataset
-relative_aic_with_bic <- relative_aic |> 
-  group_by(ResponseVariable) |> 
-  mutate(RelativeBIC = BIC - BIC[Model == "Null Model"]) |> 
-  ungroup()
-
-# Adjust relative AIC and BIC for Product Quality and Water Quality
-relative_aic_bic_adjusted <- relative_aic_with_bic |> 
-  mutate(
-    AdjustedRelativeAIC = case_when(
-      ResponseVariable %in% c("Product quality", "Water quality") ~ -RelativeAIC, # Flip sign for these variables
-      TRUE ~ RelativeAIC
-    ),
-    AdjustedRelativeBIC = case_when(
-      ResponseVariable %in% c("Product quality", "Water quality") ~ -RelativeBIC, # Flip sign for these variables
-      TRUE ~ RelativeBIC
-    )
-  )
-
 # Calculate mean adjusted relative AIC and BIC across all response variables for each model
 model_performance_adjusted <- relative_aic_bic_adjusted |> 
   group_by(Model) |> 
@@ -1258,10 +1254,25 @@ model_performance_adjusted <- relative_aic_bic_adjusted |>
     MeanAdjustedRelativeAIC = mean(AdjustedRelativeAIC, na.rm = TRUE),
     MeanAdjustedRelativeBIC = mean(AdjustedRelativeBIC, na.rm = TRUE)
   ) |> 
+  # Sorting models based on mean adjusted relative AIC and BIC
   arrange(MeanAdjustedRelativeAIC, MeanAdjustedRelativeBIC)
 
-# Identify the overall best-performing model based on adjusted criteria
-best_model_adjusted <- model_performance_adjusted |> slice(1)
+# Calculate mean adjusted absolute AIC and BIC across all response variables for each model
+model_performance_adjusted_absolute_all <- relative_aic_bic_adjusted |> 
+  group_by(ResponseVariable) |> 
+  summarise(
+    AIC_absolute_all = mean(AIC, na.rm = TRUE),
+    BIC_absolute_all = mean(BIC, na.rm = TRUE)
+  ) |> 
+  # Sorting models based on mean adjusted absolute AIC and BIC
+  arrange(AIC_absolute_all, BIC_absolute_all)
+
+
+# -------------------------------------------------------------------------------------------------------
+# Identify the overall best-performing model based on relative adjusted criteria
+best_model_adjusted <- model_performance_adjusted |> 
+  filter(Model != "Null Model") |> 
+  slice(1)
 
 # Display the adjusted performance summary
 model_performance_adjusted
@@ -1270,16 +1281,251 @@ model_performance_adjusted
 best_model_adjusted
 ```
 
-The model performance analysis indicates that the **Interaction Model** consistently outperforms all other models, achieving the lowest mean adjusted relative AIC (-913.72) and BIC (-892.45) across all response variables. This result demonstrates that accounting for interactions among moderators is crucial for capturing the complexities of the data and delivering the most explanatory power.
 
-The **Full Model**, which includes all main effects of moderators but excludes interactions, ranks second with a mean adjusted relative AIC of -871.91 and BIC of -861.33. While it provides substantial improvements over simpler models, it falls short of the Interaction Model due to its inability to account for nuanced interactions among variables.
+Streamlined and Transparent Interpretation of The Model Selection Based on AIC and BIC Values
 
-Among individual moderator models, `age_system` shows the most significant improvement in performance, followed by `crop_type`, `tree_type`, and `soil_texture`. These moderators enhance explanatory power to varying degrees but remain less impactful compared to the comprehensive models. The `season` moderator provides only limited improvement, indicating its minimal relevance across the response variables.
 
-Baseline models, including the **Minimal Random Effects Model** and the **Null Model**, perform identically and fail to capture meaningful variability. Their lack of improvement underscores the necessity of incorporating moderators and interactions for effective model performance.
+The relative AIC and BIC values provide a comparison of model performance against the Null Model for each response variable. Negative relative values indicate better model performance, while positive values indicate poorer performance. Additionally, absolute AIC and BIC values provide context for the overall model fit and complexity, allowing a balanced evaluation of performance.
 
-Overall, the results highlight the superiority of the Interaction Model, emphasizing the importance of capturing complex relationships among moderators to explain variations across the response variables effectively. Simpler models, while informative in specific contexts, are insufficient for fully addressing the intricacies of the data.
+---
 
+**Key Insights by Response Variable:**
+
+1. **Biodiversity:**
+   - The `Full Model` and `Interaction Model` demonstrate improved performance over the Null Model, with **relative AIC values of -3087** and **-3087**, respectively.
+   - **Relative BIC values** suggest a similar improvement (-3057 for the Full Model and -3053 for the Interaction Model), reinforcing that while both models perform better, their added complexity does not drastically improve fit.
+   - The `Minimal Random Effects Model` shows improvement over the Null Model, with **relative AIC of -2442**, indicating that adding random effects enhances performance.
+
+2. **Crop Yield:**
+   - The `Interaction Model` and the `Full Model` show substantial improvements, with **relative AIC values of -110037** and **-109744**, respectively.
+   - The **relative BIC values (-109905 for the Interaction Model and -109705 for the Full Model)** suggest that while the Interaction Model provides better AIC performance, the BIC penalty for additional complexity is higher.
+   - The `Minimal Random Effects Model` improves performance over the Null Model with **relative AIC of -108849**, showing that random effects contribute significantly.
+
+3. **Greenhouse Gas Emissions:**
+   - The `Full Model` and `Interaction Model` exhibit **exceptional improvements**, with **relative AIC values of -3152** and **-3147**, respectively.
+   - **Relative BIC values (-3137 and -3129, respectively)** confirm that these models offer meaningful improvements over the Null Model while keeping model complexity in check.
+   - The `Minimal Random Effects Model` shows a slight increase in AIC (+4) compared to the Null Model, suggesting no major improvement.
+
+4. **Pest and Disease:**
+   - Both the `Full Model` and the `Interaction Model` improve performance, with **relative AIC values of -5548**, but interactions do not further improve the model.
+   - The **relative BIC values (-5536 for both models)** reinforce that adding interactions does not provide meaningful gains in model fit.
+   - The `Minimal Random Effects Model` improves performance with **relative AIC of -5159**, indicating that random effects are important.
+
+5. **Product Quality:**
+   - The `Full Model` and `Interaction Model` show increasing AIC values compared to the Null Model, with relative AIC values of **+34** and **+77**, respectively.
+   - **Relative BIC values (+60 for the Full Model and +119 for the Interaction Model)** further confirm that added complexity does not improve model fit.
+   - This indicates that these models perform worse than the Null Model in explaining product quality outcomes.
+   - The `Minimal Random Effects Model` improves performance with **relative AIC of -9**, making it the most parsimonious choice.
+
+6. **Soil Quality:**
+   - The `Full Model` significantly improves performance with **relative AIC value of -1788167**.
+   - The `Interaction Model` further improves it to **-1788183**, but the improvement is marginal.
+   - The **relative BIC values (-1788132 for the Full Model and -1788138 for the Interaction Model)** reinforce that additional complexity in interactions does not meaningfully improve performance.
+   - The `Minimal Random Effects Model` improves performance significantly, with **relative AIC of -1787220**, showing that random effects are crucial.
+
+7. **Water Quality:**
+   - The `Full Model` and the `Interaction Model` exhibit **higher AIC values** compared to the Null Model, with a relative increase of **-192**.
+   - **Relative BIC values (-184 for both models)** further indicate that additional complexity does not improve performance.
+   - The `Minimal Random Effects Model` improves performance with **relative AIC of -208**, making it the most efficient choice.
+
+---
+
+**Justification for Selecting the Minimal Random Effects Model**
+
+1. **Overall Model Performance Across Response Variables:**
+   - While some response variables, such as `Crop Yield`, `Soil Quality`, and `Greenhouse Gas Emissions`, show significantly better fits using the `Full Model` and `Interaction Model`, the improvements are **not substantial enough to justify the added complexity**.
+   - The `Minimal Random Effects Model` **still outperforms the Null Model** across all response variables while maintaining a much simpler structure.
+
+2. **Balancing Complexity and Fit:**
+   - The **relative AIC and BIC values demonstrate that the `Minimal Random Effects Model` captures the essential variance in the data** without overcomplicating the model.
+   - The `Full Model` and `Interaction Model` introduce numerous moderator effects and interactions, which can lead to overfitting or reduced interpretability, particularly when data is scarce for certain moderator-response combinations.
+   - The **BIC penalty is more severe for the `Full Model` and `Interaction Model`**, indicating that their slight improvements in AIC do not outweigh the cost of added complexity.
+
+3. **Avoiding Overfitting and Data Limitations:**
+   - Some moderator-response variable combinations have **limited data availability**, making interactions less reliable and increasing the risk of model instability.
+   - The `Minimal Random Effects Model` captures **overall variance across studies while avoiding spurious interactions** that may be driven by noise rather than true underlying effects.
+
+4. **Consistency and Interpretability:**
+   - The `Minimal Random Effects Model` offers **the most stable performance across all response variables**, ensuring consistent and interpretable results.
+   - Unlike the `Full Model` or `Interaction Model`, which require extensive parameter estimation, the `Minimal Random Effects Model` provides **a clear baseline understanding of effect sizes across studies**.
+
+---
+
+**Conclusion: Choosing the Minimal Random Effects Model**
+
+Despite the `Full Model` and `Interaction Model` showing superior performance for some response variables, their improvements in AIC and BIC are **not substantial enough to justify the additional complexity and risk of overfitting**. The **Minimal Random Effects Model emerges as the best choice** because it provides:
+   - **Substantial improvements over the Null Model**
+   - **Balanced complexity and model fit**
+   - **Avoidance of overfitting due to sparse data for some moderators**
+   - **Stable and interpretable estimates across all response variables**
+
+Thus, the **Minimal Random Effects Model is selected as the optimal model for this study**, offering a robust, consistent, and interpretable framework for understanding the effects across multiple response variables.
+
+
+
+#############
+# STEP 5
+##########################################################################################################################################
+TESTING DIFFERENT RANDOM EFFECTS STRUCTURES FOR THE CHOOSEN MODEL (MINIMAL RANDOM EFFECTS MODEL)
+##########################################################################################################################################
+
+```{r}
+##########################################################################
+# Start time tracking
+start.time <- Sys.time()
+##########################################################################
+# Set up parallel processing
+plan(multisession, workers = parallel::detectCores() - 1)
+##########################################################################
+
+# WORING ON THE IMPUTED DATASET
+meta_data <- imp_dataset
+
+# Define control parameters for optimization
+control_params <- list(optimizer = "optim", 
+                       method = "BFGS", 
+                       iter.max = 10000, 
+                       rel.tol = 1e-12)
+
+# Define different random effects structures manually
+
+# Simple models
+model_study <- rma.mv(yi = meta_data$yi, 
+                      V = vi, 
+                      mods = ~ 1, 
+                      random = ~ 1 | id_article, 
+                      data = meta_data, 
+                      method = "REML", 
+                      control = control_params)
+
+model_year <- rma.mv(yi = meta_data$yi, 
+                     V = vi, 
+                     mods = ~ 1,
+                     random = ~ 1 | experiment_year, 
+                     data = meta_data, 
+                     method = "REML", 
+                     control = control_params)
+
+model_location <- rma.mv(yi = meta_data$yi, 
+                         V = vi, 
+                         mods = ~ 1,
+                         random = ~ 1 | location, 
+                         data = meta_data, 
+                         method = "REML", 
+                         control = control_params)
+
+model_experiment <- rma.mv(yi = meta_data$yi, 
+                           V = vi,  
+                           mods = ~ 1, 
+                           random = ~ 1 | exp_id, 
+                           data = meta_data, 
+                           method = "REML", 
+                           control = control_params)
+
+# Nested models 
+model_study_experiment <- rma.mv(yi = meta_data$yi,   # <-------------- ! (chosen model) !
+                                 V = vi,  
+                                 mods = ~ 1, 
+                                 random = ~ 1 | id_article/exp_id, 
+                                 data = meta_data, 
+                                 method = "REML", 
+                                 control = control_params)
+
+model_study_location <- rma.mv(yi = meta_data$yi,
+                               V = vi,  
+                               mods = ~ 1, 
+                               random = ~ 1 | id_article/location, 
+                               data = meta_data, 
+                               method = "REML", 
+                               control = control_params)
+
+model_location_year <- rma.mv(yi = meta_data$yi,
+                              V = vi, 
+                              mods = ~ 1,
+                              random = ~ 1 | location/experiment_year, 
+                              data = meta_data, 
+                              method = "REML", 
+                              control = control_params)
+
+# Crossed models
+model_study_location_year_crossed <- rma.mv(yi = meta_data$yi, 
+                                            V = vi, 
+                                            mods = ~ 1,
+                                            random = list(~ 1 | id_article, 
+                                                          ~ 1 | location, 
+                                                          ~ 1 | experiment_year),  
+                                            data = meta_data, 
+                                            method = "REML", 
+                                            control = control_params)
+
+##########################################################################
+# End time tracking
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+cat("\nTotal time taken:", time.taken, units(time.taken), "\n")
+##########################################################################
+# Last go (04/02-2025) 
+# Total time taken: 6.676552 mins 
+```
+
+```{r}
+# Function to extract AIC.REML values safely
+extract_aic <- function(model) {
+  if (!is.null(model) && "AIC" %in% rownames(model$fit.stats)) {
+    return(model$fit.stats["AIC", "REML"])  # Ensure we extract REML AIC correctly
+  } else {
+    return(NA)
+  }
+}
+
+# Create a data frame to store AIC values correctly
+aic_values <- data.frame(
+  Model = c("Simple Study-Level",               # model_study
+            "Experiment Only",                  # model_experiment
+            "Location Only",                    # model_location
+            "Year Only",                        # model_year
+            "Study and Experiment",             # model_study_experiment - like the originally chosen model setup 'minimal random effects model'
+            "Study and Location",               # model_location
+            "Location and Year",                # model_year
+            "Study, Location, Year (Crossed)"), # model_study_location_year_crossed
+  AIC_REML = c(
+    extract_aic(model_study),
+    extract_aic(model_experiment),
+    extract_aic(model_location),
+    extract_aic(model_year),
+    extract_aic(model_study_experiment),
+    extract_aic(model_study_location),
+    extract_aic(model_location_year),
+    extract_aic(model_study_location_year_crossed)
+  )
+) %>%
+  arrange(AIC_REML)
+
+# Print model comparison
+aic_values
+```
+
+```{r}
+model_study_experiment$fit.stats
+model_experiment$fit.stats
+
+model_study_location_year_crossed$fit.stats
+```
+
+
+
+
+
+
+
+
+
+
+#############
+# STEP 6
+##########################################################################################################################################
+BACK-TRANSFORM MODEL RESULTS FROM LOG-ROM TO PERCENTAGE FOR ALL RESPONSE VARIABLES
+##########################################################################################################################################
 
 
 ```{r}
@@ -1352,109 +1598,73 @@ print(back_transformed_results$Biodiversity)
 
 ##########################################################################################################################################
 ```
-Interpretation of the back-transformed values (ROM in percentages) for all response variables
 
+Interpretation of Back-Transformed Values (ROM in Percentages) for All Response Variables
 
-### Interpretation of Back-Transformed Values (ROM in Percentages)
+The back-transformed Ratio of Means (ROM) values provide an interpretable measure of effect sizes across different response variables. These values indicate how the studied system influences each response variable compared to controls, with associated confidence intervals (CIs) reflecting uncertainty.
 
-The back-transformed Ratio of Means (ROM) values provide an interpretable measure of effect sizes for all response variables. These percentages allow us to assess how the system impacts different response variables compared to controls, including associated uncertainty (confidence intervals).
+Key Differences Between the Minimal Random Effects Model and the Interaction Model
 
----
+**Crop Yield**
+- Minimal Random Effects Model: -2.36% [CI: -5.50%, 0.89%]
+- Full Model: -1.38% [CI: -6.44%, 3.95%]
+- Interaction Model: -24.47% [CI: -36.27%, -10.48%]
+- The minimal model suggests a small yield reduction (-2.36%), while the full model slightly reduces this effect. However, the interaction model indicates a significantly larger decline (-24.47%), suggesting that moderator interactions strongly amplify the negative impact on crop yield.
 
-### **1. Biodiversity**
-- **Null Model:** **4.42%** [CI: -1.25%, 10.42%]  
-  Biodiversity is estimated to increase by **4.42%**, but the CI includes zero, indicating no significant effect.  
-- **Minimal Random Effects Model:** **4.42%** [CI: -1.25%, 10.42%]  
-  Identical to the null model, suggesting no improvement by accounting for random effects.  
-- **Full Model:** **-7.28%** [CI: -57.80%, 103.74%]  
-  Indicates a **7.28% decrease**, but the very wide CI reflects high uncertainty and potential overfitting.  
-- **Interaction Model:** **-2.84%** [CI: -46.59%, 76.75%]  
-  Shows a **2.84% decrease**, with a similarly wide and uncertain CI.
+**Biodiversity**
+- Minimal Random Effects Model: +3.89% [CI: -1.68%, 9.78%]
+- Full Model: -8.35% [CI: -62.21%, 122.24%]
+- Interaction Model: -2.78% [CI: -64.38%, 165.35%]
+- The minimal model suggests a slight positive impact (+3.89%), while the full model shifts to a stronger negative effect (-8.35%), though with a highly uncertain CI. The interaction model further complicates interpretation, with a very wide CI indicating substantial uncertainty.
 
----
+**Soil Quality**
+- Minimal Random Effects Model: +3.32% [CI: 0.36%, 6.37%]
+- Full Model: -33.94% [CI: -54.82%, -3.42%]
+- Interaction Model: -10.80% [CI: -16.00%, -5.28%]
+- The minimal model suggests a slight positive effect, while the full model reverses this trend and shows a significant decline (-33.94%). The interaction model indicates a similar negative trend, but with less extreme values. This suggests that moderators collectively contribute to a decline in soil quality, though interactions slightly mitigate the extent.
 
-### **2. Greenhouse Gas Emissions**
-- **Null Model:** **0.94%** [CI: 0.69%, 1.20%]  
-  A minimal and statistically significant increase in emissions, reflecting consistent results across the CI.  
-- **Minimal Random Effects Model:** **0.94%** [CI: 0.69%, 1.20%]  
-  No improvement over the null model.  
-- **Full Model:** **25.73%** [CI: 14.49%, 38.06%]  
-  A large, statistically significant increase in emissions, highlighting the importance of moderators in explaining variability.  
-- **Interaction Model:** **25.58%** [CI: 14.29%, 37.98%]  
-  Similar to the full model, demonstrating consistency with added interactions.
+**Greenhouse Gas Emissions**
+- Minimal Random Effects Model: +0.94% [CI: 0.69%, 1.20%]
+- Full Model: +25.73% [CI: 12.47%, 40.54%]
+- Interaction Model: +25.58% [CI: 12.26%, 40.48%]
+- The minimal model estimates only a minor increase (+0.94%), while both the full and interaction models produce a substantially larger increase (+25.73% and +25.58%). The nearly identical estimates suggest that interaction terms do not provide additional explanatory power beyond what is already captured by the full model.
 
----
+**Product Quality**
+- Minimal Random Effects Model: -2.15% [CI: -4.26%, 0.01%]
+- Full Model: -1.58% [CI: -7.77%, 5.03%]
+- Interaction Model: -0.80% [CI: -13.13%, 13.29%]
+- The minimal model suggests a slight decrease in product quality (-2.15%), while the full model provides a smaller negative effect (-1.58%). The interaction model shifts further toward neutrality (-0.80%) but with greater uncertainty, indicating that interaction effects do not strongly influence product quality but introduce additional variability.
 
-### **3. Product Quality**
-- **Null Model:** **-2.00%** [CI: -3.66%, -0.32%]  
-  A small, statistically significant decrease in product quality.  
-- **Minimal Random Effects Model:** **-2.00%** [CI: -3.66%, -0.32%]  
-  Identical to the null model, indicating no improvement.  
-- **Full Model:** **-1.71%** [CI: -6.31%, 3.13%]  
-  A smaller decrease, but with a CI including zero, indicating no significant effect.  
-- **Interaction Model:** **-0.80%** [CI: -5.30%, 3.92%]  
-  The smallest effect with high uncertainty, suggesting minimal influence of moderator interactions.
+**Pest and Disease**
+- Minimal Random Effects Model: -11.35% [CI: -36.92%, 24.59%]
+- Full Model: -40.47% [CI: -61.94%, -6.90%]
+- Interaction Model: -40.47% [CI: -61.94%, -6.90%]
+- The minimal model suggests a modest reduction in pest and disease (-11.35%), while both the full and interaction models show a much stronger decrease (-40.47%). This indicates that including moderators substantially improves explanatory power, but interactions do not provide additional benefits beyond the full model.
 
----
+**Water Quality**
+- Minimal Random Effects Model: +1.56% [CI: -1.35%, 4.56%]
+- Full Model: +3.08% [CI: -1.27%, 7.62%]
+- Interaction Model: +3.08% [CI: -1.27%, 7.62%]
+- The minimal model suggests a small positive effect, and both the full and interaction models slightly increase this estimate. The similar confidence intervals suggest that interactions do not strongly affect water quality but introduce minor variability.
 
-### **4. Crop Yield**
-- **Null Model:** **-2.28%** [CI: -4.40%, -0.11%]  
-  A small but statistically significant decrease in yield.  
-- **Minimal Random Effects Model:** **-2.28%** [CI: -4.40%, -0.11%]  
-  Identical to the null model.  
-- **Full Model:** **-1.67%** [CI: -6.34%, 3.24%]  
-  A smaller decrease, but the CI includes zero, showing no significant effect.  
-- **Interaction Model:** **-25.28%** [CI: -36.39%, -12.24%]  
-  A large and significant decrease, highlighting the strong effect of interactions among moderators.
+*General Observations*
+1. Significant Amplification in Some Response Variables:
+Greenhouse gas emissions, pest and disease, and crop yield see the most substantial changes under the interaction model, suggesting that interactions between moderators strongly influence these variables.
 
----
+2. Uncertainty and Variability:
+Biodiversity, product quality, and soil quality show directional shifts, where the minimal model suggests a mild impact, but the interaction model introduces uncertainty or reverses the effect.
+Water quality remains relatively stable, with minimal effects from moderator interactions.
 
-### **5. Pest and Disease**
-- **Null Model:** **-8.67%** [CI: -24.89%, 11.05%]  
-  A modest decrease, but the CI includes zero, indicating no significant effect.  
-- **Minimal Random Effects Model:** **-8.67%** [CI: -24.89%, 11.05%]  
-  Identical to the null model.  
-- **Full Model:** **-40.47%** [CI: -64.04%, -1.46%]  
-  A large, statistically significant decrease, showing the impact of moderators.  
-- **Interaction Model:** **-40.47%** [CI: -64.04%, -1.46%]  
-  Identical to the full model, suggesting interactions add no further value.
+3. Trade-off Between Complexity and Interpretability:
+While the interaction model provides deeper insights into how different factors interact, it introduces substantial uncertainty in some cases.
+The minimal random effects model provides more stable estimates with narrower confidence intervals, making it a more reliable choice in cases where data limitations exist.
 
----
+*Conclusion: Selecting the Minimal Random Effects Model*
+- The **Minimal Random Effects Model** provides a more balanced trade-off between stability and interpretability.
+- For certain response variables (greenhouse gas emissions, crop yield, pest and disease), interactions among moderators play a crucial role, but for others, their effects remain uncertain.
+- Given the increased uncertainty in the interaction model, the **Minimal Random Effects Model** remains the preferred approach, as it captures key moderator effects without adding unnecessary complexity.
+- Future analyses could explore specific interactions in a more targeted manner rather than including all potential interactions at once.
 
-### **6. Soil Quality**
-- **Null Model:** **3.37%** [CI: -1.14%, 8.08%]  
-  A small increase, but the CI includes zero, indicating no significant effect.  
-- **Minimal Random Effects Model:** **3.37%** [CI: -1.14%, 8.08%]  
-  No improvement over the null model.  
-- **Full Model:** **-33.61%** [CI: -54.09%, -3.98%]  
-  A large and statistically significant decrease, reflecting the critical role of moderators.
-- **Interaction Model:**  
-
----
-
-### **7. Water Quality**
-- **Null Model:** **1.56%** [CI: -1.35%, 4.56%]  
-  A small increase, with the CI including zero, indicating no significant effect.  
-- **Minimal Random Effects Model:** **1.56%** [CI: -1.35%, 4.56%]  
-  Identical to the null model.  
-- **Full Model:** **2.69%** [CI: -10.40%, 17.68%]  
-  A slightly larger increase, but the wide CI reflects high uncertainty.  
-- **Interaction Model:** **2.69%** [CI: -10.40%, 17.68%]  
-  Identical to the full model, suggesting interactions add no value.
-
----
-
-### **General Observations**
-1. **Simple Models (Null, Minimal Random Effects):** These provide consistent but limited insights, often failing to capture significant effects.
-2. **Full Model:** This generally improves fit, revealing significant effects for variables like `Greenhouse Gas Emissions`, `Pest and Disease`, and `Soil Quality`.
-3. **Interaction Model:** Adds minimal value beyond the full model for most variables, except for `Crop Yield`.
-
----
-
-### **Conclusions**
-- **Greenhouse Gas Emissions** and **Pest and Disease** see the most substantial improvements with complex models, reflecting the value of moderators.  
-- **Biodiversity**, **Product Quality**, and **Water Quality** remain uncertain, with wide CIs indicating potential data limitations or overfitting.  
-- Simplified models suffice for some variables, but full models are critical for uncovering nuanced effects in others.
 
 
 ```{r}
@@ -1580,9 +1790,12 @@ back_transformed_table
 # Filter for the Best-Performing Model (Interaction Model) and Create a gt Table
 ##########################################################################################################################################
 
+# Choose the best-performing model based on adjusted relative AIC and BIC
+chosen_model <- "minimal_random_effects"                                   # <-------------- ! (chosen model) !
+
 # Filter structured results for the Interaction Model
 best_model_results <- structured_results |> 
-  dplyr::filter(Model == "interaction_model")
+  dplyr::filter(Model == chosen_model)
 
 # Create the gt table for the Interaction Model
 best_model_gt_table <- create_gt_table(best_model_results) |> 
@@ -1593,9 +1806,10 @@ best_model_gt_table
 ```
 
 
-
+#############
+# STEP 7
 ##########################################################################################################################################
-# SECTION 1: META-ANALYSIS DIAGNOSTICS 
+META-ANALYSIS MODEL DIAGNOSTICS - HETEROGENEITY STATISTICS
 ##########################################################################################################################################
 
 ```{r}
@@ -1614,7 +1828,7 @@ model_results$`Crop yield`
 extract_heterogeneity_stats <- function(model_results) {
   heterogeneity_stats <- lapply(names(model_results), function(response) {
     
-    model <- model_results[[response]]$full_model    # <------------------------------- !(chosen model)!
+    model <- model_results[[response]]$minimal_random_effects    # <------------------------------- !(chosen model)!
     if (is.null(model)) return(NULL)
 
     # Calculate I2 manually if tau2 is 0
@@ -1643,119 +1857,253 @@ heterogeneity_stats <- extract_heterogeneity_stats(model_results)
 heterogeneity_stats
 ```
 
-Crop yield	NA	0	203339.1624	      null_model
-Crop yield	NA	0	95862.5010        interaction_model
-Crop yield	99.80134	0	134398.4729	full_model
+Interpretation of Heterogeneity Statistics
 
-The results of the heterogeneity statistics indicate the following:
+The heterogeneity results reveal key insights into how variability in effect sizes is distributed across response variables. This analysis is crucial for assessing the degree of unexplained variability and determining whether additional moderators or model refinements are necessary.
+It is common to use the I² statistic to report the between-study heterogeneity in meta-analyses, and I² is included by default in the output we get from {meta}. The popularity of this statistic may be associated with the fact that there is a “rule of thumb” on how we can interpret it (J. P. Higgins and Thompson 2002):
+I² = 25%: low heterogeneity, I² = 50%: moderate heterogeneity, I² = 75%: substantial heterogeneity.
+Tau² quantifies the variance of the true effect sizes underlying our data. When we take the square root of Tau², we obtain τ, which is the standard deviation of the true effect sizes. A great asset of τ is that it is expressed on the same scale as the effect size metric. This means that we can interpret it in the same as one would interpret, for example, the mean and standard deviation of the sample’s age in a primary study. The value of τ tells us something about the range of the true effect sizes. If τ is large, the true effect sizes are spread out over a wide range, and if τ is small, the true effect sizes are clustered around the mean effect size.
 
-1. **I² Values:**
-   - The I² values range from 36% (Product quality) to 99.98% (Biodiversity), suggesting varying levels of heterogeneity across response variables.
-   - High I² values (close to 100%) for most response variables (e.g., Biodiversity, Crop yield, Pest and Disease, Soil quality) indicate that a large proportion of the variability in effect sizes is due to heterogeneity rather than sampling error.
-   - Moderate I² for Product quality (36.01%) suggests less heterogeneity, with sampling error accounting for most of the variability.
+**1. I² (Proportion of Total Variability Due to Heterogeneity)**
+Extremely High Heterogeneity: Biodiversity (99.98%), Crop Yield (99.86%), Pest and Disease (99.94%), and Soil Quality (99.99%) show nearly complete heterogeneity, indicating that most of the observed variation in effect sizes is not due to random sampling error but due to real between-study differences.
+Greenhouse Gas Emissions (98.42%) and Water Quality (94.23%) also display substantial heterogeneity, though slightly lower than the highest group.
+Moderate Heterogeneity: Product Quality (38.11%) exhibits considerably lower heterogeneity compared to other response variables. This suggests that much of the variation in Product Quality effects is due to sampling error rather than between-study differences.
+Implication:
 
-2. **Tau² (Between-Study Variance):**
-   - All Tau² values are `0`, indicating no estimated between-study variance in the random-effects models. This could suggest either true homogeneity of effect sizes or insufficient power to detect between-study variance.
+Response variables with I² values close to 100% suggest that substantial heterogeneity remains unexplained, meaning the random-effects variance component does not fully capture it. For Product Quality, the moderate I² suggests the model is capturing a fair amount of variation, reducing the need for additional moderators.
 
-3. **QE (Cochran's Q Test):**
-   - QE values are very high for most response variables, particularly for Biodiversity, Crop yield, and Soil quality, suggesting significant residual heterogeneity not explained by the model. The associated QE p-values (<0.001 for all) confirm that the observed heterogeneity is statistically significant.
+**2. Tau² (Estimated Between-Study Variance)**
+Tau² = 0 for All Response Variables: The fact that Tau² is zero for all response variables suggests that the model does not attribute any of the heterogeneity to true between-study variance. This could mean one of two things:
+- The actual between-study variance is minimal, meaning the observed variation is due to moderators or within-study variation.
+- The model lacks the statistical power to detect true between-study variance, which may be improved by incorporating additional moderators.
 
-4. **Implications:**
-   - The high I² values, combined with significant QE tests and zero Tau², indicate that heterogeneity exists, but it is not being captured by the random-effects variance component (Tau²). This suggests that other moderators or model structures may need to be explored to better explain the variability.
+Implication:
+The zero Tau² suggests that random effects alone are not sufficient to explain heterogeneity, reinforcing the need for additional fixed effects (moderators) or more flexible modeling approaches.
 
-5. **Recommendations:**
-   - For variables with very high I² and significant QE (e.g., Biodiversity, Crop yield, Soil quality), consider including additional moderators or interaction terms in the model to account for heterogeneity.
-   - For Product quality (lower I²), the model seems to explain a reasonable proportion of variability, though further exploration of moderators could still be beneficial.
+**3. Cochran's Q (QE) and Its p-value**
+The QE statistic tests for residual heterogeneity after accounting for random effects. A large QE with a significant p-value suggests that heterogeneity remains unexplained. Findings: Extremely Large QE values for Biodiversity (881,409), Crop Yield (203,353), and Soil Quality (1,926,528) strongly indicate that residual heterogeneity is highly significant. All p-values are < 0.001, confirming that residual heterogeneity is not due to chance.
+Even for Product Quality, which has the lowest I², the QE value (171.28) is significant (p = 6.13e-05), reinforcing that heterogeneity is present, albeit at a lower level.
 
-In summary, while the models reveal significant heterogeneity across most response variables, the lack of between-study variance (Tau² = 0) suggests that additional moderators or refinements to model specifications may be required to better account for the observed variability.
+Implication:
+The model (minimal_random_effects), in its current form, fail to explain much of the heterogeneity, suggesting that additional factors (such as environmental, management, or study design-related moderators) should be explored. The significance of QE across all response variables confirms that residual heterogeneity must be addressed.
 
-# 2a: Extract influence of higher-level and sub-level moderators
+**4. Practical Implications and Next Steps**
+For Biodiversity, Crop Yield, Pest and Disease, and Soil Quality: These variables exhibit extreme heterogeneity, suggesting that additional moderators, interaction terms, or alternative model structures should be considered. The fact that Tau² is zero despite extreme I² and significant QE suggests that the random-effects model alone does not sufficiently capture variability.
+Potential solutions: Exploring additional study-level covariates (e.g., environmental conditions, study duration). Testing alternative variance structures to better account for heterogeneity. 
+For Greenhouse Gas Emissions and Water Quality: Despite being slightly lower than the extreme group, these response variables still exhibit very high heterogeneity. The same strategies as above (additional moderators or interaction terms) should be considered.
+For Product Quality: With a lower I² and a significant but more moderate QE, the current model explains variability better here than for other response variables.
+This suggests that existing moderators may already be capturing much of the relevant variation.
 
-# 2b: Evaluate the proportion of heterogeneity explained by each moderator
 
-
- 
- 
 
 
 #############
-# STEP 
+# STEP 8
 ##########################################################################################################################################
-PROPORTION OF EFFECT SIZE DIRECTION AS NUMBER OF POSITIVE, NEUTRAL, AND NEGATIVE
+FOREST PLOTS FOR THE MINIMAL RANDOM EFFECTS MODEL (NOT THE FINAL FOREST PLOT)
 ##########################################################################################################################################
 
-Based on the minimal_random_effects model
 
 ```{r}
-imp_data_rom <- readRDS(here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R", "imp_data_rom.rds"))
+# Initialize a list to store summaries
+model_summaries <- list()
+ 
+# Loop over each response variable to get the summaries
+for (response in names(model_results)) {
+  model_summaries[[response]] <- list(
+    null_model_summary = summary(model_results[[response]]$null_model),
+    minimal_random_effects_summary = summary(model_results[[response]]$minimal_random_effects),
+    full_model_summary = summary(model_results[[response]]$full_model),
+    interaction_model_summary = summary(model_results[[response]]$interaction_model),
+    moderator_model_summaries = lapply(model_results[[response]]$moderator_models, summary)
+  )
+}
+ 
+# Now model_summaries contains summaries of all the models
 ```
 
 ```{r}
-# Step 1: Calculate Z-score, p-value, and categorize effect sizes
-imp_data_rom_calc <- imp_data_rom %>%
-  mutate(
-    Z = yi / sqrt(vi),  # Calculate Z-score
-    Pval = 2 * (1 - pnorm(abs(Z))),  # Two-tailed p-value
-    category = case_when(
-      Pval < 0.05 & yi > 0 ~ "Positive",  # Significant positive effect
-      Pval < 0.05 & yi < 0 ~ "Negative",  # Significant negative effect
-      TRUE ~ "Neutral"  # Non-significant or neutral effect
+# Loop over each response variable and print the summary for the minimal random effects model
+for (response in names(model_summaries)) {
+  cat("\nModel Summaries for", response, ":\n")
+  # Print the minimal random effects model summary
+  cat("\nMinimal Random Effects Model Summary:\n")
+  print(model_summaries[[response]]$minimal_random_effects_summary)
+}
+```
+
+```{r}
+# Function to compute prediction intervals
+compute_prediction_intervals <- function(model_results, conf_level = 0.95) {
+  pi_list <- lapply(names(model_results), function(response) {
+    model <- model_results[[response]]$minimal_random_effects  # Selected model
+    if (is.null(model)) return(NULL)  # Skip NULL models
+    
+    # Extract key values
+    estimate <- model$b[1]
+    tau2 <- ifelse(length(model$tau2) > 0, model$tau2, 0)  # Handle missing tau2
+    se <- ifelse(length(model$se) > 0, model$se, 0)  # Handle missing SE
+    
+    # Calculate prediction interval
+    lower_PI <- estimate - qnorm(1 - (1 - conf_level) / 2) * sqrt(se^2 + tau2)
+    upper_PI <- estimate + qnorm(1 - (1 - conf_level) / 2) * sqrt(se^2 + tau2)
+    
+    data.frame(
+      Response_Variable = response,
+      Estimate = estimate,
+      Lower_PI = lower_PI,
+      Upper_PI = upper_PI
     )
-  )
+  })
 
-# Step 2: Count effect sizes per category for each response variable
-summary_data_for_eff_calc <- imp_data_rom_calc %>%
-  count(response_variable, category, name = "count") %>%  # More efficient than group_by() + summarise(n())
-  group_by(response_variable) %>%
-  mutate(
-    total_count = sum(count),  # Total effect sizes per response variable
-    percentage = (count / total_count) * 100  # Compute proportion
-  ) %>%
-  ungroup()  # Remove grouping after calculation
+  # Remove NULL values and combine into a data frame
+  pi_list <- Filter(Negate(is.null), pi_list)
+  if (length(pi_list) == 0) return(NULL)  # Return NULL if all responses were NULL
 
-# Step 3: Ensure response variables are ordered by total effect sizes
-summary_data_for_eff_calc <- summary_data_for_eff_calc %>%
-  mutate(response_variable = fct_reorder(response_variable, total_count, .fun = sum))
+  return(do.call(rbind, pi_list))
+}
 
-# Step 4: Create stacked bar plot for effect size proportions
-stacked_barplot <- ggplot(summary_data_for_eff_calc, aes(x = response_variable, y = percentage, fill = category)) +
-  geom_bar(stat = "identity", position = "stack") +
-  scale_fill_manual(values = c("Positive" = "#1b9e77", "Negative" = "#d95f02", "Neutral" = "#757575")) +
-  labs(
-    title = "Percentage of Effect Sizes by Response Variable",
-    x = "Response Variable",
-    y = "Percentage of Effect Sizes",
-    fill = "Effect Size Category"
-  ) +
-  theme_minimal(base_size = 14) +
-  theme(
-    axis.text.x = element_text(angle = 45, hjust = 1, size = 12),
-    axis.text.y = element_text(size = 12),
-    legend.title = element_text(size = 14),
-    legend.text = element_text(size = 12),
-    panel.grid.major.y = element_line(color = "gray", linewidth = 0.5),  # Keep only y-axis grid lines
-    panel.grid.major.x = element_blank(),  # Remove x-axis grid lines
-    panel.grid.minor = element_blank(),  # Remove minor grid lines
-    axis.line = element_line(linewidth = 0.5)  # Keep axis lines visible
-  ) +
-  scale_y_continuous(
-    limits = c(0, 100),  # Y-axis fixed between 0 and 100%
-    breaks = seq(0, 100, by = 20)  # Set breaks at 20% intervals
-  )
+# Compute prediction intervals
+prediction_intervals <- compute_prediction_intervals(model_results)
 
-# Step 5: Display the plot
-print(stacked_barplot)
+# Print results
+print(prediction_intervals)
 
 ```
+
+```{r}
+# Example using metafor
+predict_intervals_metafor <- function(model) {
+  preds <- predict(model, transf = exp)  # If using log-transformed effects, back-transform
+  data.frame(
+    Estimate = preds$pred,
+    Lower_PI = preds$pi.lb,
+    Upper_PI = preds$pi.ub
+  )
+}
+
+# Apply to a metafor model (e.g., minimal random effects model)
+pi_results <- predict_intervals_metafor(model_results$Biodiversity$minimal_random_effects)
+print(pi_results)
+```
+
+
+```{r}
+# 1. Generalized Function to Extract and Summarize Data
+
+# Function to prepare and summarize forest plot data
+prepare_forest_data <- function(model) {
+  if (is.null(model)) return(NULL)
+
+  # Extract study-level effect sizes, variances, and study labels
+  study_effects <- model$yi
+  study_variances <- model$vi
+  study_labels <- model$data$id_study  
+
+  # Create study-level data frame
+  study_data <- data.frame(
+    Study = as.character(study_labels),
+    ES = study_effects,
+    SE = sqrt(study_variances),
+    Type = "Study"
+  ) |> 
+    group_by(Study) |> 
+    summarise(
+      Mean_ES = mean(ES, na.rm = TRUE),  # Mean effect size per study
+      Pooled_SE = sqrt(sum(SE^2, na.rm = TRUE) / n()),  # Pooled standard error
+      .groups = "drop"
+    ) |> 
+    mutate(
+      Lower_CI = Mean_ES - 1.96 * Pooled_SE,
+      Upper_CI = Mean_ES + 1.96 * Pooled_SE,
+      Type = "Study"
+    )
+
+  # Extract overall summary estimate from the model
+  summary_data <- data.frame(
+    Study = "Summary",
+    Mean_ES = model$b[1],  # Summary effect size from model
+    Pooled_SE = model$se,  # Model SE
+    Type = "Summary"
+  ) |> 
+    mutate(
+      Lower_CI = Mean_ES - 1.96 * Pooled_SE,
+      Upper_CI = Mean_ES + 1.96 * Pooled_SE
+    )
+
+  # Combine study-level and summary data
+  forest_data <- bind_rows(study_data, summary_data)
+
+  # Ensure the ordering of the study factor (so that Summary appears last)
+  forest_data$Study <- factor(forest_data$Study, levels = rev(unique(forest_data$Study)))
+
+  return(forest_data)
+}
+
+# 2. Back-Transformation of Effect Sizes
+
+# Function to apply back-transformation
+apply_back_transformation <- function(forest_data) {
+  forest_data |> 
+    mutate(
+      Mean_ES = (exp(Mean_ES) - 1) * 100,  # Convert log-ROM to percentage change
+      Lower_CI = (exp(Lower_CI) - 1) * 100,
+      Upper_CI = (exp(Upper_CI) - 1) * 100
+    )
+}
+
+# 3. Forest Plot Function (ggplot)
+
+# Function to create back-transformed forest plot
+plot_forest <- function(forest_data, response_variable) {
+  ggplot(forest_data, aes(x = Study, y = Mean_ES, ymin = Lower_CI, ymax = Upper_CI, color = Type)) +
+    geom_pointrange(size = 0.7) +  
+    geom_hline(yintercept = 0, linetype = "dashed", color = "black", size = 1) +  
+    coord_flip() +  
+    scale_color_manual(values = c("Study" = "grey50", "Summary" = "black")) +  
+    labs(
+      title = paste("Forest Plot:", response_variable, "(Back-Transformed)"),
+      x = "Study",
+      y = "Effect Size (% Change from Control)",
+      color = "Type"
+    ) +
+    theme_minimal() +
+    theme(
+      legend.position = "none",
+      axis.text.y = element_text(size = 10),
+      axis.title.y = element_text(size = 12, face = "bold"),
+      axis.title.x = element_text(size = 12, face = "bold")
+    )
+}
+```
+
  
- 
- 
- 
+```{r}
+# 4. Applying to Multiple Response Variables
+
+# Iterate over all response variables
+response_variables <- names(model_results)
+
+# Generate forest plots for each response variable
+forest_plots <- lapply(response_variables, function(response) {
+  model <- model_results[[response]]$minimal_random_effects  # Select model
+  forest_data <- prepare_forest_data(model)  # Extract data
+  forest_data <- apply_back_transformation(forest_data)  # Apply back-transformation
+  plot_forest(forest_data, response)  # Create plot
+})
+
+# forest_plots |> str()
+# Display a specific forest plot, e.g., for Biodiversity
+forest_plots
+```
+
+
+
  
  
  
 #############
-# STEP 
+# STEP 9
 ##########################################################################################################################################
 EXTRACT MODEL WEIGHTS PER RESPONSE VARIABLE 
 ##########################################################################################################################################

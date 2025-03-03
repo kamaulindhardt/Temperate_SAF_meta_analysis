@@ -106,6 +106,7 @@ suppressWarnings({
     ggplot2,          # Data visualization package (part of tidyverse)
     patchwork,        # ggplot2 API for sequentially building up a plot
     ggrepel,          # Provides text and label geoms for ' ggplot2' that help to avoid overlapping text labels
+    ggbreak,          # Provides functions to create line breaks in 'ggplot2' axis labels 
     ###################################################################################################################
     # Spatial Data
     tidygeocoder,     # Unified interface for performing both forward and reverse geocoding queries
@@ -177,6 +178,13 @@ model_results <- readRDS(here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM
 ```{r}
 imp_dataset |> glimpse()
 ```
+
+############
+# STEP 1
+##########################################################################################################################################
+EXPLORE AND VISUALIZE THE DATA INITIAL ASSERMENT
+##########################################################################################################################################
+
 
 ```{r}
 # Check the unique response variables and sub-response variables
@@ -520,12 +528,535 @@ ggplot(heatmap_data, aes(x = moderator, y = response_variable, fill = count)) +
 ```
 
 
+############
+# STEP 2
+##########################################################################################################################################
+INFLUENCE DIAGNOSTICS FOR META-ANALYSIS MODEL EVALUATION 
+##########################################################################################################################################
+
+
+##########################################################################################################################################
+Influence Diagnostics for Meta-Analysis Models (Sensitivity Analysis)
+##########################################################################################################################################
+
+Cook’s Distance, DFBETAS, and Hat Values are key influence diagnostics used in meta-analysis to assess the impact of individual studies on the overall model results. Each of these measures serves a different purpose in identifying influential studies that could potentially distort the conclusions of a meta-analysis.
+
+Cook’s Distance quantifies how much removing a particular study changes the overall meta-analysis model. It helps identify studies that disproportionately influence the pooled effect size. A high Cook’s Distance suggests that removing the study would significantly alter the model estimates, whereas a low value indicates minimal impact. The standard threshold for Cook’s Distance is typically set as four divided by the number of studies. If a study exceeds this threshold, it is flagged as potentially influential, warranting further investigation. However, Cook’s Distance does not explain why a study is influential; it only signals that its removal would change the model output.
+
+DFBETAS measures how much a study influences a specific moderator or effect size estimate in a meta-analysis. It evaluates the change in a particular coefficient if the study is removed. A high DFBETAS value suggests that excluding the study would significantly alter the estimate of that coefficient, while a low value indicates little effect. A common guideline for identifying influential studies is two divided by the square root of the number of studies. DFBETAS is particularly useful in moderator analyses, where it helps determine whether certain studies are driving the observed relationships. If a study has a high DFBETAS value, conducting a sensitivity analysis by re-running the model without that study can help assess the robustness of the findings.
+
+Hat values measure leverage, meaning how much weight a study has in determining the fitted values within the model. A high hat value suggests that the study has unique characteristics, such as a large sample size, extreme effect size, or very low variance, making it disproportionately influential in the weighting of the meta-analysis. Unlike Cook’s Distance and DFBETAS, hat values do not measure whether a study changes the overall effect size; they simply indicate how much influence a study has on the model due to its characteristics. A commonly used threshold is three times the mean hat value, with higher values suggesting that the study carries considerable leverage in the analysis.
+
+Together, these diagnostics provide a comprehensive assessment of study influence in a meta-analysis. A study with a high Cook’s Distance is influential in shaping the overall effect size, while a high DFBETAS indicates that the study is affecting a specific regression coefficient. A high hat value signals that the study has a strong presence in the model due to its design or data characteristics but does not necessarily mean it is an outlier. If a study exhibits high values across all three measures, it is likely an influential outlier that could distort the meta-analysis results. Understanding these diagnostics allows researchers to identify and assess the robustness of their findings, ensuring that no single study unduly drives the conclusions.
+
+```{r}
+##########################################################################
+# Start time tracking
+start.time <- Sys.time()
+##########################################################################
+# Set up parallel processing
+plan(multisession, workers = parallel::detectCores() - 1)
+##########################################################################
+
+# Load precomputed variance-covariance matrices
+output_dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
+v_matrices <- readRDS(file.path(output_dir, "v_matrices_by_response_variable.rds"))
+
+# Global control parameters for optimization
+control_params <- list(
+  optimizer = "optim",       # Use base R optimizer
+  method = "BFGS",          # Quasi-Newton optimization method
+  iter.max = 10000,          # Maximum number of iterations
+  rel.tol = 1e-12            # Relative tolerance for convergence
+)
+
+# Function to fit minimal random effects models (intercept-only)
+fit_minimal_random_effects <- function(data, response, random_effects) {
+  
+  # Subset data for the response variable
+  data_subset <- data %>% filter(response_variable == response)
+  
+  # Extract correct variance-covariance matrix
+  v_matrix <- v_matrices[[response]]
+  
+  # Ensure id_study exists
+  if (!"id_study" %in% colnames(data_subset)) {
+    stop("id_study column is missing in data")
+  }
+  
+  model <- tryCatch({
+    rma.mv(
+      yi = yi,
+      V = v_matrix,                 # Variance-covariance matrix
+      mods = ~ 1,                   # Intercept-only model
+      # mods = as.formula(paste("~", paste(moderators, collapse = " + "))),
+      random = random_effects,      # Nested random effects
+      data = data_subset,
+      method = "REML",
+      slab = data_subset$id_study,  # Study labels
+      control = control_params
+    )
+  }, error = function(e) {
+    cat("Model fitting failed for", response, ":", e$message, "\n")
+    return(NULL)
+  })
+  
+  return(model)
+}
+
+# Define response variables and random effects structure
+response_variables <- unique(meta_data$response_variable)
+random_effects <- list(~ 1 | id_article/exp_id)  # Hierarchical structure
+# moderators <- c("tree_type", "crop_type", "age_system", "season", "soil_texture") #, "no_tree_per_m", "tree_height", "alley_width")
+
+# Fit models sequentially
+model_results_mv <- list()
+
+for (response in response_variables) {
+  cat("Fitting model for:", response, "...\n")
+  model_results_mv[[response]] <- fit_minimal_random_effects(meta_data, response, random_effects)
+}
+
+# Assign names to the list
+names(model_results_mv) <- response_variables
+
+
+##########################################################################
+# End time tracking
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+cat("\nTotal time taken:", time.taken, units(time.taken), "\n")
+##########################################################################
+# Last go (04/02-2025) 
+# Total time taken: 9.153187 secs 
+```
+
+```{r}
+model_results_mv
+```
+
+```{r eval=FALSE}
+##########################################################################
+# Start time tracking
+start.time <- Sys.time()
+##########################################################################
+# Set up parallel processing
+plan(multisession, workers = parallel::detectCores() - 1)
+##########################################################################
+
+
+# Function to extract influence diagnostics for rma.mv models
+extract_mv_influence_diagnostics <- function(response, model) {
+  if (is.null(model) || !inherits(model, "rma.mv")) {
+    cat("Skipping influence diagnostics for:", response, "- Model is NULL or incorrect type.\n")
+    return(NULL)
+  }
+  
+  cat("Extracting influence diagnostics for:", response, "...\n")
+
+  # Compute Cook's Distance
+  cooks_d <- tryCatch({
+    cooks.distance(model, progbar=TRUE)
+  }, error = function(e) {
+    cat("Cook's Distance failed for:", response, "\n")
+    return(rep(NA, length(model$yi)))
+  })
+  
+  # Compute DFBETAS (Maximum absolute values per study)
+  df_betas <- tryCatch({
+    dfbetas_values <- dfbetas(model, progbar=TRUE)
+    apply(dfbetas_values, 1, max, na.rm = TRUE)
+  }, error = function(e) {
+    cat("DFBETAS extraction failed for:", response, "\n")
+    return(rep(NA, length(model$yi)))
+  })
+  
+  # Compute Hat Values
+  hat_vals <- tryCatch({
+    hatvalues(model, type="diagonal")
+  }, error = function(e) {
+    cat("Hat values extraction failed for:", response, "\n")
+    return(rep(NA, length(model$yi)))
+  })
+  
+  # Create a data frame with extracted influence diagnostics values
+  data.frame(
+    Response_Variable = response,
+    Study = model$slab,  # Study labels
+    Cooks_Distance = cooks_d,
+    Max_DFBeta = df_betas,
+    Max_Hat = hat_vals,
+    stringsAsFactors = FALSE
+  )
+}
+
+# Ensure only valid models are used
+valid_models <- keep(model_results_mv, ~ inherits(.x, "rma.mv"))
+
+# Apply function to all models and combine into one dataframe
+mv_influence_diagnostics <- map2_dfr(names(valid_models), 
+                                     valid_models, 
+                                     extract_mv_influence_diagnostics)
+
+# Check results
+mv_influence_diagnostics
+
+# Save Influence Diagnostics dataset
+output_dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
+saveRDS(mv_influence_diagnostics, file = file.path(output_dir, "mv_influence_diagnostics.rds"))
+
+##########################################################################
+# End time tracking
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+cat("\nTotal time taken:", time.taken, units(time.taken), "\n")
+##########################################################################
+# Last go (04/02-2025) 
+# Extracting influence diagnostics for: Biodiversity ...
+#   |==================================================| 100% elapsed=23s  
+#   |==================================================| 100% elapsed=37s  
+# Extracting influence diagnostics for: Crop yield ...
+#   |==================================================| 100% elapsed=01m 29s
+#   |==================================================| 100% elapsed=01m 59s
+# Extracting influence diagnostics for: Water quality ...
+#   |==================================================| 100% elapsed=09s  
+#   |==================================================| 100% elapsed=09s
+# Extracting influence diagnostics for: Pest and Disease ...
+#   |==================================================| 100% elapsed=02s  
+#   |==================================================| 100% elapsed=02s  
+# Extracting influence diagnostics for: Soil quality ...
+#   |==================================================| 100% elapsed=01m 25s
+#   |==================================================| 100% elapsed=01m 56s
+# Extracting influence diagnostics for: Greenhouse gas emission ...
+#   |==================================================| 100% elapsed=06s  
+#   |==================================================| 100% elapsed=15s  
+# Extracting influence diagnostics for: Product quality ...
+#   |==================================================| 100% elapsed=07s  
+#   |==================================================| 100% elapsed=12s  
+# 
+# Total time taken: 8.95111 mins 
+```
+
+```{r}
+# Load the saved Influence Diagnostics dataset
+dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
+mv_influence_diagnostics <- readRDS(file.path(dir, "mv_influence_diagnostics.rds"))
+```
+
+```{r}
+##########################################################################
+# Define Thresholds for Influence Diagnostics
+##########################################################################
+
+# Function to clean study names (remove suffixes)
+clean_study_name <- function(study) {
+  str_replace(study, "\\.\\d+$", "")  # Removes last dot followed by numbers
+}
+
+# Apply function to clean study names before summarizing
+mv_influence_diagnostics <- mv_influence_diagnostics %>%
+  mutate(Study_Clean = clean_study_name(Study))
+
+# Function to calculate thresholds per Response Variable
+calculate_thresholds <- function(data) {
+  data %>%
+    group_by(Response_Variable) %>%
+    summarise(
+      n_studies = n_distinct(Study_Clean),  # Count unique studies per response variable
+      Cooks_Threshold = 4 / n_studies,  # Cook’s Distance threshold (rule-of-thumb)
+      DFBETAS_Threshold = 2 / sqrt(n_studies),  # DFBETAS threshold
+      Hat_Threshold = 3 * mean(Max_Hat, na.rm = TRUE),  # Hat value threshold
+      .groups = "drop"
+    )
+}
+
+# Compute thresholds per Response Variable
+mv_thresholds <- calculate_thresholds(mv_influence_diagnostics)
+
+# Summarize per Study & Response Variable
+mv_influence_diagnostics_summary <- mv_influence_diagnostics %>%
+  group_by(Response_Variable, Study_Clean) %>%
+  summarise(
+    Mean_Cooks_Distance = mean(Cooks_Distance, na.rm = TRUE),
+    Mean_DFBeta = mean(Max_DFBeta, na.rm = TRUE),
+    Mean_Hat = mean(Max_Hat, na.rm = TRUE),
+
+    # Compute standard errors for confidence intervals
+    SE_Cooks_Distance = sd(Cooks_Distance, na.rm = TRUE) / sqrt(n()),
+    SE_DFBeta = sd(Max_DFBeta, na.rm = TRUE) / sqrt(n()),
+    SE_Hat = sd(Max_Hat, na.rm = TRUE) / sqrt(n()),
+
+    # Compute confidence intervals (CI = Mean ± 1.96 × SE)
+    Lower_CI_Cooks = Mean_Cooks_Distance - 1.96 * SE_Cooks_Distance,
+    Upper_CI_Cooks = Mean_Cooks_Distance + 1.96 * SE_Cooks_Distance,
+    Lower_CI_DFBeta = Mean_DFBeta - 1.96 * SE_DFBeta,
+    Upper_CI_DFBeta = Mean_DFBeta + 1.96 * SE_DFBeta,
+    Lower_CI_Hat = Mean_Hat - 1.96 * SE_Hat,
+    Upper_CI_Hat = Mean_Hat + 1.96 * SE_Hat,
+    .groups = "drop"
+  ) %>%
+  # Merge thresholds into summary data
+  left_join(mv_thresholds, by = "Response_Variable") 
+
+# Define response variables to exclude due to sparse data, e.g. "Water quality"
+exclude_responses <- c("Greenhouse gas emission", "Water quality", "Pest and Disease")
+
+mv_influence_diagnostics_summary <- mv_influence_diagnostics_summary |> 
+  filter(!Response_Variable %in% exclude_responses)
+
+# Final Influence Diagnostics dataset ready for plotting
+mv_influence_diagnostics_summary
+```
+
+```{r}
+##########################################################################
+# DFBETAS Plot for Influence Diagnostics
+##########################################################################
+
+# Compute mean DFBETAS threshold per response variable
+mv_mean_dfbeta_threshold <- mv_influence_diagnostics_summary %>%
+  group_by(Response_Variable) %>%
+  summarise(Mean_DFBETAS_Threshold = mean(DFBETAS_Threshold, na.rm = TRUE), .groups = "drop")
+
+
+# Merge computed thresholds back into the diagnostics dataset
+mv_influence_diagnostics_summary_dfbeta <- mv_influence_diagnostics_summary %>%
+  left_join(mv_mean_dfbeta_threshold, by = "Response_Variable") 
+
+mv_influence_diagnostics_summary_dfbeta |> glimpse()
+
+# **Filter out unwanted response variables**
+dfbetas_plot_data <- mv_influence_diagnostics_summary_dfbeta %>%
+  mutate(Is_Influential = abs(Mean_DFBeta) > Mean_DFBETAS_Threshold)
+
+# Create DFBETAS Plot with CI
+dfbetas_plot_data |> 
+  ggplot(aes(x = reorder(Study_Clean, Mean_DFBeta), y = Mean_DFBeta)) +
+  geom_pointrange(aes(ymin = Lower_CI_DFBeta, ymax = Upper_CI_DFBeta), 
+                  color = "black", size = 0.5) +  # Confidence intervals
+  geom_point(color = "black", size = 1) +  # Individual data points
+  geom_line(aes(group = Response_Variable), color = "black") +  # Connecting lines
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray50") +  # Reference line at 0
+  #geom_hline(aes(yintercept = Mean_DFBETAS_Threshold), linetype = "dotted", color = "blue") +  # Mean threshold per response
+  #geom_hline(aes(yintercept = -Mean_DFBETAS_Threshold), linetype = "dotted", color = "blue") +  # Negative threshold
+  geom_point(data = dfbetas_plot_data %>% filter(Is_Influential), 
+             aes(y = Mean_DFBeta), color = "red", size = 2) +  # Highlight influential studies
+  facet_wrap(~Response_Variable, scales = "free", nrow = 1) +  # Facet per response variable
+  labs(
+    title = "DFBETAS Influence Diagnostics (with Confidence Intervals)",
+    x = "Study",
+    y = "DFBETAS",
+    caption = "Dashed line = 0, Dotted lines = ± Threshold, Black bars = CI"
+  ) +
+  theme_bw() +
+  #scale_y_continuous(limits = c(-0.5, 0.5)) +  # Set x-axis limits for better visualization
+  theme(
+    strip.text = element_text(face = "bold", size = 12),  # Highlight facet labels
+    axis.text.x = element_text(angle = 90, hjust = 1, size = 8),  # Rotate x-axis labels
+    panel.grid.minor = element_blank()  # Clean up grid
+  )
+```
+
+
+```{r}
+##########################################################################
+# Cook's Distance Plot with CI
+##########################################################################
+
+# Compute mean Cook's Distance threshold per response variable
+mv_mean_cooks_threshold <- mv_influence_diagnostics_summary %>%
+  group_by(Response_Variable) %>%
+  summarise(Mean_Cooks_Threshold = mean(Cooks_Threshold, na.rm = TRUE), .groups = "drop")
+
+# Merge computed thresholds back into the diagnostics dataset
+mv_influence_diagnostics_summary_cooks <- mv_influence_diagnostics_summary %>%
+  left_join(mv_mean_cooks_threshold, by = "Response_Variable") 
+
+# Filter and mark influential studies
+cooks_plot_data <- mv_influence_diagnostics_summary_cooks %>%
+  mutate(Is_Influential = Mean_Cooks_Distance > Mean_Cooks_Threshold)
+
+# Create Cook's Distance Plot 
+cooks_plot_data |> 
+  ggplot(aes(x = reorder(Study_Clean, -Mean_Cooks_Distance), y = Mean_Cooks_Distance)) +
+  geom_pointrange(aes(ymin = Lower_CI_Cooks, ymax = Upper_CI_Cooks), 
+                  color = "black", size = 0.5) +  # Confidence intervals
+  geom_point(color = "black", size = 1) +  # Individual data points
+  geom_line(aes(group = Response_Variable), color = "black") +  # Connecting lines
+  #geom_hline(aes(yintercept = Mean_Cooks_Threshold), linetype = "dotted", color = "blue") +  # Mean threshold per response
+  geom_point(data = cooks_plot_data %>% filter(Is_Influential), 
+             aes(y = Mean_Cooks_Distance), color = "red", size = 2) +  # Highlight influential studies
+  facet_wrap(~Response_Variable, scales = "free", nrow = 1) +  # Facet per response variable
+  labs(
+    title = "Cook’s Distance Influence Diagnostics (with Confidence Intervals)",
+    x = "Study",
+    y = "Cook’s Distance",
+    caption = "Dotted lines = Threshold, Black bars = CI, Red points = Influential"
+  ) +
+  theme_bw() +
+  theme(
+    strip.text = element_text(face = "bold", size = 12),  # Highlight facet labels
+    axis.text.x = element_text(angle = 90, hjust = 1, size = 8),  # Rotate x-axis labels
+    panel.grid.minor = element_blank()  # Clean up grid
+  )
+```
+
+```{r}
+##########################################################################
+# Hat Values Plot with CI
+##########################################################################
+
+# Compute mean Hat threshold per response variable
+mv_mean_hat_threshold <- mv_influence_diagnostics_summary %>%
+  group_by(Response_Variable) %>%
+  summarise(Mean_Hat_Threshold = mean(Hat_Threshold, na.rm = TRUE), .groups = "drop")
+
+# Merge computed thresholds back into the diagnostics dataset
+mv_influence_diagnostics_summary_hat <- mv_influence_diagnostics_summary %>%
+  left_join(mv_mean_hat_threshold, by = "Response_Variable") 
+
+# Filter and mark influential studies
+hat_plot_data <- mv_influence_diagnostics_summary_hat %>%
+  mutate(Is_Influential = Mean_Hat > Mean_Hat_Threshold)
+
+# Create Hat Values Plot
+hat_plot_data |> 
+  ggplot(aes(x = reorder(Study_Clean, -Mean_Hat), y = Mean_Hat)) +
+  geom_pointrange(aes(ymin = Lower_CI_Hat, ymax = Upper_CI_Hat), 
+                  color = "black", size = 0.5) +  # Confidence intervals
+  geom_point(color = "black", size = 1) +  # Individual data points
+  geom_line(aes(group = Response_Variable), color = "black") +  # Connecting lines
+  geom_hline(aes(yintercept = Mean_Hat_Threshold), linetype = "dotted", color = "blue") +  # Mean threshold per response
+  geom_point(data = hat_plot_data %>% filter(Is_Influential), 
+             aes(y = Mean_Hat), color = "red", size = 2) +  # Highlight influential studies
+  facet_wrap(~Response_Variable, scales = "free", nrow = 1) +  # Facet per response variable
+  labs(
+    title = "Hat Values Influence Diagnostics (with Confidence Intervals)",
+    x = "Study",
+    y = "Hat Values",
+    caption = "Dotted lines = Threshold, Black bars = CI, Red points = Influential"
+  ) +
+  theme_bw() +
+  theme(
+    strip.text = element_text(face = "bold", size = 12),  # Highlight facet labels
+    axis.text.x = element_text(angle = 90, hjust = 1, size = 8),  # Rotate x-axis labels
+    panel.grid.minor = element_blank()  # Clean up grid
+  )
+```
+
+
+
+
+```{r}
+##########################################################################
+# I really doubt the outputs of the Influence Diagnostics above. 
+# To verify the results, I want to perform a "quick and dirty" parallel/comparable but new metafor-based Infuence Diagnostics test, using this approach:
+
+
+##########################################################################
+# Set up the parallel processing plan
+plan(multisession, workers = parallel::detectCores() - 1)
+##################################################
+# Start time tracking
+start.time <- Sys.time()
+##################################################
+##################################################
+
+
+
+# Fit multilevel random-effects model
+res_meta <- rma.mv(
+  yi = yi,
+  V = vi,
+  random = ~ 1 | id_article/exp_id,  # Nested random effects
+  slab = meta_data$id_study,         # Assigned study names for easier interpretation
+  data = meta_data,
+  method = "REML"
+)
+
+# Print model summary
+print(res_meta, digits = 3)
+
+
+# Compute Influence Diagnostics using metafor functions for rma.mv
+cooks_values <- cooks.distance(res_meta, progbar = TRUE)
+dfbetas_values <- dfbetas(res_meta, progbar = TRUE)
+hat_values <- hatvalues(res_meta, type = "diagonal")
+
+# Convert DFBETAS matrix to a data frame
+dfbetas_df <- as.data.frame(dfbetas_values)
+dfbetas_df$Study <- meta_data$id_article  # Add study identifiers
+
+# Convert results to a single dataframe for visualization
+influence_results <- data.frame(
+  Study = meta_data$id_article,
+  Cooks_Distance = cooks_values,
+  Max_DFBeta = apply(dfbetas_df[, -ncol(dfbetas_df)], 1, max, na.rm = TRUE),
+  Hat_Values = hat_values
+)
+
+# Summary of influence measures
+summary(influence_results)
+
+##################################################
+# End time tracking
+end.time <- Sys.time()
+# Calculate time taken
+time.taken <- end.time - start.time
+time.taken
+##############################################################
+# Last go (02/03-2025)
+# Time difference: 
+```
+
+```{r}
+# Plot Cook’s Distance
+
+ggplot(influence_results, aes(x = reorder(Study, -Cooks_Distance), y = Cooks_Distance)) +
+  geom_point(color = "red", size = 1) +
+  geom_hline(yintercept = 4 / nrow(influence_results), linetype = "dashed", color = "blue") +
+  coord_flip() +
+  labs(
+    title = "Cook’s Distance for Influence Diagnostics",
+    x = "Study",
+    y = "Cook’s Distance",
+    caption = "Dashed line = 4/n threshold"
+  ) +
+  theme_bw()
+
+# Plot DFBETAS
+ggplot(influence_results, aes(x = reorder(Study, -Max_DFBeta), y = Max_DFBeta)) +
+  geom_point(color = "black", size = 1) +
+  geom_hline(yintercept = 2 / sqrt(nrow(influence_results)), linetype = "dotted", color = "blue") +
+  coord_flip() +
+  labs(
+    title = "DFBETAS Influence Diagnostics",
+    x = "Study",
+    y = "Max DFBETAS",
+    caption = "Dotted line = ± 2/sqrt(n) threshold"
+  ) +
+  theme_bw()
+
+# Plot Hat Values
+ggplot(influence_results, aes(x = reorder(Study, -Hat_Values), y = Hat_Values)) +
+  geom_point(color = "black", size = 1) +
+  geom_hline(yintercept = 3 * mean(hat_values, na.rm = TRUE), linetype = "dotted", color = "blue") +
+  coord_flip() +
+  labs(
+    title = "Hat Values for Influence Diagnostics",
+    x = "Study",
+    y = "Hat Values",
+    caption = "Dotted line = 3 * mean(Hat)"
+  ) +
+  theme_bw()
+```
+
 
 
 ############
-# STEP 6
+# STEP 3
 ##########################################################################################################################################
-SENSITIVITY ANALYSIS (Leave-One-Out Sensitivity Analysis)
+SENSITIVITY ANALYSIS (LEAVE-ONE-OUT SENSTIVITY ANALYSIS)
 ##########################################################################################################################################
 
 
@@ -570,6 +1101,26 @@ plan(multisession, workers = parallel::detectCores() - 1)
 start.time <- Sys.time()
 ##########################################################################
 
+# Global control parameters for optimization
+control_params <- list(
+  # Specifies the optimization function to use, "optim" is the base R optimizer, allowing for flexible tuning
+  optimizer = "optim",
+  # Defines the specific optimization algorithm. "BFGS" (Broyden–Fletcher–Goldfarb–Shanno) is a quasi-Newton method
+  # This optimization algorithm is often used for unconstrained optimization problems and works well in meta-analytic models with moderate to large datasets
+  method = "BFGS",
+  # Maximum number of iterations for the optimization routine. If the models does not converge, increasing this value can help.
+  # However, very high values may lead to excessive computation time.
+  iter.max = 10000,
+  # Relative tolerance level for convergence. Determines when the optimization process should stop.
+  # Lower values (e.g., 1e-15) enforce stricter convergence, ensuring more precise results but requiring longer run times.
+  # Higher values (e.g., 1e-4) allow faster convergence but may reduce accuracy (default in metafor is 1e-10).
+  rel.tol = 1e-12
+  # Uncomment this line if you want to track optimizer progress for each individual model
+  # This will print detailed iteration steps, useful for debugging non-convergence issues.
+  # verbose = TRUE   
+)
+
+##########################################################################
 # Define the function for Leave-One-Out (LOO) sensitivity analysis
 conduct_loo_analysis <- function(meta_data, model_formula_function, random_effects_formula) {
   
@@ -613,7 +1164,19 @@ minimal_random_effects_model <- function(data, random_effects_formula) {
     random = random_effects_formula,
     data = data,
     method = "REML",
-    control = list(iter.max = 2000, rel.tol = 1e-9)
+    control = control_params
+  )
+}
+
+interaction_model <- function(data, random_effects_formula) {
+  rma.mv(
+    yi = yi,
+    V = vi,
+    mods = as.formula("~ tree_type * crop_type * age_system * season * soil_texture"),
+    random = random_effects_formula,
+    data = data,
+    method = "REML",
+    control = control_params
   )
 }
 
@@ -625,7 +1188,7 @@ full_model <- function(data, random_effects_formula) {
     random = random_effects_formula,
     data = data,
     method = "REML",
-    control = list(iter.max = 2000, rel.tol = 1e-9)
+    control = control_params
   )
 }
 
@@ -633,11 +1196,11 @@ full_model <- function(data, random_effects_formula) {
 # RUN DYNAMIC LEAVE-ONE-OUT ANALYSIS PER RESPONSE VARIABLE
 ##########################################################################################################################################
 
-# Set the model formula function to use for LOO analysis (e.g., minimal_random_effects_model or full_model)
-model_to_use <- minimal_random_effects_model  # Change this to full_model if needed
+# Set the model formula function to use for LOO analysis (e.g., minimal_random_effects_model, interaction_model or full_model)
+model_to_use <- interaction_model  # Change this to minimal_random_effects_model if needed
 
-# Define random effects structure
-random_effects_formula <- ~ 1 | exp_id
+# Define random effects structure [before this was: ~ 1 | exp_id]
+random_effects_formula <- list(~ 1 | id_article/exp_id)
 
 # Initialize a list to store results for each response variable
 response_specific_results <- list()
@@ -723,6 +1286,9 @@ cat("\nTotal time taken:", time.taken, units(time.taken), "\n")
 # Excluding study: 34 
 # 
 # Total time taken: 11.29175 secs 
+
+# Last go (01/03-2025)
+
 ```
 
 ```{r}
@@ -804,9 +1370,10 @@ response_summary <- lapply(names(response_specific_results), function(response) 
   # Extract the full effect size from structured_results
   full_effect_size <- structured_results %>%
     filter(ResponseVariable == response, 
-           # Extracting from the minimal_random_effects model in the previously fitted model objects (structured_results_all_effect_sizes.rds)
+           # Extracting from the interaction_model model in the previously fitted model objects (structured_results_all_effect_sizes.rds)
            # This is used to compare with the LOO analysis per response variable and study
-           Model == "minimal_random_effects") %>%
+           # Change this to minimal_random_effects_model or full_model if needed
+           Model == "interaction_model") %>%
     pull(Estimate)
   
   if (length(full_effect_size) == 0) {
@@ -834,7 +1401,13 @@ response_summary <- lapply(names(response_specific_results), function(response) 
 
 # Combine results into a single data frame
 response_summary_combined <- do.call(rbind, response_summary) |> 
-  relocate(Study, response_variable, Full_Effect_Size, Excluded_Effect_Size, Change_in_Effect_Size)
+  relocate(Study, response_variable, Full_Effect_Size, Excluded_Effect_Size, Change_in_Effect_Size) |> 
+  # Water quality only derives from 1 study, hence given NA in the LOO (study 5 "Bergeron et al., 2011")
+  mutate(Study = case_when(
+    is.na(Study) ~ "5",
+    TRUE ~ as.character(Study)
+  ))
+  
 
 # Inspect the combined summary
 print(response_summary_combined)
@@ -845,7 +1418,27 @@ print(response_summary_combined)
 # SUMMARIZE CONTRIBUTION OF STUDIES TO RESPONSE VARIABLES
 ##########################################################################################################################################
 
-# Summarize the overall contribution of each study
+# Step 1: Create a Lookup Table for Study Names
+study_lookup <- tibble(
+  Study = as.character(1:37),  # Convert numeric IDs to character for consistency
+  id_study = c(
+    "Varah et al., 2020", "Swieter et al., 2022", "Swieter et al., 2019",
+    "Bainard et al., 2011", "Bergeron et al., 2011", "Beule et al., 2019",
+    "Beule et al., 2021", "Beuschel et al., 2019", "Boinot et al., 2019",
+    "Burgess et al., 2005", "Cardinael et al., 2017", "Chirko et al., 1996",
+    "Seserman et al., 2019", "Gao et al., 2013", "Gibbs et al., 2016",
+    "Gibbs et al., 2016", "Griffiths et al., 1998", "Klaa et al., 2005",
+    "Lacombe et al., 2009", "Lacombe et al., 2009", "Upson et al., 2013",
+    "Peichl et al., 2006", "Oelbermann et al., 2007", "Oelbermann et al., 2006",
+    "Pardon et al., 2019", "Pardon et al., 2018", "Pardon et al., 2017",
+    "Park et al., 1994", "Peng et al., 1993", "Reynolds et al., 2007",
+    "Rivest et al., 2015", "Seiter et al., 1999", "Seiter et al., 1999",
+    "Piotto et al., 2024", "Staton et al., 2022", "Honfy et al., 2023",
+    "Zhang et al., 2015"
+  )
+)
+
+# Step 2: Summarize the Overall Contribution of Each Study
 study_contribution_summary <- response_summary_combined %>%
   group_by(Study, response_variable) %>%
   summarise(
@@ -856,11 +1449,16 @@ study_contribution_summary <- response_summary_combined %>%
     .groups = "drop"
   ) %>%
   mutate(
-    Study = as.numeric(Study)
+    Study = as.character(Study)  # Convert Study to character for joining
   ) %>%
-  arrange((Study))  # Correct sorting in ascending order
+  arrange(as.numeric(Study))  # Ensure numeric sorting (ascending)
 
-# Inspect the summarized contributions
+# Step 3: Assign `id_study` Using `left_join()` (More Scalable)
+study_contribution_summary <- study_contribution_summary |> 
+  left_join(study_lookup, by = "Study") |> 
+  relocate(id_study, Study, response_variable, .before = Mean_Change_in_Effect_Size)  # Correct order
+
+# Step 4: Inspect the Final Output
 print(study_contribution_summary)
 
 # Optional: Save the summary to a CSV file for further analysis
@@ -871,7 +1469,9 @@ study_contribution_summary |> glimpse()
 
 ```{r}
 # Scatter plot of Excluded Effect Size vs. Mean Change
-ggplot(study_contribution_summary, aes(x = Mean_Excluded_Effect_Size, y = Mean_Change_in_Effect_Size, color = response_variable)) +
+ggplot(study_contribution_summary, aes(x = Mean_Excluded_Effect_Size, 
+                                       y = Mean_Change_in_Effect_Size, 
+                                       color = response_variable)) +
   geom_point(size = 3) +
   geom_smooth(method = "lm", se = FALSE, linetype = "dashed") +
   labs(
@@ -883,8 +1483,21 @@ ggplot(study_contribution_summary, aes(x = Mean_Excluded_Effect_Size, y = Mean_C
   theme_minimal()
 ```
 ```{r}
+# Selecting response variables with enough studies
+response_variables_to_plot <- response_summary_combined %>%
+  group_by(response_variable) %>%
+  summarise(num_studies = n_distinct(Study)) %>%
+  filter(num_studies >= 8) 
+# pull(response_variable)
+# [1] "Biodiversity" "Crop yield"   "Soil quality"
+  
+
+
 # Faceted bar plot
-ggplot(study_contribution_summary, aes(x = reorder(as.factor(Study), -Mean_Change_in_Effect_Size), y = Mean_Change_in_Effect_Size)) +
+study_contribution_summary %>%
+  # Selecting response variables with enough studies: ("Biodiversity" "Crop yield"   "Soil quality")
+  filter(response_variable %in% response_variables_to_plot$response_variable) %>%
+  ggplot(aes(x = reorder(as.factor(id_study), -Mean_Change_in_Effect_Size), y = Mean_Change_in_Effect_Size)) +
   geom_bar(stat = "identity", fill = "steelblue") +
   labs(
     title = "Study Contributions by Response Variable",
@@ -892,13 +1505,15 @@ ggplot(study_contribution_summary, aes(x = reorder(as.factor(Study), -Mean_Chang
     y = "Mean Change in Effect Size (%)"
   ) +
   coord_flip() +
-  facet_wrap(~response_variable, scales = "free_y") +
+  facet_wrap(~response_variable, scales = "free_x") +
   theme_minimal()
 ```
 
 ```{r}
 # Heatmap of Total Change in Effect Size
-ggplot(study_contribution_summary, aes(x = as.factor(Study), y = response_variable, fill = Total_Change_in_Effect_Size)) +
+ggplot(study_contribution_summary, aes(x = as.factor(id_study), 
+                                       y = response_variable, 
+                                       fill = Total_Change_in_Effect_Size)) +
   geom_tile(color = "white") +
   scale_fill_viridis_c(option = "C") +
   labs(
@@ -915,17 +1530,35 @@ ggplot(study_contribution_summary, aes(x = as.factor(Study), y = response_variab
 
 
 ```{r}
-# Bar plot of Mean Change in Effect Size
-ggplot(study_contribution_summary, aes(x = reorder(as.factor(Study), -Mean_Change_in_Effect_Size), y = Mean_Change_in_Effect_Size, fill = response_variable)) +
+# Bar plot of Mean Change in Effect Size with x-axis break at 300
+ggplot(study_contribution_summary, aes(
+  x = reorder(as.factor(id_study), -Mean_Change_in_Effect_Size), 
+  y = Mean_Change_in_Effect_Size, 
+  fill = response_variable
+)) +
   geom_bar(stat = "identity", position = "dodge") +
+  # Labels
   labs(
     title = "Mean Change in Effect Size by Study",
     x = "Study",
     y = "Mean Change in Effect Size (%)",
     fill = "Response Variable"
   ) +
+  # Flip coordinates for better readability
   coord_flip() +
-  theme_minimal()
+  # Adjust y-axis scale to have breaks every 10
+  scale_y_continuous(breaks = seq(0, max(study_contribution_summary$Mean_Change_in_Effect_Size, na.rm = TRUE), by = 100)) +
+  # Use `scale_y_break` to add a break at 300
+  scale_y_break(c(200, 250), 
+                scales = "free",
+                ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),  # Rotate labels
+    axis.text.x.top = element_blank(),
+        axis.ticks.x.top = element_blank(),
+        axis.line.x.top = element_blank()
+  )
 ```
 
 ```{r}
@@ -933,14 +1566,16 @@ glimpse(study_contribution_summary)
 
 # Check for missing or invalid values
 summary(study_contribution_summary$Mean_Change_in_Effect_Size)
-
 ```
 
 ```{r}
 # Caterpillar plot for LOO sensitivity analysis
-ggplot(study_contribution_summary, aes(
+study_contribution_summary %>%
+  # Selecting response variables with enough studies: ("Biodiversity" "Crop yield"   "Soil quality")
+  filter(response_variable %in% response_variables_to_plot$response_variable) %>%
+  ggplot(aes(
   x = Mean_Change_in_Effect_Size,
-  y = reorder(Study, Mean_Change_in_Effect_Size),
+  y = reorder(id_study, Mean_Change_in_Effect_Size),
   fill = response_variable
 )) +
   geom_bar(stat = "identity") +
@@ -950,7 +1585,7 @@ ggplot(study_contribution_summary, aes(
     y = "Study",
     fill = "Response Variable"
   ) +
-  facet_wrap(~ response_variable, scales = "free_y") + # Facet by response_variable with free y-axis scale
+  facet_wrap(~ response_variable, scales = "free_x", nrow = 1) + # Facet by response_variable with free y-axis scale
   theme_minimal() +
   theme(
     axis.text.y = element_text(size = 10),
@@ -967,9 +1602,12 @@ if (!"Full_Effect_Size" %in% colnames(study_contribution_summary)) {
 }
 
 # Enhanced Forest Plot with Free Scales for Both Axes
-ggplot(study_contribution_summary, aes(
+study_contribution_summary %>%
+  # Selecting response variables with enough studies: ("Biodiversity" "Crop yield"   "Soil quality")
+  filter(response_variable %in% response_variables_to_plot$response_variable) %>%
+  ggplot(aes(
   x = Mean_Excluded_Effect_Size,
-  y = reorder(Study, Mean_Excluded_Effect_Size),
+  y = reorder(id_study, Mean_Change_in_Effect_Size),
   xmin = Mean_Excluded_Effect_Size - Mean_Excluded_SE,
   xmax = Mean_Excluded_Effect_Size + Mean_Excluded_SE,
   color = response_variable
@@ -981,10 +1619,10 @@ ggplot(study_contribution_summary, aes(
     linetype = "dashed",
     color = "red"
   ) +
-  facet_wrap(~response_variable, scales = "free", ncol = 2) +
+  facet_wrap(~response_variable, scales = "free_x", ncol = 3) +
   labs(
     title = "Forest Plot: LOO Sensitivity Analysis by Response Variable",
-    x = "Effect Size (with Study Excluded)",
+    x = "Effect Size (with the respective study excluded)",
     y = "Studies",
     color = "Response Variable"
   ) +
@@ -999,20 +1637,21 @@ ggplot(study_contribution_summary, aes(
 ```{r}
 study_contribution_summary <- study_contribution_summary %>%
   mutate(High_Influence = ifelse(Mean_Change_in_Effect_Size > 50, "Yes", "No"))
-
 ```
 ```{r}
 study_contribution_summary <- study_contribution_summary %>%
   arrange(desc(Mean_Change_in_Effect_Size))
+
+study_contribution_summary
 ```
 
 
 
 
 ############
-# STEP 7
+# STEP 4
 ##########################################################################################################################################
-PUBLICATION BIAS INVESTIGATION FOR META-ANALYSIS
+PUBLICATION BIAS INVESTIGATION FOR META-ANALYSIS - FUNNEL PLOT ETC.
 ##########################################################################################################################################
 
 
@@ -1200,9 +1839,9 @@ save_bias_results <- function(bias_results) {
 bias_results_df <- save_bias_results(bias_results)
 
 # Print results dataframe
-print(bias_results_df)
+bias_results_df
 
-bias_results_df |> glimpse()
+# bias_results_df |> glimpse()
 ```
 
 
@@ -1231,7 +1870,7 @@ ggplot(funnel_data, aes(x = Adjusted_Estimate, y = Precision)) +
     color = "red",
     size = 1
   ) +
-  facet_wrap(~ Response, scales = "free") +
+  facet_wrap(~ Response, ncol = 1) +
   theme_minimal() +
   labs(
     title = "Funnel Plot with Trim-and-Fill Adjustments",
@@ -1243,7 +1882,6 @@ ggplot(funnel_data, aes(x = Adjusted_Estimate, y = Precision)) +
     axis.text = element_text(size = 10),
     plot.title = element_text(hjust = 0.5)
   )
-
 ```
 
 ```{r}
@@ -1259,7 +1897,9 @@ ggplot(egger_data, aes(x = CI_Lower, y = CI_Upper)) +
 
 ```{r}
 trim_data <- bias_results_df |> dplyr::filter(Test == "Trim-and-Fill")
-ggplot(trim_data, aes(x = Response, y = Estimated_Missing_Studies, fill = Adjusted_Estimate > 0)) +
+ggplot(trim_data, aes(x = Response, 
+                      y = Estimated_Missing_Studies, 
+                      fill = Adjusted_Estimate > 0)) +
   geom_col() +
   theme_minimal() +
   labs(title = "Number of Missing Studies Estimated (Trim-and-Fill)",
@@ -1319,32 +1959,29 @@ ggplot(forest_data, aes(
     axis.text.y = element_text(color = "black"),
     axis.text.x = element_text(color = "black")
   )
-
 ```
 
 
-### The Trim-and-Fill Test and Results: A Report Summary
+The Trim-and-Fill Test and Results: A Report Summary
 
 The **Trim-and-Fill** method is a statistical tool used in meta-analysis to detect and adjust for **publication bias**, which occurs when studies with significant or positive results are more likely to be published, leading to distorted overall effect size estimates. This method ensures that meta-analytic conclusions are robust and unbiased.
 
-#### Key Steps in the Trim-and-Fill Process:
+Key Steps in the Trim-and-Fill Process:
 1. **Detection of Funnel Plot Asymmetry**: A symmetrical funnel plot indicates no publication bias, while asymmetry suggests missing studies, often small studies with non-significant results.
 2. **Trimming**: Studies causing asymmetry are temporarily removed to create symmetry.
 3. **Filling**: Missing studies are imputed on the underreported side of the funnel plot.
 4. **Re-estimation**: A new meta-analysis is performed with the original and imputed studies to calculate the **adjusted effect size** and its confidence intervals (CIs).
 
-#### Trim-and-Fill Results:
+Trim-and-Fill Results:
 The method outputs **adjusted estimates** that reflect the effect sizes after accounting for missing studies, along with:
 - **Confidence Intervals (CIs)**: Indicating the range of plausible values for the adjusted effect size. If the CI includes zero, the adjusted estimate is not statistically significant.
 - **Estimated Missing Studies**: The number of studies imputed to restore symmetry.
 - **Direction of Bias**: Identifies the likely side where studies were underreported.
 
-#### Purpose and Insights:
+Purpose and Insights:
 The Trim-and-Fill method evaluates whether the original meta-analytic estimate is robust to potential bias. A large difference between unadjusted and adjusted effect sizes indicates significant publication bias, while minimal changes suggest robustness.
 
----
-
-### Forest Plot Interpretation of Trim-and-Fill Results
+Forest Plot Interpretation of Trim-and-Fill Results
 The forest plot provides a visual summary of the Trim-and-Fill adjusted effect sizes and their corresponding CIs for various response variables:
 
 1. **Adjusted Effect Sizes**: Represented by dots along horizontal bars (CIs), showing the mean effect size after adjusting for missing studies.
@@ -1354,9 +1991,9 @@ The forest plot provides a visual summary of the Trim-and-Fill adjusted effect s
    - Positive or negative estimates excluding zero indicate significance.
    - Wide CIs suggest higher uncertainty, while narrow CIs indicate precision.
 
----
 
-### Observations:
+
+Observations:
 - **Significant Findings**: "Water quality" has a positive adjusted estimate with CIs excluding zero, indicating statistical significance.
 - **Negative Adjustments**: "Crop yield" and "Product quality" show negative adjusted estimates, with precise but non-significant results.
 - **High Uncertainty**: "Pest and Disease" has wide CIs, indicating variability or uncertainty in its adjusted effect size.
@@ -1365,527 +2002,9 @@ This analysis demonstrates the importance of adjusting for publication bias, rev
 
 
 
-############
-# STEP 8
 ##########################################################################################################################################
-MODERATOR ANALYSIS - INFLUENCE OF SILVOARABLE AGROFORESTRY CHARACTERISTICS
+PUBLICATION BIAS ASSESSMENT - FUNNEL PLOTS
 ##########################################################################################################################################
-
-```{r}
-# model_results$`Crop yield`$full_model$tau2
-
-# model_results$`Crop yield`$moderator_model$tau2
-```
-
-
-```{r}
-####################################################################################################
-# MODERATOR ANALYSIS - PROPORTION OF EXPLAINED HETEROGENEITY USING RE-FITTED MODELS NO RANDOM INTERCEPT
-####################################################################################################
-
-# Define response variable
-response_variable <- "Crop yield"  # Change accordingly
-
-# Subset data for the response variable
-data_subset <- meta_data[meta_data$response_variable == response_variable, ]
-
-# Extract the variance-covariance matrix
-v_matrix <- v_matrices[[response_variable]]
-
-# Define the moderators to include in the model
-moderators <- c("tree_type", "crop_type", "age_system", "season", "soil_texture")
-
-# Define the random effects structure
-random_effects <- list(~ 1 | exp_id)
-
-# Print data checks
-print(dim(data_subset))
-print(head(data_subset))
-```
-```{r}
-# Fit the Null Model
-# null_model <- tryCatch({
-#   rma.mv(
-#     yi = yi,
-#     V = v_matrix,
-#     random = random_effects,
-#     data = data_subset,
-#     method = "REML",
-#     control = list(iter.max = 2000, rel.tol = 1e-9)
-#   )
-# }, error = function(e) {
-#   message("Error in null model: ", e$message)
-#   return(NULL)
-# })
-# 
-# # Check if model fitted correctly
-# if (!is.null(null_model)) {
-#   print(null_model)
-#   tau2_null <- sum(null_model$tau2)  # Extract τ²
-#   cat("τ² (Null Model):", tau2_null, "\n")
-# } else {
-#   cat("⚠ Warning: τ² (Null Model) is 0 or model fitting failed.\n")
-# }
-
-
-# Fit the Null Model (NO RANDOM EFFECTS)
-null_model <- tryCatch({
-  rma(
-    yi = yi,
-    vi = diag(v_matrix),  # Use diagonal for within-study variance
-    data = data_subset,
-    method = "REML",
-    control = list(iter.max = 2000, rel.tol = 1e-9)
-  )
-}, error = function(e) {
-  message("Error in null model: ", e$message)
-  return(NULL)
-})
-
-# Check if model fitted correctly
-if (!is.null(null_model)) {
-  print(null_model)
-  tau2_null <- null_model$tau2  # Extract τ²
-  cat("τ² (Null Model):", tau2_null, "\n")
-} else {
-  cat("⚠ Warning: τ² (Null Model) is 0 or model fitting failed.\n")
-}
-
-```
-
-```{r}
-# Fit the Full Model
-
-# full_model <- tryCatch({
-#   rma.mv(
-#     yi = yi,
-#     V = v_matrix,
-#     mods = as.formula(paste("~", paste(moderators, collapse = " + "))),
-#     random = random_effects,
-#     data = data_subset,
-#     method = "REML",
-#     control = list(iter.max = 2000, rel.tol = 1e-9)
-#   )
-# }, error = function(e) {
-#   message("Error in full model: ", e$message)
-#   return(NULL)
-# })
-# 
-# # Check if full model fitted correctly
-# if (!is.null(full_model)) {
-#   print(full_model)
-#   tau2_full <- sum(full_model$tau2)  # Extract τ²
-#   cat("τ² (Full Model):", tau2_full, "\n")
-# } else {
-#   cat("⚠ Warning: τ² (Full Model) is 0 or model fitting failed.\n")
-# }
-
-# Fit the Full Model (NO RANDOM EFFECTS)
-full_model <- tryCatch({
-  rma(
-    yi = yi,
-    vi = diag(v_matrix),
-    mods = as.formula(paste("~", paste(moderators, collapse = " + "))),
-    data = data_subset,
-    method = "REML",
-    control = list(iter.max = 2000, rel.tol = 1e-9)
-  )
-}, error = function(e) {
-  message("Error in full model: ", e$message)
-  return(NULL)
-})
-
-# Check if full model fitted correctly
-if (!is.null(full_model)) {
-  print(full_model)
-  tau2_full <- full_model$tau2  # Extract τ²
-  cat("τ² (Full Model):", tau2_full, "\n")
-} else {
-  cat("⚠ Warning: τ² (Full Model) is 0 or model fitting failed.\n")
-}
-
-```
-
-```{r}
-# Calculate proportion of explained heterogeneity
-
-if (!is.null(null_model) && !is.null(full_model)) {
-  proportion_explained <- ((tau2_null - tau2_full) / tau2_null) * 100
-  proportion_explained <- max(min(proportion_explained, 100), 0)  # Ensure within 0-100%
-
-  cat("\nProportion of Explained Heterogeneity:", proportion_explained, "%\n")
-} else {
-  cat("\nCannot compute explained heterogeneity due to missing models.\n")
-}
-```
-
-Justifying the Use of a Model Without a Random Component
-
-Proportion of Explained Heterogeneity (PEH) is derived by comparing between-study variance (τ²) in models with and without moderators. To estimate PEH, the null model provides a baseline τ² representing total heterogeneity, while models incorporating moderators help partition that heterogeneity and quantify the proportion explained. However, the data structure in this analysis is too sparse to support a hierarchical random-effects model with `~ 1 | exp_id`, as the number of studies per group is too low for the model to reliably estimate variance components. This led to convergence issues, requiring a modified approach where the models were refitted without the random-effects component.
-
-Refitting was necessary because PEH is calculated as the proportionate reduction in τ² between models, and this requires the ability to fit both a null model and a moderator model under comparable conditions. Without refitting, it would be impossible to determine how much variance each moderator accounts for. The random-effects model structure introduced instability because the hierarchical variance component could not be estimated reliably, making it impractical for PEH analysis.
-
-By removing the random component, the model focuses on within-study variance while still capturing residual heterogeneity (τ²). Although this shifts the approach closer to a fixed-effects model, the key objective here is not to make population-level inferences but rather to partition variance and assess the explanatory power of moderators. The simplified model structure ensures that τ² estimates remain valid, while bootstrapping compensates for potential limitations by providing empirical uncertainty estimates.
-
-Critically, the model still accounts for variability through the study-level variance (`vi = diag(V)`), which ensures appropriate weighting of studies based on precision. While a full random-effects model is generally preferable when estimating overall heterogeneity, its use in this case was not feasible due to sparse data. Alternative approaches, such as Bayesian hierarchical modeling or aggregating studies within `exp_id`, would introduce additional assumptions or reduce statistical power. Removing the random component allowed for a more stable estimation of τ² and thus more reliable PEH calculations.
-
-This approach ensures that the PEH estimates remain interpretable and statistically valid while avoiding model complexity that would otherwise compromise the analysis. The use of bootstrapping further strengthens the robustness of these estimates, providing confidence in the validity of the findings despite the necessary modifications to the modeling approach.
-
-
-```{r}
-# Initialize an empty data frame to store results
-heterogeneity_results <- data.frame()
-
-# Define all response variables
-response_variables <- unique(meta_data$response_variable)
-
-# Loop through each response variable
-for (response_variable in response_variables) {
-  
-  cat("\n-------------------------\nProcessing:", response_variable, "\n-------------------------\n")
-  
-  # Subset data for the response variable
-  data_subset <- meta_data[meta_data$response_variable == response_variable, ]
-  
-  # Extract the variance-covariance matrix
-  v_matrix <- v_matrices[[response_variable]]
-  
-  # Skip if variance matrix is missing
-  if (is.null(v_matrix)) {
-    cat("⚠ Skipping", response_variable, "- No variance matrix found.\n")
-    next
-  }
-  
-  # Fit the Null Model (NO RANDOM EFFECTS)
-  null_model <- tryCatch({
-    rma(
-      yi = yi,
-      vi = diag(v_matrix),  # Use diagonal for within-study variance
-      data = data_subset,
-      method = "REML",
-      control = list(iter.max = 2000, rel.tol = 1e-9)
-    )
-  }, error = function(e) {
-    message("Error in null model for", response_variable, ":", e$message)
-    return(NULL)
-  })
-  
-  # Extract tau² from the null model
-  if (!is.null(null_model)) {
-    tau2_null <- null_model$tau2
-    cat("τ² (Null Model) for", response_variable, ":", tau2_null, "\n")
-  } else {
-    cat("⚠ Warning: τ² (Null Model) is 0 or model fitting failed for", response_variable, "\n")
-    next  # Skip to next response variable if null model fails
-  }
-  
-  # Loop through each moderator for this response variable
-  for (moderator in moderators) {
-    cat("\nFitting model for moderator:", moderator, "on", response_variable, "\n")
-    
-    mod_model <- tryCatch({
-      rma(
-        yi = yi,
-        vi = diag(v_matrix),
-        mods = as.formula(paste("~", moderator)),  # Single moderator model
-        data = data_subset,
-        method = "REML",
-        control = list(iter.max = 2000, rel.tol = 1e-9)
-      )
-    }, error = function(e) {
-      message("Error in model for", moderator, "on", response_variable, ":", e$message)
-      return(NULL)
-    })
-    
-    # Extract tau² from the moderator model
-    if (!is.null(mod_model)) {
-      tau2_moderated <- mod_model$tau2
-      cat("  τ² (Model with", moderator, "on", response_variable, "):", tau2_moderated, "\n")
-      
-      # Calculate proportion of explained heterogeneity
-      proportion_explained <- ifelse(tau2_null > 0, ((tau2_null - tau2_moderated) / tau2_null) * 100, NA)
-      proportion_explained <- max(min(proportion_explained, 100), 0)  # Ensure between 0-100%
-      
-      # Store results
-      heterogeneity_results <- rbind(heterogeneity_results, 
-                                     data.frame(ResponseVariable = response_variable,
-                                                Moderator = moderator,
-                                                Tau2_Null = tau2_null,
-                                                Tau2_Moderated = tau2_moderated,
-                                                ProportionExplained = proportion_explained))
-    } else {
-      cat("⚠ Warning: Model for", moderator, "on", response_variable, "failed.\n")
-    }
-  }
-}
-
-# Print results
-heterogeneity_results
-```
-
-Bootstrapping involves resampling with replacement to estimate confidence intervals for PEH. 
-This helps assess the robustness of the estimated heterogeneity explained
-
-```{r, eval=FALSE}
-# Bootstrapping for Statistical Validation
-##########################################################################
-# Start time tracking
-start.time <- Sys.time()
-##########################################################################
-# Set up parallel processing
-plan(multisession, workers = parallel::detectCores() - 1)
-##########################################################################
-
-
-# Bootstrapping is a resampling-based statistical method used to estimate the uncertainty and stability of a statistic by repeatedly sampling from the original dataset with replacement. In the context of Proportion of Explained Heterogeneity (PEH) analysis, bootstrapping provides confidence intervals (CIs) for the estimated PEH values and helps determine whether observed moderator effects are statistically robust or due to random noise.
-
-# Set number of bootstrap iterations
-n_boot <- 1000  
-
-# Initialize an empty list to store bootstrap results
-bootstrap_results <- list()
-
-# Function to compute PEH for bootstrapped samples
-bootstrap_peh <- function(data_subset, v_matrix, response_variable, moderator) {
-  # Resample data with replacement
-  boot_data <- data_subset[sample(nrow(data_subset), replace = TRUE), ]
-  
-  # Fit the null model
-  null_model <- tryCatch({
-    rma(
-      yi = yi,
-      vi = diag(v_matrix),
-      data = boot_data,
-      method = "REML",
-      control = list(iter.max = 2000, rel.tol = 1e-9)
-    )
-  }, error = function(e) NULL)
-  
-  if (is.null(null_model)) return(NA) # Return NA if null model fails
-  
-  tau2_null <- null_model$tau2  # Extract τ²
-  
-  # Fit the model with a single moderator
-  mod_model <- tryCatch({
-    rma(
-      yi = yi,
-      vi = diag(v_matrix),
-      mods = as.formula(paste("~", moderator)),
-      data = boot_data,
-      method = "REML",
-      control = list(iter.max = 2000, rel.tol = 1e-9)
-    )
-  }, error = function(e) NULL)
-  
-  if (is.null(mod_model)) return(NA) # Return NA if model fails
-  
-  tau2_moderated <- mod_model$tau2
-  
-  # Compute PEH
-  proportion_explained <- ifelse(tau2_null > 0, ((tau2_null - tau2_moderated) / tau2_null) * 100, NA)
-  proportion_explained <- max(min(proportion_explained, 100), 0)  # Ensure PEH is between 0-100%
-  
-  return(proportion_explained)
-}
-
-# Run bootstrap for each response variable and moderator
-for (response_variable in unique(meta_data$response_variable)) {
-  cat("\nBootstrapping for:", response_variable, "\n")
-  
-  # Subset data and extract variance-covariance matrix
-  data_subset <- meta_data[meta_data$response_variable == response_variable, ]
-  v_matrix <- v_matrices[[response_variable]]
-  
-  # Skip if variance matrix is missing
-  if (is.null(v_matrix)) next
-  
-  for (moderator in moderators) {
-    cat("Processing moderator:", moderator, "\n")
-    
-    # Run bootstrap
-    boot_estimates <- replicate(n_boot, bootstrap_peh(data_subset, v_matrix, response_variable, moderator))
-    
-    # Compute summary statistics
-    boot_summary <- data.frame(
-      ResponseVariable = response_variable,
-      Moderator = moderator,
-      MeanPEH = mean(boot_estimates, na.rm = TRUE),
-      LowerCI = quantile(boot_estimates, 0.025, na.rm = TRUE),
-      UpperCI = quantile(boot_estimates, 0.975, na.rm = TRUE)
-    )
-    
-    # Store results
-    bootstrap_results[[paste(response_variable, moderator, sep = "_")]] <- boot_summary
-  }
-}
-
-# Convert list to data frame
-bootstrap_results_df <- do.call(rbind, bootstrap_results)
-
-# View resulting dataframe on PEH
-bootstrap_results_df
-
-# Save the bootstrapped results as an RDS file
-# Define the output directory
-output_dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
-
-# Ensure the directory exists
-if (!dir.exists(output_dir)) {
-  dir.create(output_dir, recursive = TRUE)
-}
-
-saveRDS(
-  bootstrap_results_df,
-  file = file.path(output_dir, "bootstrapped_PEH_results.rds")
-)
-
-cat("Bootstrapped results saved to:", file.path(output_dir, "bootstrapped_PEH_results.rds"), "\n")
-
-##########################################################################
-# End time tracking
-end.time <- Sys.time()
-time.taken <- end.time - start.time
-cat("\nTotal time taken:", time.taken, units(time.taken), "\n")
-##########################################################################
-# Last go (04/02-2025) 
-# Total time taken: 
-```
-
-```{r}
-# erify whether the total Proportion of Explained Heterogeneity (PEH) for each response variable exceeds 100% across all moderators:
-
-# View resulting dataframe on PEH
-# bootstrap_results_df
-
-# Summarize PEH per response variable
-peh_summary <- bootstrap_results_df %>%
-  group_by(ResponseVariable) %>%
-  summarise(TotalPEH = sum(MeanPEH, na.rm = TRUE)) %>%
-  mutate(Exceeds100 = TotalPEH > 100)  # Check if sum exceeds 100%
-
-# Identify response variables where total PEH exceeds 100%
-if (any(peh_summary$Exceeds100)) {
-  warning("⚠ Some response variables have a total PEH exceeding 100%! Review the calculations.")
-} else {
-  cat("✅ All response variables have a total PEH ≤ 100%.")
-}
-
-# Display results
-print(peh_summary)
-```
-
-
-```{r}
-# Convert ResponseVariable and Moderator to factors for proper ordering
-bootstrap_results_df$ResponseVariable <- factor(bootstrap_results_df$ResponseVariable, levels = unique(bootstrap_results_df$ResponseVariable))
-bootstrap_results_df$Moderator <- factor(bootstrap_results_df$Moderator, levels = unique(bootstrap_results_df$Moderator))
-
-# Create the bar plot with flipped axes
-ggplot(bootstrap_results_df, aes(x = ResponseVariable, y = MeanPEH, fill = Moderator)) +
-  geom_bar(stat = "identity", position = position_dodge(width = 0.7), color = "black") +
-  geom_errorbar(aes(ymin = LowerCI, ymax = UpperCI), position = position_dodge(width = 0.7), width = 0.2) +
-  coord_flip() +  # Flip the axes
-  labs(title = "Bootstrapped Proportion of Explained Heterogeneity",
-       x = "Response Variable",
-       y = "Proportion Explained (%)",
-       fill = "Moderator") +
-  theme_minimal() +
-  theme(axis.text.y = element_text(angle = 0, hjust = 1))  # Ensure readability for y-axis labels
-```
-
-```{r}
-# Filter for selected response variables
-filtered_data <- bootstrap_results_df %>%
-  filter(ResponseVariable %in% c("Crop yield", "Soil quality", "Biodiversity"))
-
-# Create faceted bar plot with fixed x-axis
-ggplot(filtered_data, aes(x = Moderator, y = MeanPEH, fill = Moderator)) +
-  geom_bar(stat = "identity", position = position_dodge(width = 0.7), color = "black") +
-  geom_errorbar(aes(ymin = LowerCI, ymax = UpperCI), position = position_dodge(width = 0.7), width = 0.2) +
-  coord_flip() +  # Flip axes
-  facet_wrap(~ResponseVariable, scales = "fixed") +  # Facet by response variable with fixed x-axis
-  labs(title = "Bootstrapped Proportion of Explained Heterogeneity (PEH)",
-       x = "Moderator",
-       y = "Proportion Explained (%)",
-       fill = "Moderator") +
-  theme_minimal() +
-  theme(axis.text.y = element_text(angle = 0, hjust = 1))  # Ensure labels remain readable
-```
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-```{r}
-# Visualize Proportion Explained for Overall and Response Variable-Specific Situations
-
-
-```
-
-
-Updated Interpretation of Moderators' Effects on Model Heterogeneity
-
-1. Significance of Moderators (P-value Interpretation):
-- **P-values** reflect whether the moderator has a statistically significant effect on the response variable. 
-  - A **P-value < 0.05** suggests strong evidence that the moderator significantly affects the heterogeneity in effect sizes.
-  - Higher P-values indicate weaker evidence for significant effects, meaning the moderator’s influence may not be consistent across the response variables.
-
-2. Magnitude of Effects (Estimate and SE):
-- The **Estimate** represents the effect size or influence of each moderator term.
-  - Positive values suggest that the moderator increases heterogeneity or variability.
-  - Negative values suggest it reduces variability or explains heterogeneity in a systematic way.
-- The **Standard Error (SE)** indicates the precision of the estimate.
-  - Lower SE values imply higher confidence in the estimates, whereas higher SEs indicate less precise estimates.
-
-3. Confidence Intervals (CI.Lower and CI.Upper):
-- The confidence intervals provide the range within which the true effect size is likely to fall.
-  - Moderators with confidence intervals that **exclude zero** are more likely to have consistent and meaningful effects.
-
-4. Specific Moderators' Contributions:
-1. **Tree Type**:
-   - While some terms (e.g., "tree_typeTimber") have moderate P-values (e.g., ~0.19), the confidence intervals often include zero, indicating less consistent influence.
-   - Moderators under "tree_type" show mixed evidence, with high variability between terms.
-2. **Crop Type**:
-   - Some subcategories (e.g., "crop_typeLegume") exhibit low P-values (e.g., < 0.001) and confidence intervals excluding zero, suggesting significant effects.
-   - This moderator likely contributes moderately to explaining heterogeneity in effect sizes.
-3. **Age System**:
-   - Terms such as "age_systemYoung" consistently show low P-values (<0.01) and confidence intervals excluding zero, highlighting a strong and significant influence on heterogeneity.
-   - This moderator seems to have one of the most consistent and impactful effects.
-4. **Season**:
-   - The influence of "season" varies, with subcategories like "seasonWinter" having moderate P-values (~0.13) and wider confidence intervals.
-   - Its effects are less consistent compared to age system or crop type.
-5. **Soil Texture**:
-   - Subcategories like "soil_textureSand" often show significant effects (P-values < 0.05), with narrow confidence intervals excluding zero.
-   - This suggests that soil texture is a critical moderator for explaining heterogeneity.
-
-5. Proportion of Heterogeneity Explained:
-- Combining the above data with the proportion of heterogeneity explained reveals:
-  - **Age System** consistently explains the highest proportion of heterogeneity (e.g., 95.47%).
-  - **Soil Texture** follows closely, explaining ~82.4%.
-  - **Crop Type** and **Season** contribute moderately (64.5% and 45.2%, respectively).
-  - **Tree Type** has a lower overall contribution (~50.6%).
-
-Summary:
-- **Key Moderators:** "Age System" and "Soil Texture" are the most impactful, with consistently significant effects and the highest proportions of heterogeneity explained.
-- **Moderate Contributors:** "Crop Type" and "Season" show variable but important contributions to explaining heterogeneity.
-- **Least Impactful:** "Tree Type" appears to have inconsistent effects, with many subcategories not significantly contributing to heterogeneity.
-
 
 
 ```{r}
@@ -1894,23 +2013,15 @@ Summary:
 ##########################################################################################################################################
 
 
-# Custom colors for each response variable
-custom_colors <- c(
-  "Biodiversity" = "#FF9999",
-  "Greenhouse gas emission" = "#66C266",
-  "Product quality" = "#FFC000",
-  "Crop yield" = "#FF9933",
-  "Pest and Disease" = "#33CCCC",
-  "Soil quality" = "#9966CC",
-  "Water quality" = "#9999FF"
-)
-
 
 # Function to generate contour-enhanced funnel plots for each response variable
 create_contour_funnel_plots <- function(model_results) {
   # Loop through each response variable and generate a funnel plot
   for (response in names(model_results)) {
-    model <- model_results[[response]]$full_model
+    
+    # Set the model formula function to use for LOO analysis (e.g., minimal_random_effects_model, interaction_model or full_model)
+    # Change this to minimal_random_effects_model if needed
+    model <- model_results[[response]]$interaction_model
 
     # Skip if the model is NULL
     if (is.null(model)) {
@@ -1935,7 +2046,6 @@ create_contour_funnel_plots <- function(model_results) {
 
 # Example usage with the model_results object
 create_contour_funnel_plots(model_results)
-
 ```
 
 Systematic Interpretation of Contour-Enhanced Funnel Plots Across All Response Variables
@@ -1998,45 +2108,52 @@ Overall Conclusion:
 - Asymmetric plots (e.g., **Greenhouse Gas Emissions**, **Crop Yield**, **Water Quality**) highlight potential **publication bias** or **genuine heterogeneity**, warranting further statistical tests like Egger’s regression or subgroup analysis.
 
 
-
-
-
 ```{r}
-##########################################################################################################################################
-# PUBLICATION BIAS ASSESSMENT - EGGER'S TEST
-##########################################################################################################################################
+######################################################################################################
+# REFIT MODELS USING rma() FOR EGGER'S TEST
+######################################################################################################
 
-
-# Refit models using rma
-refit_rma_models <- function(model_results) {
+refit_rma_models <- function(meta_data, v_matrices) {
   rma_models <- list()
   
-  for (response in names(model_results)) {
+  for (response in unique(meta_data$response_variable)) {
     tryCatch({
-      # Assuming `yi` and `vi` are your effect sizes and variances
-      model_data <- model_results[[response]]$data
-      if (is.null(model_data)) next
+      # Subset data for the specific response variable
+      model_data <- meta_data[meta_data$response_variable == response, ]
       
-      rma_model <- rma(yi = model_data$EffectSize, 
-                       vi = model_data$Variance, 
-                       data = model_data,
-                       method = "REML")
+      # Extract the variance-covariance matrix for the response
+      v_matrix <- v_matrices[[response]]
       
+      # Skip if variance matrix is missing
+      if (is.null(v_matrix) || nrow(model_data) == 0) {
+        cat("⚠ Skipping", response, "- No data or variance matrix found.\n")
+        next
+      }
+      
+      # Fit a standard random-effects model (no moderators, no multi-level structure)
+      rma_model <- rma(
+        yi = model_data$yi,  # Effect size
+        vi = diag(v_matrix), # Within-study variance (diagonal of V)
+        data = model_data,
+        method = "REML"
+      )
+      
+      # Store the model
       rma_models[[response]] <- rma_model
-      cat(paste("Model refitted for", response, "\n"))
+      cat("Model refitted for", response, "\n")
+      
     }, error = function(e) {
-      message(paste("Error refitting model for", response, ":", e$message))
+      message("Error refitting model for", response, ":", e$message)
     })
   }
   
   return(rma_models)
 }
 
-# Example usage
-rma_models <- refit_rma_models(model_results)
+######################################################################################################
+# RUN EGGER'S TEST
+######################################################################################################
 
-
-# Run Egger's test on the refitted rma models
 run_eggers_test <- function(rma_models) {
   results <- list()
   
@@ -2045,22 +2162,856 @@ run_eggers_test <- function(rma_models) {
     if (is.null(model)) next
     
     tryCatch({
-      egger_test <- regtest(model, model = "lm", predictor = "sei")
+      # Perform Egger's test
+      egger_test <- regtest(model, model = "lm", predictor = "sei")  # `sei` = standard error
+      
+      # Store results
       results[[response]] <- egger_test
-      cat(paste("\nEgger's Test for", response, ":\n"))
+      
+      # Print results
+      cat("\n Egger's Test for", response, ":\n")
       print(egger_test)
+      
     }, error = function(e) {
-      message(paste("Error running Egger's test for", response, ":", e$message))
+      message("Error running Egger's test for", response, ":", e$message)
     })
   }
   
   return(results)
 }
 
+######################################################################################################
+# RUN THE PUBLICATION BIAS ASSESSMENT
+######################################################################################################
+
+# Refit models
+rma_models <- refit_rma_models(meta_data, v_matrices)
+
 # Run Egger's test on refitted models
 eggers_results <- run_eggers_test(rma_models)
 
+# Display final results
+eggers_results
 ```
+Summary of Egger’s Test for Publication Bias
+
+* No Evidence of Publication Bias for Biodiversity, Crop Yield, Pest & Disease, and Product Quality (p > 0.05). No significant funnel plot asymmetry detected.
+* Potential Publication Bias for Water Quality, Soil Quality, and Greenhouse Gas Emissions (p < 0.0001). Significant asymmetry suggests small-study effects or selective reporting. Possible Causes of Asymmetry: 1) Selective reporting bias (e.g., unpublished non-significant studies), 2) Small-study effects (exaggerated results in smaller studies), 3) High study heterogeneity (differences in study design, location, crops).
+
+
+
+
+
+
+############
+# STEP 5
+##########################################################################################################################################
+MODERATOR ANALYSIS - INFLUENCE OF SILVOARABLE AGROFORESTRY CHARACTERISTICS - (INCL. BOOTSTRAPPING)
+##########################################################################################################################################
+
+```{r}
+# model_results$`Crop yield`$full_model$tau2
+
+# model_results$`Crop yield`$moderator_model$tau2
+```
+
+```{r}
+# Load the saved v_matrices
+output_dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
+v_matrices <- readRDS(file.path(output_dir, "v_matrices_by_response_variable.rds"))
+```
+
+Justifying the Use of a Model Without a Random Component
+
+Proportion of Explained Heterogeneity (PEH) is derived by comparing between-study variance (τ²) in models with and without moderators. To estimate PEH, the null model provides a baseline τ² representing total heterogeneity, while models incorporating moderators help partition that heterogeneity and quantify the proportion explained. However, the data structure in this analysis is too sparse to support a hierarchical random-effects model with `~ 1 | id_article/exp_id`, as the number of studies per group is too low for the model to reliably estimate variance components. This led to convergence issues, requiring a modified approach where the models were refitted without the random-effects component.
+
+Refitting was necessary because PEH is calculated as the proportionate reduction in τ² between models, and this requires the ability to fit both a null model and a moderator model under comparable conditions. Without refitting, it would be impossible to determine how much variance each moderator accounts for. The random-effects model structure introduced instability because the hierarchical variance component could not be estimated reliably, making it impractical for PEH analysis.
+
+By removing the random component, the model focuses on within-study variance while still capturing residual heterogeneity (τ²). Although this shifts the approach closer to a fixed-effects model, the key objective here is not to make population-level inferences but rather to partition variance and assess the explanatory power of moderators. The simplified model structure ensures that τ² estimates remain valid, while bootstrapping compensates for potential limitations by providing empirical uncertainty estimates.
+
+Critically, the model still accounts for variability through the study-level variance (`vi = diag(v_matrix)`), which ensures appropriate weighting of studies based on precision. While a full random-effects model is generally preferable when estimating overall heterogeneity, its use in this case was not feasible due to sparse data. Alternative approaches, such as Bayesian hierarchical modeling or aggregating studies within `exp_id`, would introduce additional assumptions or reduce statistical power. Removing the random component allowed for a more stable estimation of τ² and thus more reliable PEH calculations.
+
+This approach ensures that the PEH estimates remain interpretable and statistically valid while avoiding model complexity that would otherwise compromise the analysis. The use of bootstrapping further strengthens the robustness of these estimates, providing confidence in the validity of the findings despite the necessary modifications to the modeling approach.
+
+```{r}
+####################################################################################################
+# MODERATOR ANALYSIS - PROPORTION OF EXPLAINED HETEROGENEITY ACROSS ALL RESPONSE VARIABLES
+####################################################################################################
+
+moderators <- c("tree_type", "crop_type", "age_system", "season", 
+                "soil_texture", "no_tree_per_m", "tree_height", "alley_width")
+
+
+# Define global control parameters for model fitting
+control_params <- list(
+  optimizer = "optim",    # Use base R optimizer
+  method = "BFGS",        # Broyden–Fletcher–Goldfarb–Shanno optimization method
+  iter.max = 10000,       # Maximum number of iterations for convergence
+  rel.tol = 1e-12         # Tolerance level for convergence (smaller = stricter)
+)
+
+####################################################################################################
+# INITIALIZE STORAGE FOR RESULTS
+
+# Create an empty data frame to store heterogeneity results for each response variable and moderator
+heterogeneity_results <- data.frame()
+
+# Extract unique response variables from the dataset
+response_variables <- unique(meta_data$response_variable)
+
+####################################################################################################
+# LOOP THROUGH EACH RESPONSE VARIABLE
+
+for (response_variable in response_variables) {
+  
+  cat("\n-------------------------\nProcessing:", response_variable, "\n-------------------------\n")
+  
+  # Subset data for the current response variable
+  data_subset <- meta_data[meta_data$response_variable == response_variable, ]
+  
+  # Extract the corresponding variance-covariance matrix
+  v_matrix <- v_matrices[[response_variable]]
+  
+  # Skip if variance matrix is missing
+  if (is.null(v_matrix)) {
+    cat("⚠ Skipping", response_variable, "- No variance matrix found.\n")
+    next
+  }
+
+  # Define the random effects structure
+  random_effects <- list(~ 1 | id_article/exp_id)
+
+  ###############################################################
+  # NULL MODEL: GLOBAL AVERAGE WITHOUT MODERATORS
+
+  null_model <- tryCatch({
+    rma(
+      yi = yi,                        # Effect size
+      vi = diag(v_matrix),            # Use diagonal for within-study variance
+      random = random_effects,        # Random effects structure
+      data = data_subset,             # Data subset
+      method = "REML",                # Restricted Maximum Likelihood Estimation
+      control = control_params        # Optimizer control parameters
+    )
+  }, error = function(e) {
+    cat("Error in null model for", response_variable, ":", e$message, "\n")
+    return(NULL)
+  })
+
+  # Extract τ² from the null model if successfully fitted
+  if (!is.null(null_model)) {
+    tau2_null <- null_model$tau2
+    cat("τ² (Null Model) for", response_variable, ":", tau2_null, "\n")
+  } else {
+    cat("⚠ Warning: τ² (Null Model) is 0 or model fitting failed for", response_variable, "\n")
+    next  # Skip to next response variable if null model fails
+  }
+
+  ###############################################################
+  # FULL MODERATOR MODEL: ALL MODERATORS ADDITIVE (NO INTERACTIONS)
+
+    # Loop through each moderator for this response variable
+  for (moderator in moderators) {
+    cat("\nFitting model for moderator:", moderator, "on", response_variable, "\n")
+    
+    mod_model <- tryCatch({
+      rma(
+        yi = yi,
+        vi = diag(v_matrix),
+        mods = as.formula(paste("~", moderator)),  # Single moderator model
+        data = data_subset,
+        method = "REML",
+        control = control_params
+      )
+    }, error = function(e) {
+      message("Error in model for", moderator, "on", response_variable, ":", e$message)
+      return(NULL)
+    })
+    
+    # Extract tau² from the moderator model
+    if (!is.null(mod_model)) {
+      tau2_moderated <- mod_model$tau2
+      cat("  τ² (Model with", moderator, "on", response_variable, "):", tau2_moderated, "\n")
+      
+      # Calculate proportion of explained heterogeneity
+      proportion_explained <- ifelse(tau2_null > 0, ((tau2_null - tau2_moderated) / tau2_null) * 100, NA)
+      proportion_explained <- max(min(proportion_explained, 100), 0)  # Ensure between 0-100%
+      
+      # Store results
+      heterogeneity_results <- rbind(heterogeneity_results, 
+                                     data.frame(ResponseVariable = response_variable,
+                                                Moderator = moderator,
+                                                Tau2_Null = tau2_null,
+                                                Tau2_Moderated = tau2_moderated,
+                                                ProportionExplained = proportion_explained))
+    } else {
+      cat("⚠ Warning: Model for", moderator, "on", response_variable, "failed.\n")
+    }
+  }
+}
+
+####################################################################################################
+# OUTPUT FINAL RESULTS
+####################################################################################################
+# Print final heterogeneity results
+heterogeneity_results
+
+# Save results as an RDS file
+# output_dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
+# saveRDS(heterogeneity_results, file = file.path(output_dir, "heterogeneity_explained_summary.rds"))
+```
+
+
+```{r}
+####################################################################################################
+# MODERATOR ANALYSIS - PROPORTION OF EXPLAINED HETEROGENEITY USING RE-FITTED MODELS
+####################################################################################################
+
+##########################################################################
+# Start time tracking
+start.time <- Sys.time()
+##########################################################################
+# Set up parallel processing
+plan(multisession, workers = parallel::detectCores() - 1)
+##########################################################################
+
+
+# Initialize an empty data frame to store results
+heterogeneity_results_clean <- data.frame()
+
+# Define all response variables
+response_variables <- unique(meta_data$response_variable)
+
+# Define moderators to include in the model
+moderators <- c("tree_type", "crop_type", "age_system", "season", 
+                "soil_texture", "no_tree_per_m", "tree_height", "alley_width")
+
+# Global control parameters for optimization
+control_params <- list(
+  optimizer = "optim",   
+  method = "BFGS",       
+  iter.max = 10000,      
+  rel.tol = 1e-12        
+)
+
+# Loop through each response variable
+for (response_variable in response_variables) {
+  
+  cat("\n-------------------------\nProcessing:", response_variable, "\n-------------------------\n")
+  
+  # Subset data for the response variable
+  data_subset <- meta_data[meta_data$response_variable == response_variable, ]
+  
+  # Extract the variance-covariance matrix
+  v_matrix <- v_matrices[[response_variable]]
+  
+  # Skip if variance matrix is missing
+  if (is.null(v_matrix)) {
+    cat("⚠ Skipping", response_variable, "- No variance matrix found.\n")
+    next
+  }
+  
+  # Fit the Null Model (Global Average without Moderators)
+  null_model <- tryCatch({
+    rma(
+      yi = yi,                        
+      vi = diag(v_matrix),    
+      mods = ~ -1,  # Exclude the global intercept for comparability with the moderator model
+      data = data_subset,             
+      method = "REML",                
+      control = control_params        
+    )
+  }, error = function(e) {
+    cat("Error in null model for", response_variable, ":", e$message, "\n")
+    return(NULL)
+  })
+  
+  # Extract τ² from the null model
+  if (!is.null(null_model)) {
+    tau2_null <- null_model$tau2
+    cat("τ² (Null Model) for", response_variable, ":", tau2_null, "\n")
+  } else {
+    cat("⚠ Warning: τ² (Null Model) is 0 or model fitting failed for", response_variable, "\n")
+    next  
+  }
+
+  # Fit the Full Moderator Model (All Moderators additive, without Interactions)
+  full_moderator_model <- tryCatch({
+    rma(
+      yi = yi,                                     
+      vi = diag(v_matrix),                         
+      mods = as.formula(paste("~ -1 +", paste(moderators, collapse = " + "))),  
+      data = data_subset,                          
+      method = "REML",                             
+      control = control_params                     
+    )
+  }, error = function(e) {
+    cat("Error in full moderator model for", response_variable, ":", e$message, "\n")
+    return(NULL)
+  })
+
+  # Extract τ² from the full moderator model
+  if (!is.null(full_moderator_model)) {
+    tau2_full_moderator <- full_moderator_model$tau2
+    cat("τ² (Full Moderator Model) for", response_variable, ":", tau2_full_moderator, "\n")
+  } else {
+    cat("⚠ Warning: τ² (Full Moderator Model) is 0 or model fitting failed for", response_variable, "\n")
+    next  
+  }
+
+  # Compute proportion of explained heterogeneity
+  proportion_explained <- abs((tau2_null - tau2_full_moderator) / tau2_null) * 100
+  proportion_explained <- min(proportion_explained, 1000)  
+  cat("\nProportion of Explained Heterogeneity:", proportion_explained, "%\n")
+
+  # Loop through each moderator individually
+  for (moderator in moderators) {
+    
+    if (!(moderator %in% colnames(data_subset))) {
+      cat("\n⚠ Skipping", moderator, "for", response_variable, "- Not present in dataset.\n")
+      next
+    }
+
+    cat("\nFitting model for moderator:", moderator, "on", response_variable, "\n")
+    
+    mod_model <- tryCatch({
+      rma(
+        yi = yi,                                 
+        vi = diag(v_matrix),                     
+        mods = as.formula(paste("~ -1 + ", moderator)), # Exclude global intercept 
+        #-1 removes that constant term from the formula, ensuring that the model fits only the moderators as separate predictors, not an overall average.
+        data = data_subset,                      
+        method = "REML",                         
+        control = control_params                 
+      )
+    }, error = function(e) {
+      cat("Error in model for", moderator, "on", response_variable, ":", e$message, "\n")
+      return(NULL)
+    })
+    
+    # Extract τ² from the moderator model
+    if (!is.null(mod_model)) {
+      tau2_moderated <- mod_model$tau2
+      cat("  τ² (Model with", moderator, "on", response_variable, "):", tau2_moderated, "\n")
+      
+      # Compute proportion of explained heterogeneity
+      proportion_explained_mod <- abs((tau2_null - tau2_moderated) / tau2_null) * 100
+      proportion_explained_mod <- min(proportion_explained_mod, 1000)  
+
+      # Extract model summary
+      model_summary <- summary(mod_model)
+
+      # Extract estimates and statistics
+      estimates <- as.numeric(model_summary$b)   # Effect sizes
+      se_values <- as.numeric(model_summary$se)  # Standard errors
+      z_values <- as.numeric(model_summary$zval) # Z-values
+      p_values <- as.numeric(model_summary$pval) # P-values
+      ci_lower <- as.numeric(model_summary$ci.lb) # Lower CI
+      ci_upper <- as.numeric(model_summary$ci.ub) # Upper CI
+
+      # Add significance codes
+      significance_levels <- case_when(
+        p_values < 0.001 ~ "***",
+        p_values < 0.01  ~ "**",
+        p_values < 0.05  ~ "*",
+        p_values < 0.1   ~ ".",
+        TRUE             ~ ""
+      )
+
+      # Store results
+      mod_results_df <- data.frame(
+        ResponseVariable = response_variable,
+        Moderator = rownames(model_summary$b),
+        Tau2_Null = tau2_null,
+        Tau2_Moderated = tau2_moderated,
+        ProportionExplained = proportion_explained_mod,
+        Estimate = estimates,
+        SE = se_values,
+        Z_Value = z_values,
+        P_Value = p_values,
+        CI_Lower = ci_lower,
+        CI_Upper = ci_upper,
+        Significance = significance_levels
+      )
+
+      # Append results
+      heterogeneity_results_clean <- rbind(heterogeneity_results_clean, mod_results_df)
+    } else {
+      cat("⚠ Warning: Model for", moderator, "on", response_variable, "failed.\n")
+    }
+  }
+}
+
+# Print results
+heterogeneity_results_clean
+
+
+##########################################################################
+# End time tracking
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+cat("\nTotal time taken:", time.taken, units(time.taken), "\n")
+##########################################################################
+# Last go (01/03-2025) 
+# Total time taken: 8.381763 secs 
+```
+Updated Interpretation of Moderators' Effects on Model Heterogeneity with Proportion of Heterogeneity Explained (PEH)
+
+1. **Significance of Moderators (P-value Interpretation):**
+   - **P-values** reveal whether each moderator has a statistically significant effect on heterogeneity in the model.
+     - A **P-value < 0.05** suggests that the moderator significantly influences heterogeneity. This is particularly important when examining the **Proportion of Heterogeneity Explained (PEH)**, as significant moderators will account for more of the variation in the data.
+     - **P-values > 0.05** imply weak evidence of an effect, indicating that the moderator might not be explaining much heterogeneity, contributing less to PEH. For example, a high P-value means the moderator does not help in reducing unexplained variance and therefore, the PEH associated with it is likely low.
+
+2. **Magnitude of Effects (Estimate and SE):**
+   - The **Estimate** represents the strength and direction of the effect each moderator has on heterogeneity:
+     - Positive estimates indicate that the moderator increases heterogeneity, meaning it explains a greater proportion of variance in the model, contributing significantly to PEH.
+     - Negative estimates suggest that the moderator decreases heterogeneity, explaining a reduction in variability, which can still explain a significant portion of PEH by better specifying the model.
+   - **Standard Error (SE)** reflects the precision of the estimate:
+     - Lower SE values suggest a higher confidence in the moderator’s effect on heterogeneity, contributing more reliably to PEH.
+     - Higher SE values indicate less certainty in the moderator’s contribution, making the PEH it explains less reliable.
+
+3. **Confidence Intervals (CI.Lower and CI.Upper):**
+   - The confidence intervals give the range within which the true effect size of the moderator is likely to fall.
+     - If the confidence intervals **exclude zero**, it strengthens the belief that the moderator has a real and significant effect on heterogeneity, thus contributing to a higher PEH. A narrower interval indicates more precision, and therefore, more consistent explanation of variability.
+     - If the intervals **include zero**, it indicates uncertainty about the moderator’s effect, suggesting it likely does not contribute significantly to heterogeneity or PEH.
+
+4. **Specific Moderators' Contributions:**
+
+   - **Tree Type**:
+     - Moderators like "tree_typeTimber" show strong evidence of a significant effect (P-value < 0.001) and narrow confidence intervals excluding zero, suggesting they play an important role in explaining heterogeneity in biodiversity and other outcomes. The high significance of these terms (PEH contribution > 50%) indicates that tree type is a key factor in explaining variability in the data.
+     - "tree_typeBiomass" shows a non-significant P-value (P-value = 0.891), indicating that it does not contribute to explaining heterogeneity, and thus, the PEH linked to this moderator is minimal.
+     - As the PEH is higher for significant moderators like "tree_typeTimber" (explaining over 60% of heterogeneity), it suggests these categories help reduce unexplained variance in the model.
+
+   - **Crop Type**:
+     - "crop_typeLegume" shows a highly significant effect (P-value < 0.001) with confidence intervals excluding zero, indicating that legumes play a significant role in explaining heterogeneity, particularly in outcomes like crop yield and pest management. This moderator likely explains a large portion of the PEH, contributing to approximately 50-60% of the heterogeneity across studies.
+     - "crop_typeCereal" is also significant (P-value < 0.05), but with a lower PEH contribution than legumes, as its impact on heterogeneity is slightly less robust.
+     - "crop_typeTuber,root and other" is significant with a moderate P-value (P-value = 0.02), suggesting it explains variability in pest and disease outcomes, contributing moderately to PEH (~30%).
+
+   - **Age System**:
+     - "age_systemYoung" demonstrates the most substantial and consistent impact on heterogeneity, with P-values < 0.001 and narrow confidence intervals, explaining **nearly 90% of heterogeneity** in certain models. This indicates that age-related changes in systems (like agroforestry or forest management) are critical to understanding variability across outcomes.
+     - "age_systemMedium" and "age_systemMature" contribute less to PEH, as their P-values suggest weaker effects on heterogeneity (P-value > 0.05), indicating they explain only a small portion of the variance (PEH < 30%).
+
+   - **Season**:
+     - "seasonSummer" is highly significant (P-value < 0.001) and explains a significant portion of heterogeneity, especially in biodiversity and crop yield models. This indicates that seasonal variations have a clear impact on heterogeneity, contributing **around 40-50% of the PEH** in these models.
+     - "seasonWinter" has less consistent effects (P-value > 0.05), with wider confidence intervals including zero, indicating it has a weaker contribution to heterogeneity, and therefore, explains a smaller portion of PEH.
+
+   - **Soil Texture**:
+     - "soil_textureClay" shows a highly significant contribution to heterogeneity (P-value < 0.01), with a narrow confidence interval excluding zero, indicating that soil texture, particularly clay, significantly explains variability in biodiversity and crop yield. This moderator is a key contributor to PEH, accounting for **up to 60% of the heterogeneity**.
+     - "soil_textureSand" and "soil_textureSilt" show weaker contributions (P-values > 0.05), suggesting that these soil textures explain less of the variability in the outcomes, resulting in a smaller proportion of PEH.
+
+5. **Proportion of Heterogeneity Explained (PEH):**
+   - **Age System** (especially "age_systemYoung") accounts for **the highest proportion of heterogeneity** (up to 90% in some cases). The effect of age-related changes in the system is highly consistent and significant, explaining a large portion of the variability in all outcomes.
+   - **Tree Type** and **Crop Type** (especially "tree_typeTimber" and "crop_typeLegume") explain substantial portions of heterogeneity, contributing to **over 60%** of the total PEH, especially for biodiversity and pest management outcomes.
+   - **Soil Texture** explains about **50-60%** of the variability, particularly in biodiversity and crop yield models, with "soil_textureClay" being the most significant contributor.
+   - **Season** contributes **40-50%** of heterogeneity, particularly through summer season effects on biodiversity and yield.
+   - **Less Impactful Moderators** like "seasonWinter" and some "Tree Type" subcategories ("tree_typeBiomass") have minimal contributions to PEH due to their non-significant or weak effects.
+
+Summary:
+- **Key Moderators:** "Age System" and "Crop Type" are the most impactful, explaining **over 70%** of the heterogeneity. "Age_systemYoung" stands out as the moderator with the largest PEH contribution.
+- **Moderate Contributors:** "Tree Type" (especially "tree_typeTimber") and "Soil Texture" (with "soil_textureClay") explain **50-60%** of the heterogeneity, making them crucial for understanding variability in outcomes like crop yield and biodiversity.
+- **Less Impactful:** "Season" (particularly "seasonWinter") and "Tree Type" subcategories like "tree_typeBiomass" show **low PEH** contributions, with weak or non-significant effects on heterogeneity.
+
+
+
+```{r}
+# Summarize the fraction of PEH for each individual response variables
+summary_peh <- heterogeneity_results_clean %>%
+  group_by(ResponseVariable) %>% # Group by the moderator variable
+  summarise(Mean_PE_Heterogeneity = mean(ProportionExplained, na.rm = TRUE), # Calculate the mean PEH
+            SD_PE_Heterogeneity = sd(ProportionExplained, na.rm = TRUE),    # Optionally calculate the standard deviation of PEH
+            Min_PE_Heterogeneity = min(ProportionExplained, na.rm = TRUE),   # Minimum PEH for each moderator
+            Max_PE_Heterogeneity = max(ProportionExplained, na.rm = TRUE))   # Maximum PEH for each moderator
+
+summary_peh
+```
+```{r}
+# moderators <- c("tree_type", "crop_type", "age_system", "season", 
+#                 "soil_texture", "no_tree_per_m", "tree_height", "alley_width")
+
+# Create a helper function to extract the higher-level moderator name (e.g., 'tree_type', 'crop_type', etc.)
+get_moderator_group <- function(moderator) {
+  if (grepl("tree_type", moderator)) {
+    return("tree_type")
+  } else if (grepl("crop_type", moderator)) {
+    return("crop_type")
+  } else if (grepl("age_system", moderator)) {
+    return("age_system")
+  } else if (grepl("season", moderator)) {
+    return("season")
+  } else if (grepl("soil_texture", moderator)) {
+    return("soil_texture")
+  } else if (grepl("no_tree_per_m", moderator)) {
+    return("no_tree_per_m")
+  } else if (grepl("tree_height", moderator)) {
+    return("tree_height")
+  } else if (grepl("alley_width", moderator)) {
+    return("alley_width")
+    # The intercept is not relevant when the models have been fitted without global intercept
+    # However, its apparently necessary for the response variables: Greenhouse gas emission, Pest and Disease, and Water quality. 
+  } else if (grepl("intrcpt", moderator)) {  
+    return("intrcpt")
+  } else {
+    return("other")  # In case a moderator doesn't fit the predefined categories
+  }
+}
+
+# Add a new column for the higher-level moderator group
+heterogeneity_results_clean <- heterogeneity_results_clean %>%
+  mutate(ModeratorGroup = sapply(Moderator, get_moderator_group)) |> 
+  # Only positive PEH values are relevant for visualization
+  filter(ProportionExplained > 0) |> 
+  # Exclude the intercept moderator - because it adds confusion
+  filter(ModeratorGroup != "intrcpt")  
+
+# Summarize the PEH for each ModeratorGroup and ResponseVariable
+summary_peh_by_group <- heterogeneity_results_clean %>%
+  group_by(ResponseVariable, ModeratorGroup) %>%
+  summarise(Avg_PE_Heterogeneity = mean(ProportionExplained, na.rm = TRUE)) %>%
+  arrange(ResponseVariable, ModeratorGroup)
+
+# View the summarized result
+summary_peh_by_group
+
+summary_peh_by_group |> glimpse()
+```
+
+```{r}
+ggplot(summary_peh_by_group, aes(x = Avg_PE_Heterogeneity, y = ModeratorGroup, fill = ResponseVariable)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_wrap(~ ResponseVariable, scales = "free_x", nrow = 1) +  # Facet in one row
+  scale_fill_manual(values = custom_colors) +
+  labs(
+    title = "Average Proportion of Heterogeneity Explained by Moderator Group for Each Response Variable",
+    x = "Average PEH (%)",
+    y = "Moderator Group"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.y = element_text(angle = 45, hjust = 1),  # Adjust for rotated y-axis labels
+    strip.text = element_text(face = "bold"),
+    legend.position = "none"  # Adjust legend position for clarity
+  )
+```
+
+
+
+
+
+
+
+
+
+####################################################################################################
+BOOTSTRAPPING FOR PROPORTION OF EXPLAINED HETEROGENEITY (PEH) ANALYSIS
+####################################################################################################
+
+Bootstrapping involves resampling with replacement to estimate confidence intervals for PEH. 
+This helps assess the robustness of the estimated heterogeneity explained
+
+```{r, eval=FALSE}
+####################################################################################################
+# BOOTSTRAPPING FOR PROPORTION OF EXPLAINED HETEROGENEITY (PEH) ANALYSIS
+####################################################################################################
+
+##########################################################################
+# Start time tracking
+start.time <- Sys.time()
+##########################################################################
+# Set up parallel processing
+plan(multisession, workers = parallel::detectCores() - 1)
+##########################################################################
+
+
+moderators <- c("tree_type", "crop_type", "age_system", "season", 
+                "soil_texture", "no_tree_per_m", "tree_height", "alley_width")
+
+##########################################################################
+
+# Global control parameters for optimization
+control_params <- list(
+  # Specifies the optimization function to use, "optim" is the base R optimizer, allowing for flexible tuning
+  optimizer = "optim",
+  # Defines the specific optimization algorithm. "BFGS" (Broyden–Fletcher–Goldfarb–Shanno) is a quasi-Newton method
+  # This optimization algorithm is often used for unconstrained optimization problems and works well in meta-analytic models with moderate to large datasets
+  method = "BFGS",
+  # Maximum number of iterations for the optimization routine. If the models does not converge, increasing this value can help.
+  # However, very high values may lead to excessive computation time.
+  iter.max = 10000,
+  # Relative tolerance level for convergence. Determines when the optimization process should stop.
+  # Lower values (e.g., 1e-15) enforce stricter convergence, ensuring more precise results but requiring longer run times.
+  # Higher values (e.g., 1e-4) allow faster convergence but may reduce accuracy (default in metafor is 1e-10).
+  rel.tol = 1e-12
+  # Uncomment this line if you want to track optimizer progress for each individual model
+  # This will print detailed iteration steps, useful for debugging non-convergence issues.
+  # verbose = TRUE   
+)
+
+##########################################################################
+
+# Bootstrapping for PEH Analysis
+# Bootstrapping is a resampling-based statistical method used to estimate the uncertainty and stability of a statistic by repeatedly sampling from the original dataset with replacement. In the context of Proportion of Explained Heterogeneity (PEH) analysis, bootstrapping provides confidence intervals (CIs) for the estimated PEH values and helps determine whether observed moderator effects are statistically robust or due to random noise.
+
+# Set number of bootstrap iterations
+n_boot <- 1000  
+
+# Initialize an empty list to store bootstrap results
+bootstrap_results <- list()
+
+# Function to compute PEH for bootstrapped samples
+bootstrap_peh <- function(data_subset, v_matrix, response_variable, moderator) {
+  # Resample data with replacement
+  boot_data <- data_subset[sample(nrow(data_subset), replace = TRUE), ]
+  
+  # Fit the null model
+  null_model <- tryCatch({
+    rma(
+      yi = yi,
+      vi = diag(v_matrix),
+      mods = ~ -1,  # Exclude the global intercept for comparability with the moderator model
+      data = boot_data,
+      method = "REML",
+      control = control_params
+    )
+  }, error = function(e) NULL)
+  
+  if (is.null(null_model)) return(NA) # Return NA if null model fails
+  
+  tau2_null <- null_model$tau2  # Extract τ²
+  
+  # Fit the model with a single moderator
+  mod_model <- tryCatch({
+    rma(
+      yi = yi,
+      vi = diag(v_matrix),
+      mods = as.formula(paste("~ -1 +", moderator)), # Exclude global intercept 
+      #-1 removes that constant term from the formula, ensuring that the model fits only the moderators as separate predictors, not an overall average.
+      data = boot_data,
+      method = "REML",
+      control = control_params
+    )
+  }, error = function(e) NULL)
+  
+  if (is.null(mod_model)) return(NA) # Return NA if model fails
+  
+  tau2_moderated <- mod_model$tau2
+  
+  # Compute PEH
+  proportion_explained <- ifelse(tau2_null > 0, ((tau2_null - tau2_moderated) / tau2_null) * 100, NA)
+  proportion_explained <- max(min(proportion_explained, 100), 0)  # Ensure PEH is between 0-100%
+  
+  return(proportion_explained)
+}
+##########################################################################
+# Run bootstrap for each response variable and moderator
+for (response_variable in unique(meta_data$response_variable)) {
+  cat("\nBootstrapping for:", response_variable, "\n")
+  
+  # Subset data and extract variance-covariance matrix
+  data_subset <- meta_data[meta_data$response_variable == response_variable, ]
+  v_matrix <- v_matrices[[response_variable]]
+  
+  # Skip if variance matrix is missing
+  if (is.null(v_matrix)) next
+  
+  for (moderator in moderators) {
+    cat("Processing moderator:", moderator, "\n")
+    
+    # Run bootstrap
+    boot_estimates <- replicate(n_boot, bootstrap_peh(data_subset, v_matrix, response_variable, moderator))
+    
+    # Compute summary statistics
+    boot_summary <- data.frame(
+      ResponseVariable = response_variable,
+      Moderator = moderator,
+      MeanPEH = mean(boot_estimates, na.rm = TRUE),
+      LowerCI = quantile(boot_estimates, 0.025, na.rm = TRUE),
+      UpperCI = quantile(boot_estimates, 0.975, na.rm = TRUE)
+    )
+    
+    # Store results
+    bootstrap_results[[paste(response_variable, moderator, sep = "_")]] <- boot_summary
+  }
+}
+##########################################################################
+# Convert list to data frame
+bootstrap_results_df <- do.call(rbind, bootstrap_results)
+
+# View resulting dataframe on PEH
+bootstrap_results_df
+
+##########################################################################
+# Save the bootstrapped results as an RDS file
+# Define the output directory
+output_dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
+
+# Ensure the directory exists
+if (!dir.exists(output_dir)) {
+  dir.create(output_dir, recursive = TRUE)
+}
+
+saveRDS(
+  bootstrap_results_df,
+  file = file.path(output_dir, "bootstrapped_PEH_results.rds")
+)
+
+cat("Bootstrapped results saved to:", file.path(output_dir, "bootstrapped_PEH_results.rds"), "\n")
+
+##########################################################################
+# End time tracking
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+cat("\nTotal time taken:", time.taken, units(time.taken), "\n")
+##########################################################################
+# Last go (04/02-2025) 
+# Total time taken: 1.006638 hours 
+```
+
+```{r}
+# Verify whether the total Proportion of Explained Heterogeneity (PEH) for each response variable exceeds 100% across all moderators:
+
+# View resulting dataframe on PEH
+# bootstrap_results_df
+
+# Summarize PEH per response variable
+peh_summary <- bootstrap_results_df %>%
+  group_by(ResponseVariable) %>%
+  summarise(TotalPEH = sum(MeanPEH, na.rm = TRUE)) %>%
+  mutate(Exceeds100 = TotalPEH > 100)  # Check if sum exceeds 100%
+
+# Identify response variables where total PEH exceeds 100%
+if (any(peh_summary$Exceeds100)) {
+  warning("⚠ Some response variables have a total PEH exceeding 100%! Review the calculations.")
+} else {
+  cat("✅ All response variables have a total PEH ≤ 100%.")
+}
+
+# Display results
+peh_summary |> 
+  arrange(desc(TotalPEH)) 
+```
+
+
+```{r}
+# Convert ResponseVariable and Moderator to factors for proper ordering
+bootstrap_results_df$ResponseVariable <- factor(bootstrap_results_df$ResponseVariable, levels = unique(bootstrap_results_df$ResponseVariable))
+bootstrap_results_df$Moderator <- factor(bootstrap_results_df$Moderator, levels = unique(bootstrap_results_df$Moderator))
+
+# Create the bar plot with flipped axes
+ggplot(bootstrap_results_df, aes(x = ResponseVariable, y = MeanPEH, fill = Moderator)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.7), color = "black") +
+  geom_errorbar(aes(ymin = LowerCI, ymax = UpperCI), position = position_dodge(width = 0.7), width = 0.2) +
+  coord_flip() +  # Flip the axes
+  labs(title = "Bootstrapped Proportion of Explained Heterogeneity",
+       x = "Response Variable",
+       y = "Proportion Explained (%)",
+       fill = "Moderator") +
+  theme_minimal() +
+  theme(axis.text.y = element_text(angle = 0, hjust = 1))  # Ensure readability for y-axis labels
+```
+
+```{r}
+# Filter for selected response variables
+filtered_data <- bootstrap_results_df %>%
+  filter(ResponseVariable %in% c("Crop yield", "Soil quality", "Biodiversity"))
+
+# Create faceted bar plot with fixed x-axis
+ggplot(filtered_data, aes(x = Moderator, y = MeanPEH, fill = Moderator)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.7), color = "black") +
+  geom_errorbar(aes(ymin = LowerCI, ymax = UpperCI), position = position_dodge(width = 0.7), width = 0.2) +
+  coord_flip() +  # Flip axes
+  facet_wrap(~ResponseVariable, scales = "fixed") +  # Facet by response variable with fixed x-axis
+  labs(title = "Bootstrapped Proportion of Explained Heterogeneity (PEH)",
+       x = "Moderator",
+       y = "Proportion Explained (%)",
+       fill = "Moderator") +
+  theme_minimal() +
+  # Ensure labels remain readable
+  theme(axis.text.y = element_text(angle = 0, hjust = 1),
+        legend.position = "top")  
+```
+
+
+
+```{r}
+# This aggregates all moderators for each response variable and visualizes the overall proportion explained
+# Filter for Selected Response Variables (Optional)
+selected_vars <- c("Crop yield", "Soil quality", "Biodiversity")
+filtered_data <- bootstrap_results_df %>%
+  filter(ResponseVariable %in% selected_vars)
+
+# Summarize Total PEH per Response Variable
+peh_overall <- filtered_data %>%
+  group_by(ResponseVariable) %>%
+  summarise(TotalPEH = sum(MeanPEH, na.rm = TRUE))  # Sum of PEH
+
+# Overall Proportion of Explained Heterogeneity
+ggplot(peh_overall, aes(x = reorder(ResponseVariable, TotalPEH), y = TotalPEH, fill = ResponseVariable)) +
+  geom_bar(stat = "identity", color = "black", alpha = 0.8) +
+  coord_flip() +
+  labs(title = "Overall Proportion of Explained Heterogeneity (PEH)",
+       x = "Response Variable",
+       y = "Total PEH (%)") +
+  theme_minimal() +
+  theme(legend.position = "none",
+        axis.text.y = element_text(size = 12),
+        plot.title = element_text(size = 14, face = "bold"))
+```
+
+```{r}
+# This breaks down the contributions of different moderators per response variable
+# Grouped PEH Bar Plot
+ggplot(bootstrap_results_df, aes(x = reorder(ResponseVariable, -MeanPEH), y = MeanPEH, fill = Moderator)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.7), color = "black") +
+  geom_errorbar(aes(ymin = LowerCI, ymax = UpperCI), 
+                position = position_dodge(width = 0.7), width = 0.2) +
+  coord_flip() +
+  labs(title = "Proportion of Explained Heterogeneity (PEH) by Moderator",
+       x = "Response Variable",
+       y = "Proportion Explained (%)",
+       fill = "Moderator") +
+  theme_minimal() +
+  theme(axis.text.y = element_text(size = 12),
+        plot.title = element_text(size = 14, face = "bold"),
+        legend.position = "top")
+
+```
+
+```{r}
+# Filter for Selected Response Variables (Optional)
+selected_vars <- c("Crop yield", "Soil quality", "Biodiversity")
+filtered_data <- bootstrap_results_df %>%
+  filter(ResponseVariable %in% selected_vars)
+
+# Faceted PEH Bar Plot
+ggplot(filtered_data, aes(x = Moderator, y = MeanPEH, fill = Moderator)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.7), color = "black") +
+  geom_errorbar(aes(ymin = LowerCI, ymax = UpperCI), 
+                position = position_dodge(width = 0.7), width = 0.2) +
+  coord_flip() +
+  facet_wrap(~ResponseVariable, scales = "fixed") +
+  labs(title = "Proportion of Explained Heterogeneity (PEH) by Moderator",
+       x = "Moderator",
+       y = "Proportion Explained (%)",
+       fill = "Moderator") +
+  theme_minimal() +
+  theme(strip.text = element_text(size = 12, face = "bold"),
+        axis.text.y = element_text(size = 12),
+        plot.title = element_text(size = 14, face = "bold"))
+
+```
+
+
+
+
+
+
+
+
+############
+# STEP 6
+##########################################################################################################################################
+FOREST PLOT FOR VISUALIZING META-ANALYSIS RESULTS 
+##########################################################################################################################################
 
 
 ```{r}
@@ -2078,6 +3029,7 @@ extract_forest_plot_data <- function(model_results) {
   forest_data_list <- list() # Initialize list
 
   for (response in names(model_results)) {
+    # Selecting model
     model <- model_results[[response]]$full_model
 
     if (is.null(model)) {
@@ -2119,10 +3071,9 @@ extract_forest_plot_data <- function(model_results) {
 
 # Example usage with model_results
 forest_plot_data <- extract_forest_plot_data(model_results)
-
+forest_plot_data
 # Print the structure of the extracted data
-str(forest_plot_data)
-
+# str(forest_plot_data)
 ```
 
 ```{r}
@@ -2180,10 +3131,12 @@ create_forest_plot(forest_plot_data, "Biodiversity", output_path = "Biodiversity
 
 # Generate a forest plot for "Crop yield" and display it
 create_forest_plot(forest_plot_data, "Crop yield")
-
 ```
 
 
 
+OBS
 
+THE FINAL FOREST PLOT AND CONFIDENCE INTERVALS ARE PREPARED IN THE 5_FINAL_VISUALIISATIONS.Rmd SCRIPT
+The forest plots provide a visual representation of the effect sizes and confidence intervals for each study within a meta-analysis. These plots are particularly useful for assessing the overall impact of a treatment or intervention across multiple studies and identifying potential sources of heterogeneity or bias.
 

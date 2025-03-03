@@ -26054,3 +26054,2126 @@ final_plot <- forest_violin_plot + text_plot + plot_layout(widths = c(3, 1))  # 
 print(final_plot)
 
 ```
+
+
+
+
+
+
+
+
+
+
+
+
+##########################################################################################################################################
+FITTING MODELS (SUB-GROUP) FOR EACH RESPONSE VARIABLE USING PRECOMPUTED V_MATRICES
+##########################################################################################################################################
+
+```{r}
+##########################################################################################################################################
+# HIERARCHICAL COMPLEXITY APPROACH ALIGNED WITH THE CABBAGE APPROACH
+##########################################################################################################################################
+
+# Start time tracking
+start.time <- Sys.time()
+##########################################################################
+# Set up parallel processing
+plan(multisession, workers = parallel::detectCores() - 1)
+##########################################################################
+
+# Global control parameters for optimization
+control_params <- list(
+  # Specifies the optimization function to use, "optim" is the base R optimizer, allowing for flexible tuning
+  optimizer = "optim",
+  # Defines the specific optimization algorithm. "BFGS" (Broyden–Fletcher–Goldfarb–Shanno) is a quasi-Newton method
+  # This optimization algorithm is often used for unconstrained optimization problems and works well in meta-analytic models with moderate to large datasets
+  method = "BFGS",
+  # Maximum number of iterations for the optimization routine. If the models does not converge, increasing this value can help.
+  # However, very high values may lead to excessive computation time.
+  iter.max = 10000,
+  # Relative tolerance level for convergence. Determines when the optimization process should stop.
+  # Lower values (e.g., 1e-10) enforce stricter convergence, ensuring more precise results but requiring longer run times.
+  # Higher values (e.g., 1e-4) allow faster convergence but may reduce accuracy.
+  rel.tol = 1e-5
+  # Uncomment this line if you want to track optimizer progress for each individual model
+  # This will print detailed iteration steps, useful for debugging non-convergence issues.
+  # verbose = TRUE   
+)
+
+
+# Function to fit models incrementally for a response variable
+fit_models_all <- function(data_subset, response_variable, v_matrix, moderators, random_effects) {
+  results <- list()
+  
+  cat("\nProcessing response variable:", response_variable, "\n")
+  
+  #############################################################################################
+  # Null model: Global average without moderators
+  results$null_model <- tryCatch({
+    rma.mv(
+      yi = yi,
+      V = v_matrix,
+      random = random_effects,
+      data = data_subset,
+      method = "REML",
+      control = control_params
+    )
+  }, error = function(e) {
+    cat("Error in null model:", e$message, "\n")
+    return(NULL)
+  })
+  ############################################################################################# <-------------- ! (chosen model) !
+  # Minimal random effects model: Intercept-only model
+  results$minimal_random_effects <- tryCatch({
+    rma.mv(
+      yi = yi,
+      V = v_matrix,
+      mods = ~ 1,  # Intercept-only model
+      random = random_effects,
+      data = data_subset,
+      method = "REML",
+      control = control_params
+    )
+  }, error = function(e) {
+    cat("Error in minimal random effects model:", e$message, "\n")
+    return(NULL)
+  })
+  
+  #############################################################################################
+  # Incremental models for each moderator (no interaction):
+  results$moderator_models <- map(moderators, ~ {
+    moderator <- .x
+    tryCatch({
+      rma.mv(
+        yi = yi,
+        V = v_matrix,
+        mods = as.formula(paste("~", moderator)),
+        random = random_effects,
+        data = data_subset,
+        method = "REML",
+        control = control_params
+      )
+    }, error = function(e) {
+      cat("Error in moderator model for", moderator, ":", e$message, "\n")
+      return(NULL)
+    })
+  })
+  names(results$moderator_models) <- moderators
+  
+  ############################################################################################# 
+  # Full model with all moderators (no interaction):
+  results$full_model <- tryCatch({
+    rma.mv(
+      yi = yi,
+      V = v_matrix,
+      mods = as.formula(paste("~", paste(moderators, collapse = " + "))),
+      random = random_effects,
+      data = data_subset,
+      method = "REML",
+      control = control_params
+    )
+  }, error = function(e) {
+    cat("Error in full model:", e$message, "\n")
+    return(NULL)
+  })
+  
+  #############################################################################################
+  # Full interaction model with all moderators: 
+  results$interaction_model <- tryCatch({
+    rma.mv(
+      yi = yi,
+      V = v_matrix,
+      mods = as.formula(paste("~", paste(moderators, collapse = " * "))),
+      random = random_effects,
+      data = data_subset,
+      method = "REML",
+      control = control_params
+    )
+  }, error = function(e) {
+    cat("Error in interaction model:", e$message, "\n")
+    return(NULL)
+  })
+  
+  return(results)
+}
+
+##########################################################################
+# Fit Models for Each Response Variable
+##########################################################################
+
+# Initialize an empty list to store model results
+model_results <- list()
+
+# Loop through each response variable to fit models
+for (response in names(v_matrices)) {
+  # Subset the data for the current response variable
+  data_subset <- meta_data[meta_data$response_variable == response, ]
+  
+  # Extract the variance-covariance matrix for the response variable
+  v_matrix <- v_matrices[[response]]
+  
+  # Define the moderators to include in the model
+  moderators <- c("tree_type", "crop_type", "age_system", "season", "soil_texture")
+  
+  # Define random effects structure 
+  # Previously defined as [~ 1 | exp_id], 
+  # but now defined as ~ 1 | id_article/location*experiment_year where location-year is included as a crossed random effect
+  # Actually the random effects structure is now [~ 1 | id_article/location]
+  
+  random_effects <- list(~ 1 | id_article/exp_id)
+  
+  # random_effects <- list(~ 1 | id_article)
+  
+  # random_effects <- list(~ 1 | exp_id)
+  
+  # random_effects <- list(~ 1 | id_article/location * experiment_year)
+  
+  #   random_effects <- list(
+  #   ~ 1 | id_article,                  # Study-level variance
+  #   ~ 1 | location,                    # Location variance
+  #   ~ 1 | experiment_year,             # Year variance
+  #   ~ 1 | location*experiment_year     # Interaction variance
+  # )
+  #   random_effects <- list(
+  #   ~ 1 | id_article,                  # Study-level variance
+  #   ~ 1 | location,                    # Location variance
+  #   ~ 1 | experiment_year              # Year variance
+  # )
+  
+  # Fit models incrementally using the cabbage approach
+  model_results[[response]] <- fit_models_all(
+    data_subset = data_subset,
+    response_variable = response,
+    v_matrix = v_matrix,
+    moderators = moderators,
+    random_effects = random_effects
+  )
+}
+
+##########################################################################
+# Save All Fitted Models
+##########################################################################
+
+output_dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
+
+# Save all models in a combined file
+saveRDS(model_results, file = file.path(output_dir, "fitted_models_all_new.rds"))
+
+# Save individual model results
+for (response in names(model_results)) {
+  saveRDS(model_results[[response]], file = file.path(output_dir, paste0("fitted_models_", response, "_new.rds")))
+}
+
+cat("\nAll models have been saved successfully!\n")
+
+##########################################################################
+# End time tracking
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+cat("\nTotal time taken:", time.taken, units(time.taken), "\n")
+##########################################################################
+# Last go (25/01-2025) 
+# Total time taken: 31.73879 secs 
+
+# Last go (01/03-2025) 
+# Total time taken: 48.24339 secs
+
+# Processing response variable: Biodiversity 
+# Advarsel: Redundant predictors dropped from the model.Advarsel: 14 rows with NAs omitted from model fitting.Advarsel: 14 rows with NAs omitted from model fitting.Advarsel: Redundant predictors dropped from the model.Advarsel: 14 rows with NAs omitted from model fitting.Advarsel: Redundant predictors dropped from the model.
+# Processing response variable: Greenhouse gas emission 
+# Advarsel: Redundant predictors dropped from the model.Advarsel: Redundant predictors dropped from the model.Advarsel: Redundant predictors dropped from the model.Advarsel: Redundant predictors dropped from the model.Advarsel: Redundant predictors dropped from the model.Advarsel: Redundant predictors dropped from the model.Advarsel: Redundant predictors dropped from the model.
+# Processing response variable: Product quality 
+# Advarsel: Redundant predictors dropped from the model.Advarsel: Redundant predictors dropped from the model.Advarsel: Redundant predictors dropped from the model.
+# Processing response variable: Crop yield 
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Redundant predictors dropped from the model.
+# Processing response variable: Pest and Disease 
+# Advarsel: Redundant predictors dropped from the model.Advarsel: Redundant predictors dropped from the model.Advarsel: Redundant predictors dropped from the model.
+# Processing response variable: Soil quality 
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Redundant predictors dropped from the model.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Redundant predictors dropped from the model.
+# Processing response variable: Water quality 
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Single-level factor(s) found in 'random' argument. Corresponding 'sigma2' value(s) fixed to 0.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Single-level factor(s) found in 'random' argument. Corresponding 'sigma2' value(s) fixed to 0.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Redundant predictors dropped from the model.Advarsel: Single-level factor(s) found in 'random' argument. Corresponding 'sigma2' value(s) fixed to 0.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Redundant predictors dropped from the model.Advarsel: Single-level factor(s) found in 'random' argument. Corresponding 'sigma2' value(s) fixed to 0.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Redundant predictors dropped from the model.Advarsel: Single-level factor(s) found in 'random' argument. Corresponding 'sigma2' value(s) fixed to 0.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Redundant predictors dropped from the model.Advarsel: Single-level factor(s) found in 'random' argument. Corresponding 'sigma2' value(s) fixed to 0.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Redundant predictors dropped from the model.Advarsel: Single-level factor(s) found in 'random' argument. Corresponding 'sigma2' value(s) fixed to 0.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Redundant predictors dropped from the model.Advarsel: Single-level factor(s) found in 'random' argument. Corresponding 'sigma2' value(s) fixed to 0.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Redundant predictors dropped from the model.Advarsel: Single-level factor(s) found in 'random' argument. Corresponding 'sigma2' value(s) fixed to 0.
+# All models have been saved successfully!
+# 
+# Total time taken: 48.24339 secs 
+```
+
+
+
+
+
+
+
+
+
+
+
+
+############
+# STEP 8
+##########################################################################################################################################
+MODERATOR ANALYSIS - INFLUENCE OF SILVOARABLE AGROFORESTRY CHARACTERISTICS
+##########################################################################################################################################
+
+```{r}
+# model_results$`Crop yield`$full_model$tau2
+
+# model_results$`Crop yield`$moderator_model$tau2
+```
+
+```{r}
+# Load the saved v_matrices
+output_dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
+v_matrices <- readRDS(file.path(output_dir, "v_matrices_by_response_variable.rds"))
+```
+
+```{r}
+####################################################################################################
+# MODERATOR ANALYSIS - PROPORTION OF EXPLAINED HETEROGENEITY USING RE-FITTED MODELS NO RANDOM INTERCEPT
+####################################################################################################
+
+# Define response variable
+response_variable <- "Crop yield"  # Change accordingly
+
+# Subset data for the response variable
+data_subset <- meta_data[meta_data$response_variable == response_variable, ]
+
+# Extract the variance-covariance matrix
+v_matrix <- v_matrices[[response_variable]]
+
+# Define the moderators to include in the model
+moderators <- c("tree_type", "crop_type", "age_system", "season", "soil_texture")
+
+# Define the random effects structure
+random_effects <- list(~ 1 | exp_id)
+
+# Print data checks
+print(dim(data_subset))
+print(head(data_subset))
+```
+```{r}
+# Global control parameters for optimization
+control_params <- list(
+  # Specifies the optimization function to use, "optim" is the base R optimizer, allowing for flexible tuning
+  optimizer = "optim",
+  # Defines the specific optimization algorithm. "BFGS" (Broyden–Fletcher–Goldfarb–Shanno) is a quasi-Newton method
+  # This optimization algorithm is often used for unconstrained optimization problems and works well in meta-analytic models with moderate to large datasets
+  method = "BFGS",
+  # Maximum number of iterations for the optimization routine. If the models does not converge, increasing this value can help.
+  # However, very high values may lead to excessive computation time.
+  iter.max = 10000,
+  # Relative tolerance level for convergence. Determines when the optimization process should stop.
+  # Lower values (e.g., 1e-15) enforce stricter convergence, ensuring more precise results but requiring longer run times.
+  # Higher values (e.g., 1e-4) allow faster convergence but may reduce accuracy (default in metafor is 1e-10).
+  rel.tol = 1e-12
+  # Uncomment this line if you want to track optimizer progress for each individual model
+  # This will print detailed iteration steps, useful for debugging non-convergence issues.
+  # verbose = TRUE   
+)
+
+# Fit the Null Model
+# null_model <- tryCatch({
+#   rma.mv(
+#     yi = yi,
+#     V = v_matrix,
+#     random = random_effects,
+#     data = data_subset,
+#     method = "REML",
+#     control = control_params
+#   )
+# }, error = function(e) {
+#   message("Error in null model: ", e$message)
+#   return(NULL)
+# })
+# 
+# # Check if model fitted correctly
+# if (!is.null(null_model)) {
+#   print(null_model)
+#   tau2_null <- sum(null_model$tau2)  # Extract τ²
+#   cat("τ² (Null Model):", tau2_null, "\n")
+# } else {
+#   cat("⚠ Warning: τ² (Null Model) is 0 or model fitting failed.\n")
+# }
+
+
+# Fit the Null Model (NO RANDOM EFFECTS)
+null_model <- tryCatch({
+  rma(
+    yi = yi,
+    vi = diag(v_matrix),  # Use diagonal for within-study variance
+    data = data_subset,
+    method = "REML",
+    control = control_params
+  )
+}, error = function(e) {
+  message("Error in null model: ", e$message)
+  return(NULL)
+})
+
+# Check if model fitted correctly
+if (!is.null(null_model)) {
+  print(null_model)
+  tau2_null <- null_model$tau2  # Extract τ²
+  cat("τ² (Null Model):", tau2_null, "\n")
+} else {
+  cat("⚠ Warning: τ² (Null Model) is 0 or model fitting failed.\n")
+}
+```
+
+```{r}
+# Global control parameters for optimization
+control_params <- list(
+  # Specifies the optimization function to use, "optim" is the base R optimizer, allowing for flexible tuning
+  optimizer = "optim",
+  # Defines the specific optimization algorithm. "BFGS" (Broyden–Fletcher–Goldfarb–Shanno) is a quasi-Newton method
+  # This optimization algorithm is often used for unconstrained optimization problems and works well in meta-analytic models with moderate to large datasets
+  method = "BFGS",
+  # Maximum number of iterations for the optimization routine. If the models does not converge, increasing this value can help.
+  # However, very high values may lead to excessive computation time.
+  iter.max = 10000,
+  # Relative tolerance level for convergence. Determines when the optimization process should stop.
+  # Lower values (e.g., 1e-15) enforce stricter convergence, ensuring more precise results but requiring longer run times.
+  # Higher values (e.g., 1e-4) allow faster convergence but may reduce accuracy (default in metafor is 1e-10).
+  rel.tol = 1e-12
+  # Uncomment this line if you want to track optimizer progress for each individual model
+  # This will print detailed iteration steps, useful for debugging non-convergence issues.
+  # verbose = TRUE   
+)
+
+# Fit the Full Model
+
+# full_model <- tryCatch({
+#   rma.mv(
+#     yi = yi,
+#     V = v_matrix,
+#     mods = as.formula(paste("~", paste(moderators, collapse = " + "))),
+#     random = random_effects,
+#     data = data_subset,
+#     method = "REML",
+#     control = control_params
+#   )
+# }, error = function(e) {
+#   message("Error in full model: ", e$message)
+#   return(NULL)
+# })
+# 
+# # Check if full model fitted correctly
+# if (!is.null(full_model)) {
+#   print(full_model)
+#   tau2_full <- sum(full_model$tau2)  # Extract τ²
+#   cat("τ² (Full Model):", tau2_full, "\n")
+# } else {
+#   cat("⚠ Warning: τ² (Full Model) is 0 or model fitting failed.\n")
+# }
+
+# Fit the Full Model (NO RANDOM EFFECTS)
+full_model <- tryCatch({
+  rma(
+    yi = yi,
+    vi = diag(v_matrix),
+    mods = as.formula(paste("~", paste(moderators, collapse = " + "))),
+    data = data_subset,
+    method = "REML",
+    control = control_params
+  )
+}, error = function(e) {
+  message("Error in full model: ", e$message)
+  return(NULL)
+})
+
+# Check if full model fitted correctly
+if (!is.null(full_model)) {
+  print(full_model)
+  tau2_full <- full_model$tau2  # Extract τ²
+  cat("τ² (Full Model):", tau2_full, "\n")
+} else {
+  cat("⚠ Warning: τ² (Full Model) is 0 or model fitting failed.\n")
+}
+```
+
+```{r}
+# Calculate proportion of explained heterogeneity
+
+if (!is.null(null_model) && !is.null(full_model)) {
+  proportion_explained <- ((tau2_null - tau2_full) / tau2_null) * 100
+  proportion_explained <- max(min(proportion_explained, 100), 0)  # Ensure within 0-100%
+  
+  cat("\nProportion of Explained Heterogeneity:", proportion_explained, "%\n")
+} else {
+  cat("\nCannot compute explained heterogeneity due to missing models.\n")
+}
+```
+
+Justifying the Use of a Model Without a Random Component
+
+Proportion of Explained Heterogeneity (PEH) is derived by comparing between-study variance (τ²) in models with and without moderators. To estimate PEH, the null model provides a baseline τ² representing total heterogeneity, while models incorporating moderators help partition that heterogeneity and quantify the proportion explained. However, the data structure in this analysis is too sparse to support a hierarchical random-effects model with `~ 1 | id_article/exp_id`, as the number of studies per group is too low for the model to reliably estimate variance components. This led to convergence issues, requiring a modified approach where the models were refitted without the random-effects component.
+
+Refitting was necessary because PEH is calculated as the proportionate reduction in τ² between models, and this requires the ability to fit both a null model and a moderator model under comparable conditions. Without refitting, it would be impossible to determine how much variance each moderator accounts for. The random-effects model structure introduced instability because the hierarchical variance component could not be estimated reliably, making it impractical for PEH analysis.
+
+By removing the random component, the model focuses on within-study variance while still capturing residual heterogeneity (τ²). Although this shifts the approach closer to a fixed-effects model, the key objective here is not to make population-level inferences but rather to partition variance and assess the explanatory power of moderators. The simplified model structure ensures that τ² estimates remain valid, while bootstrapping compensates for potential limitations by providing empirical uncertainty estimates.
+
+Critically, the model still accounts for variability through the study-level variance (`vi = diag(V)`), which ensures appropriate weighting of studies based on precision. While a full random-effects model is generally preferable when estimating overall heterogeneity, its use in this case was not feasible due to sparse data. Alternative approaches, such as Bayesian hierarchical modeling or aggregating studies within `exp_id`, would introduce additional assumptions or reduce statistical power. Removing the random component allowed for a more stable estimation of τ² and thus more reliable PEH calculations.
+
+This approach ensures that the PEH estimates remain interpretable and statistically valid while avoiding model complexity that would otherwise compromise the analysis. The use of bootstrapping further strengthens the robustness of these estimates, providing confidence in the validity of the findings despite the necessary modifications to the modeling approach.
+
+
+```{r}
+# Global control parameters for optimization
+control_params <- list(
+  # Specifies the optimization function to use, "optim" is the base R optimizer, allowing for flexible tuning
+  optimizer = "optim",
+  # Defines the specific optimization algorithm. "BFGS" (Broyden–Fletcher–Goldfarb–Shanno) is a quasi-Newton method
+  # This optimization algorithm is often used for unconstrained optimization problems and works well in meta-analytic models with moderate to large datasets
+  method = "BFGS",
+  # Maximum number of iterations for the optimization routine. If the models does not converge, increasing this value can help.
+  # However, very high values may lead to excessive computation time.
+  iter.max = 10000,
+  # Relative tolerance level for convergence. Determines when the optimization process should stop.
+  # Lower values (e.g., 1e-15) enforce stricter convergence, ensuring more precise results but requiring longer run times.
+  # Higher values (e.g., 1e-4) allow faster convergence but may reduce accuracy (default in metafor is 1e-10).
+  rel.tol = 1e-12
+  # Uncomment this line if you want to track optimizer progress for each individual model
+  # This will print detailed iteration steps, useful for debugging non-convergence issues.
+  # verbose = TRUE   
+)
+
+# Initialize an empty data frame to store results
+heterogeneity_results <- data.frame()
+
+# Define all response variables
+response_variables <- unique(meta_data$response_variable)
+
+# Loop through each response variable
+for (response_variable in response_variables) {
+  
+  cat("\n-------------------------\nProcessing:", response_variable, "\n-------------------------\n")
+  
+  # Subset data for the response variable
+  data_subset <- meta_data[meta_data$response_variable == response_variable, ]
+  
+  # Extract the variance-covariance matrix
+  v_matrix <- v_matrices[[response_variable]]
+  
+  # Skip if variance matrix is missing
+  if (is.null(v_matrix)) {
+    cat("⚠ Skipping", response_variable, "- No variance matrix found.\n")
+    next
+  }
+  
+  # Fit the Null Model (NO RANDOM EFFECTS)
+  null_model <- tryCatch({
+    rma(
+      yi = yi,
+      vi = diag(v_matrix),  # Use diagonal for within-study variance
+      data = data_subset,
+      method = "REML",
+      control = control_params
+    )
+  }, error = function(e) {
+    message("Error in null model for", response_variable, ":", e$message)
+    return(NULL)
+  })
+  
+  # Extract tau² from the null model
+  if (!is.null(null_model)) {
+    tau2_null <- null_model$tau2
+    cat("τ² (Null Model) for", response_variable, ":", tau2_null, "\n")
+  } else {
+    cat("⚠ Warning: τ² (Null Model) is 0 or model fitting failed for", response_variable, "\n")
+    next  # Skip to next response variable if null model fails
+  }
+  
+  # Loop through each moderator for this response variable
+  for (moderator in moderators) {
+    cat("\nFitting model for moderator:", moderator, "on", response_variable, "\n")
+    
+    mod_model <- tryCatch({
+      rma(
+        yi = yi,
+        vi = diag(v_matrix),
+        mods = as.formula(paste("~", moderator)),  # Single moderator model
+        data = data_subset,
+        method = "REML",
+        control = control_params
+      )
+    }, error = function(e) {
+      message("Error in model for", moderator, "on", response_variable, ":", e$message)
+      return(NULL)
+    })
+    
+    # Extract tau² from the moderator model
+    if (!is.null(mod_model)) {
+      tau2_moderated <- mod_model$tau2
+      cat("  τ² (Model with", moderator, "on", response_variable, "):", tau2_moderated, "\n")
+      
+      # Calculate proportion of explained heterogeneity
+      proportion_explained <- ifelse(tau2_null > 0, ((tau2_null - tau2_moderated) / tau2_null) * 100, NA)
+      proportion_explained <- max(min(proportion_explained, 100), 0)  # Ensure between 0-100%
+      
+      # Store results
+      heterogeneity_results <- rbind(heterogeneity_results, 
+                                     data.frame(ResponseVariable = response_variable,
+                                                Moderator = moderator,
+                                                Tau2_Null = tau2_null,
+                                                Tau2_Moderated = tau2_moderated,
+                                                ProportionExplained = proportion_explained))
+    } else {
+      cat("⚠ Warning: Model for", moderator, "on", response_variable, "failed.\n")
+    }
+  }
+}
+
+# Print results
+heterogeneity_results
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+####################################################################################################
+# MODERATOR ANALYSIS - PROPORTION OF EXPLAINED HETEROGENEITY USING RE-FITTED MODELS NO RANDOM INTERCEPT
+####################################################################################################
+
+# Define response variable
+response_variable <- "Crop yield"  # Change accordingly
+
+# Subset data for the response variable
+data_subset <- meta_data[meta_data$response_variable == response_variable, ]
+
+# Extract the variance-covariance matrix
+v_matrix <- v_matrices[[response_variable]]
+
+# Define the moderators to include in the model
+moderators <- c("tree_type", "crop_type", "age_system", "season", "soil_texture")
+
+# Define the random effects structure [before "list(~ 1 | exp_id)"]
+random_effects <- list(~ 1 | id_article/exp_id) # Random intercept for each study and experiment (location x year)
+
+# Print data checks
+# print(dim(data_subset))
+# print(head(data_subset))
+```
+
+```{r}
+# Global control parameters for optimization
+control_params <- list(
+  # Specifies the optimization function to use, "optim" is the base R optimizer, allowing for flexible tuning
+  optimizer = "optim",
+  # Defines the specific optimization algorithm. "BFGS" (Broyden–Fletcher–Goldfarb–Shanno) is a quasi-Newton method
+  # This optimization algorithm is often used for unconstrained optimization problems and works well in meta-analytic models with moderate to large datasets
+  method = "BFGS",
+  # Maximum number of iterations for the optimization routine. If the models does not converge, increasing this value can help.
+  # However, very high values may lead to excessive computation time.
+  iter.max = 10000,
+  # Relative tolerance level for convergence. Determines when the optimization process should stop.
+  # Lower values (e.g., 1e-15) enforce stricter convergence, ensuring more precise results but requiring longer run times.
+  # Higher values (e.g., 1e-4) allow faster convergence but may reduce accuracy (default in metafor is 1e-10).
+  rel.tol = 1e-12
+  # Uncomment this line if you want to track optimizer progress for each individual model
+  # This will print detailed iteration steps, useful for debugging non-convergence issues.
+  # verbose = TRUE   
+)
+
+##################################################################################################################
+
+# Fit the Null Model (Global Average without Moderators)
+null_model <- tryCatch({
+  rma(
+    yi = yi,                        # Effect size
+    vi = diag(v_matrix),            # Use diagonal for within-study variance
+    random = random_effects,        # Random effects structure
+    data = data_subset,             # Data subset
+    method = "REML",                # Restricted Maximum Likelihood Estimation
+    control = control_params        # Optimizer control parameters
+  )
+}, error = function(e) {
+  cat("Error in null model:", e$message, "\n")
+  return(NULL)
+})
+
+# Check if the null model fitted correctly
+if (!is.null(null_model)) {
+  print(null_model)
+  tau2_null <- null_model$tau2  # Extract τ² (variance component)
+  cat("τ² (Null Model):", tau2_null, "\n")
+} else {
+  cat("⚠ Warning: τ² (Null Model) is 0 or model fitting failed.\n")
+}
+
+######################################################
+
+# Fit the Full Moderator Model (All Moderators additive, without Interactions)
+full_moderator_model <- tryCatch({
+  rma(
+    yi = yi,                                      # Effect size
+    vi = diag(v_matrix),                          # Use diagonal for within-study variance
+    mods = as.formula(paste("~", paste(moderators, collapse = " + "))),  
+    random = random_effects,                      # Random effects structure
+    data = data_subset,                           # Data subset
+    method = "REML",                              # Restricted Maximum Likelihood Estimation
+    control = control_params                      # Optimizer control parameters
+  )
+}, error = function(e) {
+  cat("Error in interaction model:", e$message, "\n")
+  return(NULL)
+})
+
+# Check if the interaction model fitted correctly
+if (!is.null(full_moderator_model)) {
+  print(full_moderator_model)
+  tau2_full_moderator <- full_moderator_model$tau2  # Extract τ²
+  cat("τ² (Full Moderator Model):", tau2_interaction, "\n")
+} else {
+  cat("⚠ Warning: τ² (Full Moderator Model) is 0 or model fitting failed.\n")
+}
+```
+
+
+
+```{r}
+# Calculate proportion of explained heterogeneity for the single specified response variable (this case it is "Crop yield")
+
+if (!is.null(null_model) && !is.null(full_moderator_model)) {
+  proportion_explained <- ((tau2_null - tau2_full_moderator) / tau2_null) * 100
+  proportion_explained <- max(min(proportion_explained, 100), 0)  # Ensure within 0-100%
+  
+  cat("\nProportion of Explained Heterogeneity:", proportion_explained, "%\n")
+} else {
+  cat("\nCannot compute explained heterogeneity due to missing models.\n")
+}
+```
+
+# Check if the full moderator model fitted correctly
+if (!is.null(full_moderator_model)) {
+  
+  # Extract model summary
+  model_summary <- summary(full_moderator_model)
+  
+  # Extract estimates and relevant statistics
+  estimates <- as.numeric(model_summary$b)   # Effect sizes
+  se_values <- as.numeric(model_summary$se)  # Standard errors
+  z_values <- as.numeric(model_summary$zval) # Z-values
+  p_values <- as.numeric(model_summary$pval) # P-values
+  ci_lower <- as.numeric(model_summary$ci.lb) # Lower CI
+  ci_upper <- as.numeric(model_summary$ci.ub) # Upper CI
+  
+  # Combine into a data frame
+  moderator_results_df <- data.frame(
+    Moderator = rownames(model_summary$b), # Get moderator names
+    Estimate = estimates,                 # Effect size
+    SE = se_values,                        # Standard error
+    Z_Value = z_values,                    # Z-score
+    P_Value = p_values,                    # P-value
+    CI_Lower = ci_lower,                   # Lower confidence interval
+    CI_Upper = ci_upper                     # Upper confidence interval
+  )
+  
+  # Print results
+  # moderator_results_df
+  
+} else {
+  cat("⚠ Warning: Full Moderator Model fitting failed.\n")
+}
+
+
+# Add significance column based on P-value thresholds
+moderator_results_df <- moderator_results_df |> 
+  mutate(Significance = case_when(
+    P_Value < 0.001 ~ "***",   # Highly significant
+    P_Value < 0.01  ~ "**",    # Strong significance
+    P_Value < 0.05  ~ "*",     # Moderate significance
+    P_Value < 0.1   ~ ".",     # Weak significance
+    TRUE            ~ ""       # Not significant
+  ))
+
+# Print results with significance levels
+print(moderator_results_df)
+
+
+Updated Interpretation of Moderators' Effects on Model Heterogeneity
+
+1. Significance of Moderators (P-value Interpretation):
+- **P-values** reflect whether the moderator has a statistically significant effect on the response variable. 
+  - A **P-value < 0.05** suggests strong evidence that the moderator significantly affects the heterogeneity in effect sizes.
+  - Higher P-values indicate weaker evidence for significant effects, meaning the moderator’s influence may not be consistent across the response variables.
+
+2. Magnitude of Effects (Estimate and SE):
+- The **Estimate** represents the effect size or influence of each moderator term.
+  - Positive values suggest that the moderator increases heterogeneity or variability.
+  - Negative values suggest it reduces variability or explains heterogeneity in a systematic way.
+- The **Standard Error (SE)** indicates the precision of the estimate.
+  - Lower SE values imply higher confidence in the estimates, whereas higher SEs indicate less precise estimates.
+
+3. Confidence Intervals (CI.Lower and CI.Upper):
+- The confidence intervals provide the range within which the true effect size is likely to fall.
+  - Moderators with confidence intervals that **exclude zero** are more likely to have consistent and meaningful effects.
+
+4. Specific Moderators' Contributions:
+  1. **Tree Type**:
+  - While some terms (e.g., "tree_typeTimber") have moderate P-values (e.g., ~0.19), the confidence intervals often include zero, indicating less consistent influence.
+- Moderators under "tree_type" show mixed evidence, with high variability between terms.
+2. **Crop Type**:
+  - Some subcategories (e.g., "crop_typeLegume") exhibit low P-values (e.g., < 0.001) and confidence intervals excluding zero, suggesting significant effects.
+- This moderator likely contributes moderately to explaining heterogeneity in effect sizes.
+3. **Age System**:
+  - Terms such as "age_systemYoung" consistently show low P-values (<0.01) and confidence intervals excluding zero, highlighting a strong and significant influence on heterogeneity.
+- This moderator seems to have one of the most consistent and impactful effects.
+4. **Season**:
+  - The influence of "season" varies, with subcategories like "seasonWinter" having moderate P-values (~0.13) and wider confidence intervals.
+- Its effects are less consistent compared to age system or crop type.
+5. **Soil Texture**:
+  - Subcategories like "soil_textureSand" often show significant effects (P-values < 0.05), with narrow confidence intervals excluding zero.
+- This suggests that soil texture is a critical moderator for explaining heterogeneity.
+
+5. Proportion of Heterogeneity Explained:
+  - Combining the above data with the proportion of heterogeneity explained reveals:
+  - **Age System** consistently explains the highest proportion of heterogeneity (e.g., 95.47%).
+- **Soil Texture** follows closely, explaining ~82.4%.
+- **Crop Type** and **Season** contribute moderately (64.5% and 45.2%, respectively).
+- **Tree Type** has a lower overall contribution (~50.6%).
+
+Summary:
+  - **Key Moderators:** "Age System" and "Soil Texture" are the most impactful, with consistently significant effects and the highest proportions of heterogeneity explained.
+- **Moderate Contributors:** "Crop Type" and "Season" show variable but important contributions to explaining heterogeneity.
+- **Least Impactful:** "Tree Type" appears to have inconsistent effects, with many subcategories not significantly contributing to heterogeneity.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+# Global control parameters for optimization
+control_params <- list(
+  # Specifies the optimization function to use, "optim" is the base R optimizer, allowing for flexible tuning
+  optimizer = "optim",
+  # Defines the specific optimization algorithm. "BFGS" (Broyden–Fletcher–Goldfarb–Shanno) is a quasi-Newton method
+  # This optimization algorithm is often used for unconstrained optimization problems and works well in meta-analytic models with moderate to large datasets
+  method = "BFGS",
+  # Maximum number of iterations for the optimization routine. If the models does not converge, increasing this value can help.
+  # However, very high values may lead to excessive computation time.
+  iter.max = 10000,
+  # Relative tolerance level for convergence. Determines when the optimization process should stop.
+  # Lower values (e.g., 1e-15) enforce stricter convergence, ensuring more precise results but requiring longer run times.
+  # Higher values (e.g., 1e-4) allow faster convergence but may reduce accuracy (default in metafor is 1e-10).
+  rel.tol = 1e-12
+  # Uncomment this line if you want to track optimizer progress for each individual model
+  # This will print detailed iteration steps, useful for debugging non-convergence issues.
+  # verbose = TRUE   
+)
+#########################################################################################################
+
+# Initialize an empty data frame to store results
+heterogeneity_results <- data.frame()
+
+# Define all response variables
+response_variables <- unique(meta_data$response_variable)
+
+# Loop through each response variable
+for (response_variable in response_variables) {
+  
+  cat("\n-------------------------\nProcessing:", response_variable, "\n-------------------------\n")
+  
+  # Subset data for the response variable
+  data_subset <- meta_data[meta_data$response_variable == response_variable, ]
+  
+  # Extract the variance-covariance matrix
+  v_matrix <- v_matrices[[response_variable]]
+  
+  # Skip if variance matrix is missing
+  if (is.null(v_matrix)) {
+    cat("⚠ Skipping", response_variable, "- No variance matrix found.\n")
+    next
+  }
+  
+  # Fit the Null Model (NO RANDOM EFFECTS)
+  null_model <- tryCatch({
+    rma(
+      yi = yi,
+      vi = diag(v_matrix),  # Use diagonal for within-study variance
+      data = data_subset,
+      method = "REML",
+      control = control_params
+    )
+  }, error = function(e) {
+    message("Error in null model for", response_variable, ":", e$message)
+    return(NULL)
+  })
+  
+  # Extract tau² from the null model
+  if (!is.null(null_model)) {
+    tau2_null <- null_model$tau2
+    cat("τ² (Null Model) for", response_variable, ":", tau2_null, "\n")
+  } else {
+    cat("⚠ Warning: τ² (Null Model) is 0 or model fitting failed for", response_variable, "\n")
+    next  # Skip to next response variable if null model fails
+  }
+  
+  # Loop through each moderator for this response variable
+  for (moderator in moderators) {
+    cat("\nFitting model for moderator:", moderator, "on", response_variable, "\n")
+    
+    mod_model <- tryCatch({
+      rma(
+        yi = yi,
+        vi = diag(v_matrix),
+        mods = as.formula(paste("~", moderator)),  # Single moderator model
+        data = data_subset,
+        method = "REML",
+        control = control_params
+      )
+    }, error = function(e) {
+      message("Error in model for", moderator, "on", response_variable, ":", e$message)
+      return(NULL)
+    })
+    
+    # Extract tau² from the moderator model
+    if (!is.null(mod_model)) {
+      tau2_moderated <- mod_model$tau2
+      cat("  τ² (Model with", moderator, "on", response_variable, "):", tau2_moderated, "\n")
+      
+      # Calculate proportion of explained heterogeneity
+      proportion_explained <- ifelse(tau2_null > 0, ((tau2_null - tau2_moderated) / tau2_null) * 100, NA)
+      proportion_explained <- max(min(proportion_explained, 100), 0)  # Ensure between 0-100%
+      
+      # Store results
+      heterogeneity_results <- rbind(heterogeneity_results, 
+                                     data.frame(ResponseVariable = response_variable,
+                                                Moderator = moderator,
+                                                Tau2_Null = tau2_null,
+                                                Tau2_Moderated = tau2_moderated,
+                                                ProportionExplained = proportion_explained))
+    } else {
+      cat("⚠ Warning: Model for", moderator, "on", response_variable, "failed.\n")
+    }
+  }
+}
+
+# Print results
+heterogeneity_results
+```
+
+
+
+
+```{r}
+##########################################################################################################################################
+# PUBLICATION BIAS ASSESSMENT - EGGER'S TEST
+##########################################################################################################################################
+
+
+# Refit models using rma
+refit_rma_models <- function(model_results) {
+  rma_models <- list()
+  
+  for (response in names(model_results)) {
+    tryCatch({
+      # Assuming `yi` and `vi` are your effect sizes and variances
+      model_data <- model_results[[response]]$data
+      if (is.null(model_data)) next
+      
+      rma_model <- rma(yi = model_data$EffectSize, 
+                       vi = model_data$Variance, 
+                       data = model_data,
+                       method = "REML")
+      
+      rma_models[[response]] <- rma_model
+      cat(paste("Model refitted for", response, "\n"))
+    }, error = function(e) {
+      message(paste("Error refitting model for", response, ":", e$message))
+    })
+  }
+  
+  return(rma_models)
+}
+
+# Example usage
+rma_models <- refit_rma_models(model_results)
+
+
+# Run Egger's test on the refitted rma models
+run_eggers_test <- function(rma_models) {
+  results <- list()
+  
+  for (response in names(rma_models)) {
+    model <- rma_models[[response]]
+    if (is.null(model)) next
+    
+    tryCatch({
+      egger_test <- regtest(model, model = "lm", predictor = "sei")
+      results[[response]] <- egger_test
+      cat(paste("\nEgger's Test for", response, ":\n"))
+      print(egger_test)
+    }, error = function(e) {
+      message(paste("Error running Egger's test for", response, ":", e$message))
+    })
+  }
+  
+  return(results)
+}
+
+# Run Egger's test on refitted models
+eggers_results <- run_eggers_test(rma_models)
+eggers_results
+```
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+####################################################################################################
+# MODERATOR ANALYSIS - PROPORTION OF EXPLAINED HETEROGENEITY USING RE-FITTED MODELS NO RANDOM INTERCEPT
+####################################################################################################
+
+# Define response variable
+response_variable <- "Soil quality"  # Change accordingly, make itaration through all response variables
+
+# Subset data for the response variable
+data_subset <- meta_data[meta_data$response_variable == response_variable, ]
+
+# Extract the variance-covariance matrix
+v_matrix <- v_matrices[[response_variable]]
+
+# Define the moderators to include in the model
+moderators <- c("tree_type", "crop_type", "age_system", "season", "soil_texture", "no_tree_per_m", "tree_height", "alley_width")
+
+# Define the random effects structure [before "list(~ 1 | exp_id)"]
+random_effects <- list(~ 1 | id_article/exp_id) # Random intercept for each study and experiment (location x year)
+
+
+# Global control parameters for optimization
+control_params <- list(
+  # Specifies the optimization function to use, "optim" is the base R optimizer, allowing for flexible tuning
+  optimizer = "optim",
+  # Defines the specific optimization algorithm. "BFGS" (Broyden–Fletcher–Goldfarb–Shanno) is a quasi-Newton method
+  # This optimization algorithm is often used for unconstrained optimization problems and works well in meta-analytic models with moderate to large datasets
+  method = "BFGS",
+  # Maximum number of iterations for the optimization routine. If the models does not converge, increasing this value can help.
+  # However, very high values may lead to excessive computation time.
+  iter.max = 10000,
+  # Relative tolerance level for convergence. Determines when the optimization process should stop.
+  # Lower values (e.g., 1e-15) enforce stricter convergence, ensuring more precise results but requiring longer run times.
+  # Higher values (e.g., 1e-4) allow faster convergence but may reduce accuracy (default in metafor is 1e-10).
+  rel.tol = 1e-12
+  # Uncomment this line if you want to track optimizer progress for each individual model
+  # This will print detailed iteration steps, useful for debugging non-convergence issues.
+  # verbose = TRUE   
+)
+
+##################################################################################################################
+
+# Fit the Null Model (Global Average without Moderators)
+null_model <- tryCatch({
+  rma(
+    yi = yi,                        # Effect size
+    vi = diag(v_matrix),            # Use diagonal for within-study variance
+    #random = random_effects,        # Random effects structure
+    data = data_subset,             # Data subset
+    method = "REML",                # Restricted Maximum Likelihood Estimation
+    control = control_params        # Optimizer control parameters
+  )
+}, error = function(e) {
+  cat("Error in null model:", e$message, "\n")
+  return(NULL)
+})
+
+# Check if the null model fitted correctly
+if (!is.null(null_model)) {
+  print(null_model)
+  tau2_null <- null_model$tau2  # Extract τ² (variance component)
+  cat("τ² (Null Model):", tau2_null, "\n")
+} else {
+  cat("⚠ Warning: τ² (Null Model) is 0 or model fitting failed.\n")
+}
+
+######################################################
+
+# Fit the Full Moderator Model (All Moderators additive, without Interactions)
+full_moderator_model <- tryCatch({
+  rma(
+    yi = yi,                                      # Effect size
+    vi = diag(v_matrix),                          # Use diagonal for within-study variance
+    mods = as.formula(paste("~", paste(moderators, collapse = " + "))),  
+    #random = random_effects,                      # Random effects structure
+    data = data_subset,                           # Data subset
+    method = "REML",                              # Restricted Maximum Likelihood Estimation
+    control = control_params                      # Optimizer control parameters
+  )
+}, error = function(e) {
+  cat("Error in interaction model:", e$message, "\n")
+  return(NULL)
+})
+
+# Check if the interaction model fitted correctly
+if (!is.null(full_moderator_model)) {
+  print(full_moderator_model)
+  tau2_full_moderator <- full_moderator_model$tau2  # Extract τ²
+  cat("τ² (Full Moderator Model):", tau2_interaction, "\n")
+} else {
+  cat("⚠ Warning: τ² (Full Moderator Model) is 0 or model fitting failed.\n")
+}
+
+# Calculate proportion of explained heterogeneity for the single specified response variable
+if (!is.null(null_model) && !is.null(full_moderator_model)) {
+  proportion_explained <- abs((tau2_null - tau2_full_moderator) / tau2_null) * 100
+  # proportion_explained <- min(proportion_explained, 1000)  # Cap at 1000% if needed
+  
+  cat("\nProportion of Explained Heterogeneity:", proportion_explained, "%\n")
+} else {
+  cat("\nCannot compute explained heterogeneity due to missing models.\n")
+}
+```
+
+
+
+
+```{r}
+####################################################################################################
+# MODERATOR ANALYSIS - PROPORTION OF EXPLAINED HETEROGENEITY USING RE-FITTED MODELS NO RANDOM INTERCEPT
+####################################################################################################
+
+##########################################################################
+# Start time tracking
+start.time <- Sys.time()
+##########################################################################
+# Set up parallel processing
+plan(multisession, workers = parallel::detectCores() - 1)
+##########################################################################
+
+
+# Initialize an empty data frame to store results
+heterogeneity_results_clean <- data.frame()
+
+# Define all response variables
+response_variables <- unique(meta_data$response_variable)
+
+# Define moderators to include in the model
+moderators <- c("tree_type", "crop_type", "age_system", "season", 
+                "soil_texture", "no_tree_per_m", "tree_height", "alley_width")
+
+# Global control parameters for optimization
+control_params <- list(
+  optimizer = "optim",   
+  method = "BFGS",       
+  iter.max = 10000,      
+  rel.tol = 1e-12        
+)
+
+# Loop through each response variable
+for (response_variable in response_variables) {
+  
+  cat("\n-------------------------\nProcessing:", response_variable, "\n-------------------------\n")
+  
+  # Subset data for the response variable
+  data_subset <- meta_data[meta_data$response_variable == response_variable, ]
+  
+  # Extract the variance-covariance matrix
+  v_matrix <- v_matrices[[response_variable]]
+  
+  # Skip if variance matrix is missing
+  if (is.null(v_matrix)) {
+    cat("⚠ Skipping", response_variable, "- No variance matrix found.\n")
+    next
+  }
+  
+  # Fit the Null Model (Global Average without Moderators)
+  null_model <- tryCatch({
+    rma(
+      yi = yi,                        
+      vi = diag(v_matrix),            
+      data = data_subset,             
+      method = "REML",                
+      control = control_params        
+    )
+  }, error = function(e) {
+    cat("Error in null model for", response_variable, ":", e$message, "\n")
+    return(NULL)
+  })
+  
+  # Extract τ² from the null model
+  if (!is.null(null_model)) {
+    tau2_null <- null_model$tau2
+    cat("τ² (Null Model) for", response_variable, ":", tau2_null, "\n")
+  } else {
+    cat("⚠ Warning: τ² (Null Model) is 0 or model fitting failed for", response_variable, "\n")
+    next  
+  }
+  
+  # Fit the Full Moderator Model (All Moderators additive, without Interactions)
+  full_moderator_model <- tryCatch({
+    rma(
+      yi = yi,                                     
+      vi = diag(v_matrix),                         
+      mods = as.formula(paste("~", paste(moderators, collapse = " + "))),  
+      data = data_subset,                          
+      method = "REML",                             
+      control = control_params                     
+    )
+  }, error = function(e) {
+    cat("Error in full moderator model for", response_variable, ":", e$message, "\n")
+    return(NULL)
+  })
+  
+  # Extract τ² from the full moderator model
+  if (!is.null(full_moderator_model)) {
+    tau2_full_moderator <- full_moderator_model$tau2
+    cat("τ² (Full Moderator Model) for", response_variable, ":", tau2_full_moderator, "\n")
+  } else {
+    cat("⚠ Warning: τ² (Full Moderator Model) is 0 or model fitting failed for", response_variable, "\n")
+    next  
+  }
+  
+  # Compute proportion of explained heterogeneity
+  proportion_explained <- abs((tau2_null - tau2_full_moderator) / tau2_null) * 100
+  proportion_explained <- min(proportion_explained, 1000)  
+  cat("\nProportion of Explained Heterogeneity:", proportion_explained, "%\n")
+  
+  # Loop through each moderator individually
+  for (moderator in moderators) {
+    
+    if (!(moderator %in% colnames(data_subset))) {
+      cat("\n⚠ Skipping", moderator, "for", response_variable, "- Not present in dataset.\n")
+      next
+    }
+    
+    cat("\nFitting model for moderator:", moderator, "on", response_variable, "\n")
+    
+    mod_model <- tryCatch({
+      rma(
+        yi = yi,                                 
+        vi = diag(v_matrix),                     
+        mods = as.formula(paste("~", moderator)),
+        data = data_subset,                      
+        method = "REML",                         
+        control = control_params                 
+      )
+    }, error = function(e) {
+      cat("Error in model for", moderator, "on", response_variable, ":", e$message, "\n")
+      return(NULL)
+    })
+    
+    # Extract τ² from the moderator model
+    if (!is.null(mod_model)) {
+      tau2_moderated <- mod_model$tau2
+      cat("  τ² (Model with", moderator, "on", response_variable, "):", tau2_moderated, "\n")
+      
+      # Compute proportion of explained heterogeneity
+      proportion_explained_mod <- abs((tau2_null - tau2_moderated) / tau2_null) * 100
+      proportion_explained_mod <- min(proportion_explained_mod, 1000)  
+      
+      # Extract model summary
+      model_summary <- summary(mod_model)
+      
+      # Extract estimates and statistics
+      estimates <- as.numeric(model_summary$b)   # Effect sizes
+      se_values <- as.numeric(model_summary$se)  # Standard errors
+      z_values <- as.numeric(model_summary$zval) # Z-values
+      p_values <- as.numeric(model_summary$pval) # P-values
+      ci_lower <- as.numeric(model_summary$ci.lb) # Lower CI
+      ci_upper <- as.numeric(model_summary$ci.ub) # Upper CI
+      
+      # Add significance codes
+      significance_levels <- case_when(
+        p_values < 0.001 ~ "***",
+        p_values < 0.01  ~ "**",
+        p_values < 0.05  ~ "*",
+        p_values < 0.1   ~ ".",
+        TRUE             ~ ""
+      )
+      
+      # Store results
+      mod_results_df <- data.frame(
+        ResponseVariable = response_variable,
+        Moderator = rownames(model_summary$b),
+        Tau2_Null = tau2_null,
+        Tau2_Moderated = tau2_moderated,
+        ProportionExplained = proportion_explained_mod,
+        Estimate = estimates,
+        SE = se_values,
+        Z_Value = z_values,
+        P_Value = p_values,
+        CI_Lower = ci_lower,
+        CI_Upper = ci_upper,
+        Significance = significance_levels
+      )
+      
+      # Append results
+      heterogeneity_results_clean <- rbind(heterogeneity_results_clean, mod_results_df)
+    } else {
+      cat("⚠ Warning: Model for", moderator, "on", response_variable, "failed.\n")
+    }
+  }
+}
+
+# Print results
+heterogeneity_results_clean
+
+
+##########################################################################
+# End time tracking
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+cat("\nTotal time taken:", time.taken, units(time.taken), "\n")
+##########################################################################
+# Last go (04/02-2025) 
+```
+
+```{r}
+####################################################################################################
+# MODERATOR ANALYSIS - PROPORTION OF EXPLAINED HETEROGENEITY USING RE-FITTED MODELS NO RANDOM INTERCEPT
+####################################################################################################
+
+# Define response variable
+response_variable <- "Crop yield"  # Change accordingly
+
+# Subset data for the response variable
+data_subset <- meta_data[meta_data$response_variable == response_variable, ]
+
+# Extract the variance-covariance matrix
+v_matrix <- v_matrices[[response_variable]]
+
+# Define the moderators to include in the model
+moderators <- c("tree_type", "crop_type", "age_system", "season", "soil_texture")
+
+# Define the random effects structure [before "list(~ 1 | exp_id)"]
+random_effects <- list(~ 1 | id_article/exp_id) # Random intercept for each study and experiment (location x year)
+
+# Print data checks
+# print(dim(data_subset))
+# print(head(data_subset))
+
+# Global control parameters for optimization
+control_params <- list(
+  # Specifies the optimization function to use, "optim" is the base R optimizer, allowing for flexible tuning
+  optimizer = "optim",
+  # Defines the specific optimization algorithm. "BFGS" (Broyden–Fletcher–Goldfarb–Shanno) is a quasi-Newton method
+  # This optimization algorithm is often used for unconstrained optimization problems and works well in meta-analytic models with moderate to large datasets
+  method = "BFGS",
+  # Maximum number of iterations for the optimization routine. If the models does not converge, increasing this value can help.
+  # However, very high values may lead to excessive computation time.
+  iter.max = 10000,
+  # Relative tolerance level for convergence. Determines when the optimization process should stop.
+  # Lower values (e.g., 1e-15) enforce stricter convergence, ensuring more precise results but requiring longer run times.
+  # Higher values (e.g., 1e-4) allow faster convergence but may reduce accuracy (default in metafor is 1e-10).
+  rel.tol = 1e-12
+  # Uncomment this line if you want to track optimizer progress for each individual model
+  # This will print detailed iteration steps, useful for debugging non-convergence issues.
+  # verbose = TRUE   
+)
+
+##################################################################################################################
+
+# Fit the Null Model (Global Average without Moderators)
+null_model <- tryCatch({
+  rma(
+    yi = yi,                        # Effect size
+    vi = diag(v_matrix),            # Use diagonal for within-study variance
+    #random = random_effects,        # Random effects structure
+    data = data_subset,             # Data subset
+    method = "REML",                # Restricted Maximum Likelihood Estimation
+    control = control_params        # Optimizer control parameters
+  )
+}, error = function(e) {
+  cat("Error in null model:", e$message, "\n")
+  return(NULL)
+})
+
+# Check if the null model fitted correctly
+if (!is.null(null_model)) {
+  print(null_model)
+  tau2_null <- null_model$tau2  # Extract τ² (variance component)
+  cat("τ² (Null Model):", tau2_null, "\n")
+} else {
+  cat("⚠ Warning: τ² (Null Model) is 0 or model fitting failed.\n")
+}
+
+######################################################
+
+# Fit the Full Moderator Model (All Moderators additive, without Interactions)
+full_moderator_model <- tryCatch({
+  rma(
+    yi = yi,                                      # Effect size
+    vi = diag(v_matrix),                          # Use diagonal for within-study variance
+    mods = as.formula(paste("~ -1 +", paste(moderators, collapse = " + "))),  
+    #random = random_effects,                      # Random effects structure
+    data = data_subset,                           # Data subset
+    method = "REML",                              # Restricted Maximum Likelihood Estimation
+    control = control_params                      # Optimizer control parameters
+  )
+}, error = function(e) {
+  cat("Error in interaction model:", e$message, "\n")
+  return(NULL)
+})
+
+# Check if the interaction model fitted correctly
+if (!is.null(full_moderator_model)) {
+  print(full_moderator_model)
+  tau2_full_moderator <- full_moderator_model$tau2  # Extract τ²
+  cat("τ² (Full Moderator Model):", tau2_interaction, "\n")
+} else {
+  cat("⚠ Warning: τ² (Full Moderator Model) is 0 or model fitting failed.\n")
+}
+```
+```{r}
+
+```
+
+
+
+```{r}
+####################################################################################################
+# MODERATOR ANALYSIS - PROPORTION OF EXPLAINED HETEROGENEITY USING RE-FITTED MODELS NO RANDOM INTERCEPT
+####################################################################################################
+
+# Define response variable
+response_variable <- "Crop yield"  # Change accordingly
+
+# Subset data for the response variable
+data_subset <- meta_data[meta_data$response_variable == response_variable, ]
+
+# Extract the variance-covariance matrix
+v_matrix <- v_matrices[[response_variable]]
+
+# Define the moderators to include in the model
+moderators <- c("tree_type", "crop_type", "age_system", "season", "soil_texture")
+
+# Define the random effects structure [before "list(~ 1 | exp_id)"]
+random_effects <- list(~ 1 | id_article/exp_id) # Random intercept for each study and experiment (location x year)
+
+# Print data checks
+# print(dim(data_subset))
+# print(head(data_subset))
+
+# Global control parameters for optimization
+control_params <- list(
+  # Specifies the optimization function to use, "optim" is the base R optimizer, allowing for flexible tuning
+  optimizer = "optim",
+  # Defines the specific optimization algorithm. "BFGS" (Broyden–Fletcher–Goldfarb–Shanno) is a quasi-Newton method
+  # This optimization algorithm is often used for unconstrained optimization problems and works well in meta-analytic models with moderate to large datasets
+  method = "BFGS",
+  # Maximum number of iterations for the optimization routine. If the models does not converge, increasing this value can help.
+  # However, very high values may lead to excessive computation time.
+  iter.max = 10000,
+  # Relative tolerance level for convergence. Determines when the optimization process should stop.
+  # Lower values (e.g., 1e-15) enforce stricter convergence, ensuring more precise results but requiring longer run times.
+  # Higher values (e.g., 1e-4) allow faster convergence but may reduce accuracy (default in metafor is 1e-10).
+  rel.tol = 1e-12
+  # Uncomment this line if you want to track optimizer progress for each individual model
+  # This will print detailed iteration steps, useful for debugging non-convergence issues.
+  # verbose = TRUE   
+)
+
+##################################################################################################################
+
+# Fit the Null Model (Global Average without Moderators)
+null_model <- tryCatch({
+  rma(
+    yi = yi,                        # Effect size
+    vi = diag(v_matrix),            # Use diagonal for within-study variance
+    #random = random_effects,        # Random effects structure
+    data = data_subset,             # Data subset
+    method = "REML",                # Restricted Maximum Likelihood Estimation
+    control = control_params        # Optimizer control parameters
+  )
+}, error = function(e) {
+  cat("Error in null model:", e$message, "\n")
+  return(NULL)
+})
+
+# Check if the null model fitted correctly
+if (!is.null(null_model)) {
+  print(null_model)
+  tau2_null <- null_model$tau2  # Extract τ² (variance component)
+  cat("τ² (Null Model):", tau2_null, "\n")
+} else {
+  cat("⚠ Warning: τ² (Null Model) is 0 or model fitting failed.\n")
+}
+
+######################################################
+
+# Fit the Full Moderator Model (All Moderators additive, without Interactions)
+full_moderator_model <- tryCatch({
+  rma(
+    yi = yi,                                      # Effect size
+    vi = diag(v_matrix),                          # Use diagonal for within-study variance
+    mods = as.formula(paste("~ -1 +", paste(moderators, collapse = " + "))),  
+    #random = random_effects,                      # Random effects structure
+    data = data_subset,                           # Data subset
+    method = "REML",                              # Restricted Maximum Likelihood Estimation
+    control = control_params                      # Optimizer control parameters
+  )
+}, error = function(e) {
+  cat("Error in interaction model:", e$message, "\n")
+  return(NULL)
+})
+
+# Check if the interaction model fitted correctly
+if (!is.null(full_moderator_model)) {
+  print(full_moderator_model)
+  tau2_full_moderator <- full_moderator_model$tau2  # Extract τ²
+  cat("τ² (Full Moderator Model):", tau2_interaction, "\n")
+} else {
+  cat("⚠ Warning: τ² (Full Moderator Model) is 0 or model fitting failed.\n")
+}
+```
+```{r}
+
+```
+
+
+
+
+
+
+Interpretation of the back-transformed values (ROM in percentages) for all response variables
+
+
+### Interpretation of Back-Transformed Values (ROM in Percentages)
+
+The back-transformed Ratio of Means (ROM) values provide an interpretable measure of effect sizes for all response variables. These percentages allow us to assess how the system impacts different response variables compared to controls, including associated uncertainty (confidence intervals).
+
+---
+  
+  ### **1. Biodiversity**
+  - **Null Model:** **4.42%** [CI: -1.25%, 10.42%]  
+Biodiversity is estimated to increase by **4.42%**, but the CI includes zero, indicating no significant effect.  
+- **Minimal Random Effects Model:** **4.42%** [CI: -1.25%, 10.42%]  
+Identical to the null model, suggesting no improvement by accounting for random effects.  
+- **Full Model:** **-7.28%** [CI: -57.80%, 103.74%]  
+Indicates a **7.28% decrease**, but the very wide CI reflects high uncertainty and potential overfitting.  
+- **Interaction Model:** **-2.84%** [CI: -46.59%, 76.75%]  
+Shows a **2.84% decrease**, with a similarly wide and uncertain CI.
+
+---
+  
+  ### **2. Greenhouse Gas Emissions**
+  - **Null Model:** **0.94%** [CI: 0.69%, 1.20%]  
+A minimal and statistically significant increase in emissions, reflecting consistent results across the CI.  
+- **Minimal Random Effects Model:** **0.94%** [CI: 0.69%, 1.20%]  
+No improvement over the null model.  
+- **Full Model:** **25.73%** [CI: 14.49%, 38.06%]  
+A large, statistically significant increase in emissions, highlighting the importance of moderators in explaining variability.  
+- **Interaction Model:** **25.58%** [CI: 14.29%, 37.98%]  
+Similar to the full model, demonstrating consistency with added interactions.
+
+---
+  
+  ### **3. Product Quality**
+  - **Null Model:** **-2.00%** [CI: -3.66%, -0.32%]  
+A small, statistically significant decrease in product quality.  
+- **Minimal Random Effects Model:** **-2.00%** [CI: -3.66%, -0.32%]  
+Identical to the null model, indicating no improvement.  
+- **Full Model:** **-1.71%** [CI: -6.31%, 3.13%]  
+A smaller decrease, but with a CI including zero, indicating no significant effect.  
+- **Interaction Model:** **-0.80%** [CI: -5.30%, 3.92%]  
+The smallest effect with high uncertainty, suggesting minimal influence of moderator interactions.
+
+---
+  
+  ### **4. Crop Yield**
+  - **Null Model:** **-2.28%** [CI: -4.40%, -0.11%]  
+A small but statistically significant decrease in yield.  
+- **Minimal Random Effects Model:** **-2.28%** [CI: -4.40%, -0.11%]  
+Identical to the null model.  
+- **Full Model:** **-1.67%** [CI: -6.34%, 3.24%]  
+A smaller decrease, but the CI includes zero, showing no significant effect.  
+- **Interaction Model:** **-25.28%** [CI: -36.39%, -12.24%]  
+A large and significant decrease, highlighting the strong effect of interactions among moderators.
+
+---
+  
+  ### **5. Pest and Disease**
+  - **Null Model:** **-8.67%** [CI: -24.89%, 11.05%]  
+A modest decrease, but the CI includes zero, indicating no significant effect.  
+- **Minimal Random Effects Model:** **-8.67%** [CI: -24.89%, 11.05%]  
+Identical to the null model.  
+- **Full Model:** **-40.47%** [CI: -64.04%, -1.46%]  
+A large, statistically significant decrease, showing the impact of moderators.  
+- **Interaction Model:** **-40.47%** [CI: -64.04%, -1.46%]  
+Identical to the full model, suggesting interactions add no further value.
+
+---
+  
+  ### **6. Soil Quality**
+  - **Null Model:** **3.37%** [CI: -1.14%, 8.08%]  
+A small increase, but the CI includes zero, indicating no significant effect.  
+- **Minimal Random Effects Model:** **3.37%** [CI: -1.14%, 8.08%]  
+No improvement over the null model.  
+- **Full Model:** **-33.61%** [CI: -54.09%, -3.98%]  
+A large and statistically significant decrease, reflecting the critical role of moderators.
+- **Interaction Model:**  
+  
+  ---
+  
+  ### **7. Water Quality**
+  - **Null Model:** **1.56%** [CI: -1.35%, 4.56%]  
+A small increase, with the CI including zero, indicating no significant effect.  
+- **Minimal Random Effects Model:** **1.56%** [CI: -1.35%, 4.56%]  
+Identical to the null model.  
+- **Full Model:** **2.69%** [CI: -10.40%, 17.68%]  
+A slightly larger increase, but the wide CI reflects high uncertainty.  
+- **Interaction Model:** **2.69%** [CI: -10.40%, 17.68%]  
+Identical to the full model, suggesting interactions add no value.
+
+---
+  
+  ### **General Observations**
+  1. **Simple Models (Null, Minimal Random Effects):** These provide consistent but limited insights, often failing to capture significant effects.
+2. **Full Model:** This generally improves fit, revealing significant effects for variables like `Greenhouse Gas Emissions`, `Pest and Disease`, and `Soil Quality`.
+3. **Interaction Model:** Adds minimal value beyond the full model for most variables, except for `Crop Yield`.
+
+---
+  
+  ### **Conclusions**
+  - **Greenhouse Gas Emissions** and **Pest and Disease** see the most substantial improvements with complex models, reflecting the value of moderators.  
+- **Biodiversity**, **Product Quality**, and **Water Quality** remain uncertain, with wide CIs indicating potential data limitations or overfitting.  
+- Simplified models suffice for some variables, but full models are critical for uncovering nuanced effects in others.
+
+
+
+
+
+Explanations of the above Multi-Model Fitting 
+
+Descriptions of the 'Hierarchical Complexity Approach' Multi-Model Fitting for Temperate Silvoarable Agroforrestry and Ecosystem Services Meta-Analysis
+
+In this study we decided to employ a hierarchical complexity approach for meta-analysis multi-model fitting aligned with Carrillo-Reche et al. (2023) [https://www.sciencedirect.com/science/article/pii/S0167880923002232], aka the "Cabbage approach" to evaluate the effects of silvoarable agroforestry systems across multiple response variables. Meta-analytic models were constructed using the `rma.mv` function from the **metafor** package, accounting for random effects and systematically including moderators to assess their contribution to heterogeneity reduction and effect size estimation.
+
+Model Construction and Fitting
+Models were fitted incrementally for each response variable, starting with a null model to estimate the global average effect size without moderators. A minimal random effects model introduced random variability at the experiment level (`~ 1 | exp_id`) to account for between-study differences. Moderator models were then constructed to examine the independent effects of moderators such as `tree_type`, `crop_type`, `age_system`, `season`, and `soil_texture`. A full model combined all moderators additively, while a full interaction model evaluated interaction terms between all moderators. Convergence criteria were tightened by increasing the maximum iterations (`iter.max = 10000`) and setting the relative tolerance (`rel.tol = 1e-12`) to improve model stability, precision and ensuring convergence.
+
+Error and Warning Analysis
+During model fitting, several warnings and errors were encountered, highlighting potential limitations in the dataset or model structure. Redundant predictors were dropped due to collinearity or lack of variability, affecting models for all response variables (see the resulting output messages from the multi-model fitting code chunk above). For instance, in cases like `tree_type` and `crop_type`, collinearity led to the exclusion of certain predictors. Observations with missing values in moderators were omitted, particularly for `Biodiversity`, where 14 rows were removed. High variance ratio warnings indicated extreme variability in sampling variances, notably for `Crop yield`, `Soil quality`, and `Water quality`, leading to unstable parameter estimates. Convergence failures occurred for the full interaction model in `Soil quality` and `Water quality`, likely due to excessive complexity and insufficient data for interaction terms.
+
+Alternatively, we could have fitted the Full model only with selected interaction pairs of moderators?
+  
+  # Full model with selected moderator interactions
+  interaction_pairs <- list(
+    c("tree_type", "crop_type"),
+    c("age_system", "season"),
+    c("season", "soil_texture")
+  )
+
+[...]
+
+Model Outcomes
+The null and minimal random effects models were generally successful, providing baseline estimates and capturing between-study heterogeneity. However, the interaction models often failed to converge, particularly when all moderators and their interactions were included. This highlights the challenges of modeling complex interactions in datasets with limited observations or high heterogeneity.
+
+
+
+
+
+
+
+
+
+
+
+
+
+Streamlined Interpretation of AIC Values
+
+The relative AIC values provide a comparison of model performance against the Null Model for each response variable. Negative relative AIC values indicate better model performance, while positive values indicate poorer performance. For `Product Quality` and `Water Quality`, the absolute AIC values (which were negative) require special attention, as positive relative differences in these cases reflect better model performance.
+
+**Key Insights by Response Variable:**
+  
+  1. **Biodiversity:**
+  - Both the `Full Model` and `Interaction Model` demonstrate significantly better performance than the Null Model, with **relative AIC values of -656** and **-645**, respectively, underscoring the importance of moderators in explaining biodiversity outcomes.
+- The `Minimal Random Effects Model` shows no improvement over the Null Model, indicating that adding random effects alone does not enhance performance.
+
+2. **Crop Yield:**
+  - The `Interaction Model` and the `Full Model` show substantial improvements over the Null Model, with **relative AIC values of -1191** and **-894**, respectively. This highlights the critical role of both moderators and their interactions in explaining crop yield variability.
+- The `Null Model` and `Minimal Random Effects Model` perform identically, showing no added value from random effects alone.
+
+3. **Greenhouse Gas Emissions:**
+  - The `Full Model` and `Interaction Model` exhibit **exceptional improvements** over the Null Model, with **relative AIC values of -3156** and **-3150**, respectively. These results emphasize the necessity of including multiple moderators to capture the complex dynamics of emissions data.
+- Similar to crop yield, the `Minimal Random Effects Model` offers no improvement over the Null Model.
+
+4. **Pest and Disease:**
+  - Both the `Full Model` and the `Interaction Model` show improved performance, with **relative AIC values of -391** and **-392**, respectively, demonstrating the value of including moderators for pest and disease data.
+- However, interactions between moderators (captured in the `Interaction Model`) do not improve the relative AIC further, indicating that the additional complexity is unnecessary.
+- The `Minimal Random Effects Model` performs comparably to the Null Model.
+
+5. **Product Quality:**
+  - Positive relative AIC values for the `Interaction Model` (**84**) and the `Full Model` (**44**) indicate that these models outperform the Null Model in terms of absolute AIC values, contrary to initial expectations.
+- The `Interaction Model` shows the greatest improvement, indicating that capturing interactions between moderators is essential for better explaining product quality outcomes.
+- The `Minimal Random Effects Model` performs similarly to the Null Model, offering no substantial benefit.
+
+6. **Soil Quality:**
+  - The `Full Model` demonstrates a substantial improvement with a **relative AIC value of -950**, indicating that capturing high complexity significantly enhances model performance for soil quality.
+- The absence of data for the `Interaction Model` suggests potential model-fitting issues when including interactions among moderators.
+- The `Minimal Random Effects Model` adds no value compared to the Null Model.
+
+7. **Water Quality:**
+  - Positive relative AIC values for the `Interaction Model` (**19**) and the `Full Model` (**19**) suggest these models outperform the Null Model in terms of absolute AIC values, similar to product quality.
+- The additional complexity of interactions between moderators does not further improve performance, as seen in the similar relative AIC values for the `Full Model` and `Interaction Model`.
+- The `Minimal Random Effects Model` again shows no improvement over the Null Model.
+
+**General Observations:**
+  - **Complex models like the Full and Interaction Models generally outperform simpler models**, especially for complex response variables such as greenhouse gas emissions, crop yield, and biodiversity.
+- **Product Quality and Water Quality require attention to absolute AIC values**, as positive relative AIC values reflect better performance due to negative absolute AICs.
+- Moderators play a critical role in improving model performance, but their interactions are selectively important, as shown for product quality and crop yield.
+
+Implications:
+  This refined analysis confirms the importance of tailoring model complexity and moderator interactions to specific response variables. While complex models are crucial for variables with significant variability or interactions, simpler models suffice for others, provided they capture the essential dynamics.
+
+
+The model performance analysis indicates that the **Interaction Model** consistently outperforms all other models, achieving the lowest mean adjusted relative AIC (-913.72) and BIC (-892.45) across all response variables. This result demonstrates that accounting for interactions among moderators is crucial for capturing the complexities of the data and delivering the most explanatory power.
+
+The **Full Model**, which includes all main effects of moderators but excludes interactions, ranks second with a mean adjusted relative AIC of -871.91 and BIC of -861.33. While it provides substantial improvements over simpler models, it falls short of the Interaction Model due to its inability to account for nuanced interactions among variables.
+
+Among individual moderator models, `age_system` shows the most significant improvement in performance, followed by `crop_type`, `tree_type`, and `soil_texture`. These moderators enhance explanatory power to varying degrees but remain less impactful compared to the comprehensive models. The `season` moderator provides only limited improvement, indicating its minimal relevance across the response variables.
+
+Baseline models, including the **Minimal Random Effects Model** and the **Null Model**, perform identically and fail to capture meaningful variability. Their lack of improvement underscores the necessity of incorporating moderators and interactions for effective model performance.
+
+Overall, the results highlight the superiority of the Interaction Model, emphasizing the importance of capturing complex relationships among moderators to explain variations across the response variables effectively. Simpler models, while informative in specific contexts, are insufficient for fully addressing the intricacies of the data.
+
+
+
+
+Crop yield	NA	0	203339.1624	      null_model
+Crop yield	NA	0	95862.5010        interaction_model
+Crop yield	99.80134	0	134398.4729	full_model
+
+The results of the heterogeneity statistics indicate the following:
+  
+  1. **I² Values:**
+  - The I² values range from 36% (Product quality) to 99.98% (Biodiversity), suggesting varying levels of heterogeneity across response variables.
+- High I² values (close to 100%) for most response variables (e.g., Biodiversity, Crop yield, Pest and Disease, Soil quality) indicate that a large proportion of the variability in effect sizes is due to heterogeneity rather than sampling error.
+- Moderate I² for Product quality (36.01%) suggests less heterogeneity, with sampling error accounting for most of the variability.
+
+2. **Tau² (Between-Study Variance):**
+  - All Tau² values are `0`, indicating no estimated between-study variance in the random-effects models. This could suggest either true homogeneity of effect sizes or insufficient power to detect between-study variance.
+
+3. **QE (Cochran's Q Test):**
+   - QE values are very high for most response variables, particularly for Biodiversity, Crop yield, and Soil quality, suggesting significant residual heterogeneity not explained by the model. The associated QE p-values (<0.001 for all) confirm that the observed heterogeneity is statistically significant.
+
+4. **Implications:**
+   - The high I² values, combined with significant QE tests and zero Tau², indicate that heterogeneity exists, but it is not being captured by the random-effects variance component (Tau²). This suggests that other moderators or model structures may need to be explored to better explain the variability.
+
+5. **Recommendations:**
+   - For variables with very high I² and significant QE (e.g., Biodiversity, Crop yield, Soil quality), consider including additional moderators or interaction terms in the model to account for heterogeneity.
+   - For Product quality (lower I²), the model seems to explain a reasonable proportion of variability, though further exploration of moderators could still be beneficial.
+
+In summary, while the models reveal significant heterogeneity across most response variables, the lack of between-study variance (Tau² = 0) suggests that additional moderators or refinements to model specifications may be required to better account for the observed variability.
+
+# 2a: Extract influence of higher-level and sub-level moderators
+
+# 2b: Evaluate the proportion of heterogeneity explained by each moderator
+
+
+COMPARE WITH THE 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+# Function to extract data for the forest plot using `id_study` as labels
+prepare_forest_data <- function(model) {
+  if (is.null(model)) return(NULL)
+
+  # Extract study-level effect sizes and variances
+  study_effects <- model$yi
+  study_variances <- model$vi
+  
+  # Extract study labels from the model's data
+         study_labels <- model$data$id_study 
+         
+         # Create study-level data frame
+         study_data <- data.frame(
+           Study = as.character(study_labels),  # Ensure labels are character type
+           ES = study_effects,
+           SE = sqrt(study_variances),
+           Type = "Study"
+         ) %>%
+           mutate(
+             Lower_CI = ES - 1.96 * SE,
+             Upper_CI = ES + 1.96 * SE
+           )
+         
+         # Extract overall summary estimate from the model
+         summary_data <- data.frame(
+           Study = "Summary",
+           ES = model$b[1],
+           SE = model$se,
+           Type = "Summary"
+         ) %>%
+           mutate(
+             Lower_CI = ES - 1.96 * SE,
+             Upper_CI = ES + 1.96 * SE
+           )
+         
+         # Combine study-level and summary data
+         forest_data <- rbind(study_data, summary_data)
+         
+         # Ensure the ordering of the study factor (so that Summary appears at the bottom)
+         forest_data$Study <- factor(forest_data$Study, levels = rev(unique(forest_data$Study)))
+         
+         return(forest_data)
+      }
+
+# Example: Extract data for Biodiversity minimal random effects model
+forest_data <- prepare_forest_data(model_results$Biodiversity$minimal_random_effects)
+
+# Check extracted data
+print(forest_data)
+
+forest_data |> glimpse()
+```
+
+```{r}
+# Summarizing the forest data by Study (mean ES and pooled SE)
+forest_data_summarized <- forest_data |> 
+  group_by(Study) |> 
+  summarise(
+    Mean_ES = mean(ES, na.rm = TRUE),  # Mean effect size per study
+    Pooled_SE = sqrt(sum(SE^2, na.rm = TRUE) / n()),  # Pooled SE (corrected)
+    .groups = "drop"
+  ) |> 
+  mutate(
+    Lower_CI = Mean_ES - 1.96 * Pooled_SE,
+    Upper_CI = Mean_ES + 1.96 * Pooled_SE,
+    Type = "Study"  # Label for ggplot grouping
+  )
+
+# Adding the summary estimate from the model
+summary_data <- data.frame(
+  Study = "Summary",
+  Mean_ES = model_results$Biodiversity$minimal_random_effects$b[1],  # Summary ES
+  Pooled_SE = model_results$Biodiversity$minimal_random_effects$se,  # Model SE
+  Type = "Summary"
+) |> 
+  mutate(
+    Lower_CI = Mean_ES - 1.96 * Pooled_SE,
+    Upper_CI = Mean_ES + 1.96 * Pooled_SE
+  )
+
+# Combine study-level and overall summary data
+forest_data_final <- bind_rows(forest_data_summarized, summary_data)
+
+# Ensure ordering for visualization (Summary last)
+forest_data_final$Study <- factor(forest_data_final$Study, levels = rev(unique(forest_data_final$Study)))
+
+# Check summarized dataset
+forest_data_final
+
+# Apply back-transformation (convert log response ratios to percent change)
+forest_data_final <- forest_data_final |> 
+  mutate(
+    Mean_ES = (exp(Mean_ES) - 1) * 100,  # Convert log-ROM to percentage
+    Lower_CI = (exp(Lower_CI) - 1) * 100,
+    Upper_CI = (exp(Upper_CI) - 1) * 100
+  )
+
+```
+
+```{r}
+# Create Back-Transformed Forest Plot
+ggplot(forest_data_final, aes(x = Study, y = Mean_ES, ymin = Lower_CI, ymax = Upper_CI, color = Type)) +
+  geom_pointrange(size = 0.7) +  
+  geom_hline(yintercept = 0, linetype = "dashed", color = "black", size = 1) +  
+  coord_flip() +  
+  scale_color_manual(values = c("Study" = "grey50", "Summary" = "black")) +  
+  labs(
+    title = "Forest Plot: Biodiversity (Minimal Random Effects Model, Back-Transformed)",
+    x = "Study",
+    y = "Effect Size (% Change from Control)",  # Updated label for clarity
+    color = "Type"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "none",
+    axis.text.y = element_text(size = 10),
+    axis.title.y = element_text(size = 12, face = "bold"),
+    axis.title.x = element_text(size = 12, face = "bold")
+  )
+```
+
+
+
+
+
+```{r}
+# Preprocessing Step of mv_influence_diagnostics data 
+
+mv_influence_diagnostics |> glimpse()
+
+# Function to clean study names (remove suffixes)
+clean_study_name <- function(study) {
+  str_replace(study, "\\.\\d+$", "")  # Removes last dot followed by numbers
+}
+
+# Apply function to create a new column with cleaned study names
+mv_influence_diagnostics <- mv_influence_diagnostics %>%
+  mutate(Study_Clean = clean_study_name(Study))  # New column without suffix
+
+# Summarize per unique Response_Variable
+mv_influence_diagnostics_summary <- mv_influence_diagnostics %>%
+  group_by(Response_Variable) %>%
+  summarise(
+    Mean_Cooks_Distance = mean(Cooks_Distance, na.rm = TRUE),
+    Mean_DFBeta = mean(Max_DFBeta, na.rm = TRUE),
+    Mean_Hat = mean(Max_Hat, na.rm = TRUE),
+    
+    # Compute standard errors for confidence intervals
+    SE_Cooks_Distance = sd(Cooks_Distance, na.rm = TRUE) / sqrt(n()),
+    SE_DFBeta = sd(Max_DFBeta, na.rm = TRUE) / sqrt(n()),
+    SE_Hat = sd(Max_Hat, na.rm = TRUE) / sqrt(n()),
+    
+    # Compute confidence intervals (CI = Mean ± 1.96 × SE)
+    Lower_CI_Cooks = Mean_Cooks_Distance - 1.96 * SE_Cooks_Distance,
+    Upper_CI_Cooks = Mean_Cooks_Distance + 1.96 * SE_Cooks_Distance,
+    Lower_CI_DFBeta = Mean_DFBeta - 1.96 * SE_DFBeta,
+    Upper_CI_DFBeta = Mean_DFBeta + 1.96 * SE_DFBeta,
+    Lower_CI_Hat = Mean_Hat - 1.96 * SE_Hat,
+    Upper_CI_Hat = Mean_Hat + 1.96 * SE_Hat
+  ) %>%
+  ungroup()
+
+# View summary to check
+# mv_influence_diagnostics_summary |> glimpse()
+mv_influence_diagnostics_summary
+```
+
+
+```{r}
+# 3. Plot Cook’s Distance
+#######################################################################################
+
+# Check for missing values
+mv_influence_diagnostics_summary %>%
+  filter(is.na(Mean_Cooks_Distance) | is.na(Lower_CI_Cooks) | is.na(Upper_CI_Cooks))
+
+# Check for extreme values outside reasonable range
+mv_influence_diagnostics_summary %>%
+  filter(Lower_CI_Cooks < 0 | Upper_CI_Cooks > 1)  # Adjust range if needed
+
+# Define Cook's Distance threshold (adjust if needed)
+# cooks_threshold <- 0.0037  
+# Cook’s Distance helps identify studies that disproportionately impact model results.
+# The threshold 4/n is a rule-of-thumb but can be adjusted based on context.
+# A threshold of 0.0037 suggests that studies exceeding this value may be influential, potentially distorting the meta-analysis conclusions.
+# If the dataset size is large, a lower threshold (e.g., 0.001 - 0.005) is reasonable because each individual study has a smaller impact. 
+# If the dataset is small, a higher threshold might be more appropriate.
+
+# Function to calculate Cook's Distance threshold per response variable
+calculate_cooks_threshold <- function(data) {
+  data %>%
+    group_by(Response_Variable) %>%
+    summarise(
+      n = n(),  # Count the number of observations per response variable
+      Cooks_Threshold = 4 / n  # Compute the Cook's Distance threshold
+    ) %>%
+    ungroup()
+}
+
+# Apply function to influence diagnostics dataset
+cooks_thresholds <- calculate_cooks_threshold(mv_influence_diagnostics_summary)
+
+# The computed thresholds
+cooks_thresholds
+
+#######################################################################################
+
+# Merge the threshold data with the main dataset
+mv_influence_diagnostics_summary <- mv_influence_diagnostics_summary %>%
+  left_join(cooks_thresholds, by = "Response_Variable")
+
+# Create the plot
+mv_influence_diagnostics_summary %>%
+  filter(Response_Variable != "Water quality") |>  # Exclude "Water quality"
+  ggplot(aes(
+    x = reorder(Study_Clean, -Mean_Cooks_Distance), 
+    y = Mean_Cooks_Distance
+  )) +
+  geom_pointrange(aes(ymin = Lower_CI_Cooks, ymax = Upper_CI_Cooks), 
+                  color = "black", size = 0.5) + # Confidence intervals
+  geom_point(color = "red", size = 2) +  # Mean Cook’s Distance
+  geom_hline(aes(yintercept = Cooks_Threshold), 
+             linetype = "dashed", color = "blue") +  # Dynamic threshold per response
+  coord_flip() +  # Flip axes for readability
+  facet_wrap(~Response_Variable, scales = "free_x", nrow = 1) +  # Facet per response variable
+  labs(
+    title = "Cook’s Distance for Influence Diagnostics (with Confidence Intervals)",
+    x = "Study",
+    y = "Cook’s Distance",
+    caption = "Dashed line = Computed Cook’s Distance Threshold per Response Variable"
+  ) +
+  theme_bw() +
+  theme(
+    strip.text = element_text(face = "bold", size = 12),  # Highlight facet labels
+    axis.text.y = element_text(size = 8),  # Adjust study label size
+    panel.grid.minor = element_blank()  # Clean up grid
+  )
+```
+
+```{r}
+# Check for missing values in confidence intervals
+# Summary of CI widths per response variable
+mv_influence_diagnostics_summary %>%
+  mutate(CI_Width = Upper_CI_Cooks - Lower_CI_Cooks) %>%
+  group_by(Response_Variable) %>%
+  summarise(
+    Mean_CI_Width = mean(CI_Width, na.rm = TRUE),
+    Max_CI_Width = max(CI_Width, na.rm = TRUE),
+    Min_CI_Width = min(CI_Width, na.rm = TRUE)
+  ) %>%
+  arrange(desc(Mean_CI_Width))
+
+```
+
+
+
+Function to perform influence diagnostics
+
+perform_influence_diagnostics <- function(model_results) {
+  influence_results <- lapply(names(model_results), function(response) {
+    model <- model_results[[response]]$minimal_random_effects
+    if (is.null(model)) return(NULL)
+    
+    # Perform influence diagnostics
+    influence <- influence(model, alpha = 0.05, nsim = 1000)
+    
+    # Extract key influence measures
+    cooks_distance <- influence$cooks.distance
+    dfbetas <- influence$dfbetas
+    dffits <- influence$dffits
+    hat_values <- influence$hat
+    
+    # Combine results into a data frame
+    data.frame(
+      Response_Variable = response,
+      Cooks_Distance = cooks_distance,
+      Max_DFBeta = apply(dfbetas, 1, max),
+      Max_DFFits = dffits,
+      Max_Hat = hat_values,
+      stringsAsFactors = FALSE
+    )
+  })
+  
+  # Combine results into a single data frame
+  do.call(rbind, influence_results)
+}
+
+Use the function on selected model
+influence_diagnostics <- perform_influence_diagnostics(model_results$Biodiversity$minimal_random_effects$M)
+
+
+
+```{r}
+# WORING ON THE IMPUTED DATASET
+meta_data <- imp_dataset
+
+# Define control parameters for optimization
+control_params <- list(optimizer = "optim", 
+                       method = "BFGS", 
+                       iter.max = 10000, 
+                       rel.tol = 1e-12)
+
+# Model 1: Simple Study-Level Random Effects
+res_model1 <- rma.mv(
+  yi = yi,
+  V = vi,
+  mods = ~ 1,  # Intercept-only model
+  random = ~ 1 | id_article,  # Study-level variance
+  data = meta_data,
+  method = "REML",
+  control = control_params
+)
+
+# Model 2: Study + Experiment (Nested Random Effects)
+res_model2 <- rma.mv(
+  yi = yi,
+  V = vi,
+  mods = ~ 1,  
+  random = ~ 1 | id_article/exp_id,  # Nested structure: study → experiment
+  data = meta_data,
+  method = "REML",
+  control = control_params
+)
+
+# Model 3: Study + Location (Crossed Random Effects)
+res_model3 <- rma.mv(
+  yi = yi,
+  V = vi,
+  mods = ~ 1,
+  random = ~ 1 | id_article/location,  # Crossed structure: study & location
+  data = meta_data,
+  method = "REML",
+  control = control_params
+)
+
+# Model 4: Study + Location * Year (Crossed Random Effects with Interaction)
+res_model4 <- rma.mv(
+  yi = yi,
+  V = vi,
+  mods = ~ 1,
+  random = list(
+    ~ 1 | id_article,               # Study-level variance
+    ~ 1 | location,                 # Location variance
+    ~ 1 | experiment_year,          # Year variance
+    ~ 1 | location*experiment_year  # Interaction term (Crossed)
+  ),
+  data = meta_data,
+  method = "REML",
+  control = control_params
+)
+```
+
+```{r}
+# Compare Model Performance
+AIC(res_model1, res_model2, res_model3, res_model4)
+BIC(res_model1, res_model2, res_model3, res_model4)
+```
+
+
+```{r}
+# Check Variance Components
+summary(res_model4)
+
+# Perform Likelihood Ratio Tests (LRT) to compare models
+anova(res_model1, res_model2)
+#anova(res_model2, res_model3)
+anova(res_model3, res_model4)
+
+```
