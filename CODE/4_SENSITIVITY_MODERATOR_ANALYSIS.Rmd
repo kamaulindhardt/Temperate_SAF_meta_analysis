@@ -3251,8 +3251,9 @@ significant_moderator_res <- moderator_results_mv %>%
 # significant_moderator_res |> glimpse()
 # significant_moderator_res
 
+# Rename Moderators and Terms for Clarity
 significant_moderator_res_clean <- significant_moderator_res %>%
-  # Rename moderators to more intuitive names
+  # Rename Moderators
   mutate(
     Moderator = case_when(
       Moderator == "tree_type"          ~ "Tree Type",
@@ -3266,19 +3267,24 @@ significant_moderator_res_clean <- significant_moderator_res %>%
       TRUE                              ~ Moderator  # Keep unchanged if not listed
     ),
 
-    # Rename Terms (Main effects)
+    # Rename Terms (Main Effects)
     Term = case_when(
       Term == "age_systemMedium"         ~ "Medium Age System",
       Term == "age_systemYoung"          ~ "Young Age System",
+      Term == "age_systemMature"         ~ "Mature Age System",
+      Term == "seasonSummer"             ~ "Summer Season",
       Term == "seasonWinter"             ~ "Winter Season",
       Term == "no_tree_per_mLow"         ~ "Low Tree Density",
+      Term == "no_tree_per_mHigh"        ~ "High Tree Density",
       Term == "tree_typeFruit,nut & other" ~ "Fruit/Nut Trees",
       Term == "tree_typeBiomass"         ~ "Biomass Trees",
       Term == "tree_typeTimber"          ~ "Timber Trees",
       Term == "crop_typeLegume"          ~ "Legume Crops",
+      Term == "crop_typeCereal"          ~ "Cereal Crops",
       Term == "crop_typeTuber,root and other" ~ "Root/Tuber Crops",
       Term == "soil_textureSand"         ~ "Sandy Soil",
       Term == "soil_textureSilt"         ~ "Silty Soil",
+      Term == "soil_textureClay"         ~ "Clayey Soil",
       Term == "tree_heightShort"         ~ "Short Trees",
       Term == "tree_heightTall"          ~ "Tall Trees",
       Term == "alley_widthNarrow"        ~ "Narrow Alleys",
@@ -3286,26 +3292,30 @@ significant_moderator_res_clean <- significant_moderator_res %>%
       TRUE                               ~ Term  # Keep unchanged if not listed
     ),
 
-    # Rename Interactions (Formatted with "Interaction: X x Y")
+    # Rename Interaction Terms (Format: "Moderator A x Moderator B")
     Term = ifelse(
       str_detect(Term, ":"), 
       str_replace_all(Term, c(
-        "tree_type"  = "Tree Type",
-        "crop_type"  = "Crop Type",
-        "age_system" = "Age System",
-        "season"     = "Season",
-        "soil_texture" = "Soil Texture",
-        "no_tree_per_m" = "Tree Density",
-        "tree_height" = "Tree Height",
-        "alley_width" = "Alley Width",
-        ":" = " x "  # Replace ":" with " x " for interactions
+        "tree_type"        = "Tree Type",
+        "crop_type"        = "Crop Type",
+        "age_system"       = "Age System",
+        "season"           = "Season",
+        "soil_texture"     = "Soil Texture",
+        "no_tree_per_m"    = "Tree Density",
+        "tree_height"      = "Tree Height",
+        "alley_width"      = "Alley Width",
+        ":"                = " x "  # Replace ":" with " x " for interaction formatting
       )),
       Term
     ),
 
-    # Ensure intercept terms are clearly labeled
+    # Explicitly Rename Intercept Terms
     Term = ifelse(str_detect(Term, "intrcpt"), "Intercept", Term)
-  )
+  ) |> 
+  # Remove observations with Intercept category for the significant moderators before forest plot
+  filter(Term != "Intercept")
+
+
 
 # Display summary
 significant_moderator_res_clean |> glimpse()
