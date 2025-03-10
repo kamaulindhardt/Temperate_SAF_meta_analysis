@@ -3404,6 +3404,7 @@ final_forest_plot
 FOREST PLOT FOR VISUALIZING META-ANALYSIS RESULTS 
 ##########################################################################################################################################
 
+OBS: To see the final forest plot (violin plot) of overall effect sizes for all response variables see script "5_FINAL_VISUALIZATIONS"
 
 ```{r}
 ##########################################################################################################################################

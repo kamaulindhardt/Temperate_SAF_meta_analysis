@@ -1079,7 +1079,7 @@ data_distribution_studies_agroclimregion
 PROPORTION OF EFFECT SIZE DIRECTION AS NUMBER OF POSITIVE, NEUTRAL, AND NEGATIVE
 ##########################################################################################################################################
 
-Based on the interaction_model model
+Based on the minimal_random_effects model
 
 ```{r}
 imp_data_rom <- readRDS(here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R", "imp_data_rom.rds"))
@@ -1140,7 +1140,6 @@ stacked_barplot <- ggplot(summary_data_for_eff_calc, aes(x = response_variable, 
 
 # Step 5: Display the plot
 print(stacked_barplot)
-
 ```
 
 
@@ -1983,8 +1982,8 @@ back_transformed_results <- back_transform_logROM(evaluation_results)
 
 # Inspect the back-transformed results for a specific response variable
 # Choose a model from structured_results (e.g., "interaction_model", or "minimal_random_effects")
-back_transformed_results$`Water quality`$interaction_model
-back_transformed_results$Biodiversity$interaction_model
+back_transformed_results$`Water quality`$minimal_random_effects
+back_transformed_results$Biodiversity$minimal_random_effects
 ```
 
 
