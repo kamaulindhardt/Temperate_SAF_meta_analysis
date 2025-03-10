@@ -562,6 +562,9 @@ plan(multisession, workers = parallel::detectCores() - 1)
 output_dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
 v_matrices <- readRDS(file.path(output_dir, "v_matrices_by_response_variable.rds"))
 
+# WORING ON THE IMPUTED DATASET
+meta_data <- imp_dataset
+
 # Global control parameters for optimization
 control_params <- list(
   optimizer = "optim",       # Use base R optimizer
@@ -945,13 +948,14 @@ hat_plot_data |>
 ```
 
 
+I really doubt the outputs of the Influence Diagnostics above. 
+To verify the results, I want to perform a "quick and dirty" parallel/comparable but new metafor-based Infuence Diagnostics test, using this approach:
 
+OBS: Very time consuming code below! 
+(see the pre-run of the influence diagnostics loaded subsequently)
 
-```{r}
+```{r eval=FALSE}
 ##########################################################################
-# I really doubt the outputs of the Influence Diagnostics above. 
-# To verify the results, I want to perform a "quick and dirty" parallel/comparable but new metafor-based Infuence Diagnostics test, using this approach:
-
 
 ##########################################################################
 # Set up the parallel processing plan
@@ -963,40 +967,102 @@ start.time <- Sys.time()
 ##################################################
 
 
+# Define the directory where results will be saved
+output_dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
 
-# Fit multilevel random-effects model
-res_meta <- rma.mv(
-  yi = yi,
-  V = vi,
-  random = ~ 1 | id_article/exp_id,  # Nested random effects
-  slab = meta_data$id_study,         # Assigned study names for easier interpretation
-  data = meta_data,
-  method = "REML"
-)
+# Create the directory if it doesn't exist
+if (!dir.exists(output_dir)) {
+  dir.create(output_dir, recursive = TRUE)
+}
+
+# Try fitting the multilevel random-effects model
+res_meta <- tryCatch({
+  rma.mv(
+    yi = yi,
+    V = vi,
+    random = ~ 1 | id_article/exp_id,  # Nested random effects
+    slab = meta_data$id_study,         # Assigned study names for easier interpretation
+    data = meta_data,
+    method = "REML"
+  )
+}, error = function(e) {
+  cat("Error in fitting multilevel random-effects model:", e$message, "\n")
+  return(NULL)
+})
+
+# If model fitting failed, stop further execution
+if (is.null(res_meta)) {
+  stop("Model fitting failed! Influence diagnostics will not be computed.")
+}
 
 # Print model summary
 print(res_meta, digits = 3)
 
-
 # Compute Influence Diagnostics using metafor functions for rma.mv
-cooks_values <- cooks.distance(res_meta, progbar = TRUE)
-dfbetas_values <- dfbetas(res_meta, progbar = TRUE)
-hat_values <- hatvalues(res_meta, type = "diagonal")
+cooks_values <- tryCatch({
+  cooks.distance(res_meta, progbar = TRUE)
+}, error = function(e) {
+  cat("⚠ Warning: Cook's Distance computation failed:", e$message, "\n")
+  return(rep(NA, length(res_meta$yi)))
+})
 
-# Convert DFBETAS matrix to a data frame
-dfbetas_df <- as.data.frame(dfbetas_values)
-dfbetas_df$Study <- meta_data$id_article  # Add study identifiers
+dfbetas_values <- tryCatch({
+  dfbetas(res_meta, progbar = TRUE)
+}, error = function(e) {
+  cat("⚠ Warning: DFBETAS computation failed:", e$message, "\n")
+  return(matrix(NA, nrow = length(res_meta$yi), ncol = 1))
+})
 
-# Convert results to a single dataframe for visualization
-influence_results <- data.frame(
-  Study = meta_data$id_article,
-  Cooks_Distance = cooks_values,
-  Max_DFBeta = apply(dfbetas_df[, -ncol(dfbetas_df)], 1, max, na.rm = TRUE),
-  Hat_Values = hat_values
-)
+hat_values <- tryCatch({
+  hatvalues(res_meta, type = "diagonal")
+}, error = function(e) {
+  cat("⚠ Warning: Hat values computation failed:", e$message, "\n")
+  return(rep(NA, length(res_meta$yi)))
+})
 
-# Summary of influence measures
-summary(influence_results)
+# Convert DFBETAS matrix to a data frame (only if it has valid values)
+dfbetas_df <- tryCatch({
+  dfbetas_df <- as.data.frame(dfbetas_values)
+  dfbetas_df$Study <- meta_data$id_article  # Add study identifiers
+  dfbetas_df
+}, error = function(e) {
+  cat("⚠ Warning: DFBETAS conversion failed:", e$message, "\n")
+  return(NULL)
+})
+
+# Ensure influence results are only computed if diagnostics succeeded
+if (!is.null(dfbetas_df)) {
+  influence_results <- tryCatch({
+    data.frame(
+      Study = meta_data$id_article,
+      Cooks_Distance = cooks_values,
+      Max_DFBeta = apply(dfbetas_df[, -ncol(dfbetas_df)], 1, max, na.rm = TRUE),
+      dfbetas_full <- dfbetas_values, # Store full DFBETAs separately
+      Hat_Values = hat_values
+    )
+  }, error = function(e) {
+    cat("⚠ Warning: Influence results computation failed:", e$message, "\n")
+    return(NULL)
+  })
+} else {
+  influence_results <- NULL
+}
+
+# If influence results are valid, print a summary
+if (!is.null(influence_results)) {
+  summary(influence_results)
+
+  # Define the file path for saving the influence results
+  influence_results_path <- file.path(output_dir, "meta_influence_results_quick_n_dirty.rds")
+
+  # Save the influence results as an RDS file
+  saveRDS(influence_results, file = influence_results_path)
+
+  # Confirm that the results have been saved
+  cat("Influence results saved to:", influence_results_path, "\n")
+} else {
+  cat("Influence results were not generated due to errors. Nothing was saved.\n")
+}
 
 ##################################################
 # End time tracking
@@ -1007,6 +1073,36 @@ time.taken
 ##############################################################
 # Last go (02/03-2025)
 # Time difference: 
+# cooks_values
+|==================================================| 100% elapsed=06h 57m 22s
+# dfbetas_values
+|==================================================| 100% elapsed=07h 18m 18s
+# Hat_Values
+```
+
+```{r}
+
+```
+
+LOADING THE INFLUENCE DIAGNOSTICS DATA
+```{r}
+# Define the directory where results are stored
+dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
+# Define the file path for loading the influence results
+influence_results_path <- file.path(dir, "meta_influence_results_quick_n_dirty.rds")
+
+# Check if the file exists before loading
+if (file.exists(influence_results_path)) {
+  
+  influence_results <- readRDS(influence_results_path)
+  
+  cat("Influence results successfully loaded from:", influence_results_path, "\n")
+} else {
+  cat("⚠ Warning: Influence results file not found at:", influence_results_path, "\n")
+}
+
+# Display a preview of the loaded data
+influence_results |> glimpse()  
 ```
 
 ```{r}
@@ -2193,6 +2289,7 @@ eggers_results <- run_eggers_test(rma_models)
 # Display final results
 eggers_results
 ```
+
 Summary of Egger’s Test for Publication Bias
 
 * No Evidence of Publication Bias for Biodiversity, Crop Yield, Pest & Disease, and Product Quality (p > 0.05). No significant funnel plot asymmetry detected.
@@ -3001,14 +3098,298 @@ ggplot(filtered_data, aes(x = Moderator, y = MeanPEH, fill = Moderator)) +
 ```
 
 
+############
+# STEP 6
+##########################################################################################################################################
+MODERATOR ANALYSIS - STATISTICAL ANALYSIS OF MODERATORS' EFFECTS FOR EACH RESPONSE VARIABLE - VISUALISED WITH FOREST PLOTS
+##########################################################################################################################################
+
+```{r eval=FALSE}
+# List of response variables and moderators
+response_variables <- c("Biodiversity", "Crop yield", "Water quality", "Pest and Disease", 
+                        "Soil quality", "Greenhouse gas emission", "Product quality")
+
+moderators <- c("tree_type", "crop_type", "age_system", "season", 
+                "soil_texture", "no_tree_per_m", "tree_height", "alley_width")
+```
+
+```{r}
+# Function to fit individual and interaction moderator models using rma.mv
+fit_moderator_models_mv <- function(meta_data, response_variables, moderators, v_matrices, control_params) {
+  
+  results_df <- data.frame()
+  
+  # Define minimal random effects structure
+  random_effects <- list(~ 1 | id_article/exp_id)
+
+  for (response_variable in response_variables) {
+    
+    cat("\nProcessing:", response_variable, "\n")
+    
+    # Subset data for response variable
+    data_subset <- meta_data %>% filter(response_variable == !!response_variable)
+    
+    # Extract variance-covariance matrix
+    v_matrix <- v_matrices[[response_variable]]
+    
+    if (is.null(v_matrix)) {
+      cat("⚠ Skipping", response_variable, "- No variance matrix found.\n")
+      next
+    }
+
+    # INDIVIDUAL MODERATOR MODELS ---------------------------------------------------------------
+    for (moderator in moderators) {
+      if (!(moderator %in% colnames(data_subset))) {
+        cat("⚠ Skipping", moderator, "for", response_variable, "- Not in dataset.\n")
+        next
+      }
+      cat("  Fitting model for individual moderator:", moderator, "\n")
+      
+      mod_model <- tryCatch({
+        rma.mv(
+          yi = yi, 
+          V = v_matrix, 
+          mods = as.formula(paste("~", moderator, "-1")),  # "-1" Removes intercept 
+          random = random_effects,  # Nested random effects
+          data = data_subset, 
+          method = "REML", 
+          slab = data_subset$id_study,  # Study labels
+          control = control_params
+        )
+      }, error = function(e) {
+        cat("Error in individual model for", moderator, "on", response_variable, ":", e$message, "\n")
+        return(NULL)
+      })
+      
+      if (!is.null(mod_model)) {
+        model_summary <- summary(mod_model)
+
+        # Extract estimates and confidence intervals
+        results_df <- rbind(
+          results_df,
+          data.frame(
+            ResponseVariable = response_variable,
+            Moderator = moderator,
+            Type = "Individual",
+            Term = rownames(model_summary$b),
+            Estimate = model_summary$b[,1],
+            SE = model_summary$se,
+            P_Value = model_summary$pval,
+            CI_Lower = model_summary$ci.lb,
+            CI_Upper = model_summary$ci.ub
+          )
+        )
+      }
+    }
+
+    # INTERACTION MODERATOR MODEL ---------------------------------------------------------------
+    cat("  Fitting interaction model for", response_variable, "\n")
+    
+    interaction_formula <- paste("~", paste(moderators, collapse = " * "), "-1")  # Creates interaction terms - "-1" Removes intercept
+    
+    interaction_model <- tryCatch({
+      rma.mv(
+        yi = yi, 
+        V = v_matrix, 
+        mods = as.formula(interaction_formula),  # Interaction terms without intercept
+        random = random_effects,  # Nested random effects
+        data = data_subset, 
+        method = "REML", 
+        slab = data_subset$id_study,  # Study labels
+        control = control_params
+      )
+    }, error = function(e) {
+      cat("Error in interaction model for", response_variable, ":", e$message, "\n")
+      return(NULL)
+    })
+
+    if (!is.null(interaction_model)) {
+      model_summary <- summary(interaction_model)
+
+      # Extract estimates and confidence intervals
+      results_df <- rbind(
+        results_df,
+        data.frame(
+          ResponseVariable = response_variable,
+          Moderator = "Interaction Model",
+          Type = "Interaction",
+          Term = rownames(model_summary$b),
+          Estimate = model_summary$b[,1],
+          SE = model_summary$se,
+          P_Value = model_summary$pval,
+          CI_Lower = model_summary$ci.lb,
+          CI_Upper = model_summary$ci.ub
+        )
+      )
+    }
+  }
+  
+  return(results_df)
+}
+
+# Define response variables and moderators
+response_variables <- unique(meta_data$response_variable)
+moderators <- c("tree_type", "crop_type", "age_system", "season", "soil_texture", "no_tree_per_m", "tree_height", "alley_width")
+
+# Fit models and store results
+moderator_results_mv <- fit_moderator_models_mv(meta_data, response_variables, moderators, v_matrices, control_params)
+
+# View results
+print(moderator_results_mv)
+```
 
 
+```{r}
+# Define significance threshold (adjustable)
+p_value_threshold <- 0.05
 
+# Filter only significant moderators (both individual & interactions)
+significant_moderator_res <- moderator_results_mv %>%
+  filter(P_Value < p_value_threshold)
+
+# # Display summary
+# significant_moderator_res |> glimpse()
+# significant_moderator_res
+
+significant_moderator_res_clean <- significant_moderator_res %>%
+  # Rename moderators to more intuitive names
+  mutate(
+    Moderator = case_when(
+      Moderator == "tree_type"          ~ "Tree Type",
+      Moderator == "crop_type"          ~ "Crop Type",
+      Moderator == "age_system"         ~ "Age System",
+      Moderator == "season"             ~ "Season",
+      Moderator == "soil_texture"       ~ "Soil Texture",
+      Moderator == "no_tree_per_m"      ~ "Tree Density",
+      Moderator == "tree_height"        ~ "Tree Height",
+      Moderator == "alley_width"        ~ "Alley Width",
+      TRUE                              ~ Moderator  # Keep unchanged if not listed
+    ),
+
+    # Rename Terms (Main effects)
+    Term = case_when(
+      Term == "age_systemMedium"         ~ "Medium Age System",
+      Term == "age_systemYoung"          ~ "Young Age System",
+      Term == "seasonWinter"             ~ "Winter Season",
+      Term == "no_tree_per_mLow"         ~ "Low Tree Density",
+      Term == "tree_typeFruit,nut & other" ~ "Fruit/Nut Trees",
+      Term == "tree_typeBiomass"         ~ "Biomass Trees",
+      Term == "tree_typeTimber"          ~ "Timber Trees",
+      Term == "crop_typeLegume"          ~ "Legume Crops",
+      Term == "crop_typeTuber,root and other" ~ "Root/Tuber Crops",
+      Term == "soil_textureSand"         ~ "Sandy Soil",
+      Term == "soil_textureSilt"         ~ "Silty Soil",
+      Term == "tree_heightShort"         ~ "Short Trees",
+      Term == "tree_heightTall"          ~ "Tall Trees",
+      Term == "alley_widthNarrow"        ~ "Narrow Alleys",
+      Term == "alley_widthWide"          ~ "Wide Alleys",
+      TRUE                               ~ Term  # Keep unchanged if not listed
+    ),
+
+    # Rename Interactions (Formatted with "Interaction: X x Y")
+    Term = ifelse(
+      str_detect(Term, ":"), 
+      str_replace_all(Term, c(
+        "tree_type"  = "Tree Type",
+        "crop_type"  = "Crop Type",
+        "age_system" = "Age System",
+        "season"     = "Season",
+        "soil_texture" = "Soil Texture",
+        "no_tree_per_m" = "Tree Density",
+        "tree_height" = "Tree Height",
+        "alley_width" = "Alley Width",
+        ":" = " x "  # Replace ":" with " x " for interactions
+      )),
+      Term
+    ),
+
+    # Ensure intercept terms are clearly labeled
+    Term = ifelse(str_detect(Term, "intrcpt"), "Intercept", Term)
+  )
+
+# Display summary
+significant_moderator_res_clean |> glimpse()
+significant_moderator_res_clean
+```
+
+```{r}
+create_forest_plot <- function(data, response_var, x_limits = c(-1, 2)) {
+  
+  # Ensure order of moderators
+  data <- data %>%
+    mutate(Moderator = fct_reorder(Term, Estimate))  # Reorder moderators by effect size
+  
+  # Create Forest Plot
+  forest_plot <- ggplot(data, aes(x = Estimate, y = Moderator, color = Type)) +
+    
+    # Error bars for confidence intervals
+    geom_errorbarh(aes(xmin = CI_Lower, xmax = CI_Upper), height = 0.2, size = 1) +
+    
+    # Points for effect sizes
+    geom_point(size = 3) +
+    
+    # Vertical reference line at zero
+    geom_vline(xintercept = 0, linetype = "dashed", color = "red", size = 0.8) +
+    
+    # Facet by Response Variable
+    facet_wrap(~ ResponseVariable, scales = "free_y") +
+    
+    # Labels & Theme
+    labs(
+      title = paste("Forest Plot for", response_var),
+      x = "Effect Size",
+      y = "Moderators",
+      color = "Model Type"
+    ) +
+    
+    # Set x-axis limits
+    scale_x_continuous(limits = x_limits) +
+    
+    # Color scheme
+    scale_color_manual(values = c("Individual" = "blue", "Interaction" = "purple")) +
+    
+    theme_minimal() +
+    theme(
+      strip.text = element_text(size = 12, face = "bold"),
+      axis.text.y = element_text(size = 10),
+      axis.text.x = element_text(size = 10),
+      legend.position = "top",
+      legend.text = element_text(size = 12),
+      legend.title = element_text(size = 13)
+    )
+  
+  return(forest_plot)
+}
+```
+
+```{r}
+# Create a list of plots for each response variable
+forest_plots_list <- list()
+
+for (response in unique(significant_moderator_res_clean$ResponseVariable)) {
+  plot_data <- significant_moderator_res_clean %>% filter(ResponseVariable == response)
+  
+  if (nrow(plot_data) > 0) {
+    forest_plot <- create_forest_plot(plot_data, response)
+    forest_plots_list[[response]] <- forest_plot
+  }
+}
+
+# Combine all plots into one figure
+final_forest_plot <- wrap_plots(forest_plots_list) +
+  plot_annotation(title = "Forest Plots of Significant Moderator Effects")
+
+# Display the combined plot
+final_forest_plot
+
+# Save plot as image
+# ggsave("forest_plots_significant_moderators.png", final_forest_plot, width = 12, height = 8, dpi = 300)
+```
 
 
 
 ############
-# STEP 6
+# STEP 7
 ##########################################################################################################################################
 FOREST PLOT FOR VISUALIZING META-ANALYSIS RESULTS 
 ##########################################################################################################################################

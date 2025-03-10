@@ -1556,6 +1556,25 @@ forest_plot_density_wide
 FORREST PLOT - FOR INDIVIDUAL RESPONSE VARIABLES AND MODERATORS EFFECT SIZE DISTRIBUTION
 ##########################################################################################################################################
 
+```{r}
+# Cleaning Data
+clean_forest_data <- function(data, yi_col, vi_col, other_cols) {
+  data %>%
+    mutate(
+      lower_ci = !!sym(yi_col) - 1.96 * sqrt(!!sym(vi_col)),
+      upper_ci = !!sym(yi_col) + 1.96 * sqrt(!!sym(vi_col))
+    ) %>%
+    select(all_of(c(other_cols, yi_col, "lower_ci", "upper_ci"))) %>%
+    filter(!is.na(!!sym(yi_col)), !is.na(lower_ci), !is.na(upper_ci))
+}
+
+forest_data_clean <- clean_forest_data(
+  data = imp_dataset_imputed,
+  yi_col = "yi",
+  vi_col = "vi",
+  other_cols = c("id_article", "id_obs", "response_variable", "crop_type", "tree_type")
+)
+```
 
 ```{r}
 forest_data_clean 

@@ -1366,7 +1366,7 @@ Thus, the **Minimal Random Effects Model is selected as the optimal model for th
 #############
 # STEP 5
 ##########################################################################################################################################
-TESTING DIFFERENT RANDOM EFFECTS STRUCTURES FOR THE CHOOSEN MODEL (MINIMAL RANDOM EFFECTS MODEL)
+TESTING DIFFERENT RANDOM EFFECTS STRUCTURES FOR THE CHOSEN MODEL (MINIMAL RANDOM EFFECTS MODEL)
 ##########################################################################################################################################
 
 ```{r}
