@@ -171,7 +171,7 @@ assess_missing_data <- function(dataset, moderators, dataset_name = "Dataset") {
   # Step 4: Create a heatmap for missingness by response_variable
   missing_heatmap <- ggplot(missing_by_response, aes(x = moderator, y = response_variable, fill = missing_count)) +
     geom_tile(color = "white") +
-    scale_fill_gradient(low = "#56B1F7", high = "#132B43", na.value = "gray90", labels = comma) +
+    scale_fill_gradient(low = "#56B1F7", high = "#132B43", na.value = "gray90") +
     labs(
       title = paste("Heatmap of Missing Data by Moderator and Response Variable -", dataset_name),
       x = "Moderator Variable",
@@ -196,7 +196,7 @@ moderators <- c("tree_type", "crop_type", "age_system", "season",
                 "soil_texture", "no_tree_per_m", "tree_height", "alley_width")
 
 # Assess missing data for non-imputed dataset
-assess_missing_data(non_imp_dataset, moderators, "Non-Imputed Dataset")
+# assess_missing_data(non_imp_dataset, moderators, "Non-Imputed Dataset")
 
 # Assess missing data for imputed dataset
 assess_missing_data(imp_dataset, moderators, "Imputed Dataset")

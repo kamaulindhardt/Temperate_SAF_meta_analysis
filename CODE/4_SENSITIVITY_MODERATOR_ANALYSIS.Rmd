@@ -278,7 +278,7 @@ Crop Yield: the effect sizes are genrally negative, indicating potential yield r
 Soil Quality: tend to show positive effect sizes, suggesting an improvement in these aspects under agroforestry systems.
 Product Quality: 
 Pest and Diseases:
-Greenhouse gas emissions:
+Carbon sequestration:
 
 The variation in the effect sizes for each response variable indicates heterogeneity, showing that the impact of agroforestry varies across different studies and contexts. However, the effect sizes in this plot do not account for potential study-level covariates or moderators, which could influence the observed differences. It will be important to consider the sampling variance (vi) associated with each effect size when interpreting these results, as larger studies (with smaller variance) provide more reliable estimates.
 
@@ -593,7 +593,7 @@ fit_minimal_random_effects <- function(data, response, random_effects) {
       V = v_matrix,                 # Variance-covariance matrix
       mods = ~ 1,                   # Intercept-only model
       # mods = as.formula(paste("~", paste(moderators, collapse = " + "))),
-      random = random_effects,      # Nested random effects
+      random = random_effects,      # Crossed and Nested random effects
       data = data_subset,
       method = "REML",
       slab = data_subset$id_study,  # Study labels
@@ -609,7 +609,9 @@ fit_minimal_random_effects <- function(data, response, random_effects) {
 
 # Define response variables and random effects structure
 response_variables <- unique(meta_data$response_variable)
-random_effects <- list(~ 1 | id_article/exp_id)  # Hierarchical structure
+random_effects <- list(~ 1 | id_article,                 # <----------  ! Chosen Random Effects Structure !
+                       ~ 1 | location / experiment_year)
+# random_effects <- list(~ 1 | id_article/exp_id)  # Hierarchical structure
 # moderators <- c("tree_type", "crop_type", "age_system", "season", "soil_texture") #, "no_tree_per_m", "tree_height", "alley_width")
 
 # Fit models sequentially
@@ -632,6 +634,17 @@ cat("\nTotal time taken:", time.taken, units(time.taken), "\n")
 ##########################################################################
 # Last go (04/02-2025) 
 # Total time taken: 9.153187 secs 
+# Last go (25/03-2025) 
+# Total time taken: 10.69201 secs 
+# Fitting model for: Biodiversity ...
+# Fitting model for: Crop yield ...
+# Fitting model for: Water quality ...
+# Advarsel: Single-level factor(s) found in 'random' argument. Corresponding 'sigma2' value(s) fixed to 0.
+# Fitting model for: Pest and Disease ...
+# Fitting model for: Soil quality ...
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.
+# Fitting model for: Carbon sequestration ...
+# Fitting model for: Product quality ...
 ```
 
 ```{r}
@@ -738,6 +751,31 @@ cat("\nTotal time taken:", time.taken, units(time.taken), "\n")
 #   |==================================================| 100% elapsed=12s  
 # 
 # Total time taken: 8.95111 mins 
+
+# Last go (23/03-2025) 
+# Extracting influence diagnostics for: Biodiversity ...
+#   |==================================================| 100% elapsed=29s  
+#   |==================================================| 100% elapsed=42s  
+# Extracting influence diagnostics for: Crop yield ...
+#   |==================================================| 100% elapsed=01m 58s
+#   |==================================================| 100% elapsed=02m 53s
+# Extracting influence diagnostics for: Water quality ...
+#   |==================================================| 100% elapsed=12s  
+#   |==================================================| 100% elapsed=10s
+# Extracting influence diagnostics for: Pest and Disease ...
+#   |==================================================| 100% elapsed=02s  
+#   |==================================================| 100% elapsed=03s  
+# Extracting influence diagnostics for: Soil quality ...
+#   |==================================================| 100% elapsed=01m 22s
+#   |==================================================| 100% elapsed=02m 16s
+# Extracting influence diagnostics for: Carbon sequestration ...
+#   |==================================================| 100% elapsed=08s  
+#   |==================================================| 100% elapsed=09s 
+# Extracting influence diagnostics for: Product quality ...
+#   |==================================================| 100% elapsed=12s  
+#   |==================================================| 100% elapsed=16s
+# 
+# Total time taken: 10.98624 mins 
 ```
 
 ```{r}
@@ -1074,15 +1112,13 @@ time.taken
 # Last go (02/03-2025)
 # Time difference: 
 # cooks_values
-|==================================================| 100% elapsed=06h 57m 22s
+# |==================================================| 100% elapsed=06h 57m 22s
 # dfbetas_values
-|==================================================| 100% elapsed=07h 18m 18s
+# |==================================================| 100% elapsed=07h 18m 18s
 # Hat_Values
 ```
 
-```{r}
 
-```
 
 LOADING THE INFLUENCE DIAGNOSTICS DATA
 ```{r}
@@ -1296,7 +1332,9 @@ full_model <- function(data, random_effects_formula) {
 model_to_use <- interaction_model  # Change this to minimal_random_effects_model if needed
 
 # Define random effects structure [before this was: ~ 1 | exp_id]
-random_effects_formula <- list(~ 1 | id_article/exp_id)
+# random_effects_formula <- list(~ 1 | id_article/exp_id)
+random_effects_formula <- list(~ 1 | id_article,                 # <----------  ! Chosen Random Effects Structure !
+                               ~ 1 | location / experiment_year)
 
 # Initialize a list to store results for each response variable
 response_specific_results <- list()
@@ -2149,7 +2187,7 @@ Systematic Interpretation of Contour-Enhanced Funnel Plots Across All Response V
 General Insights Across All Plots:
 1. **Centering and Symmetry**:
    - All funnel plots are centered at `0`, representing the null hypothesis of no effect.
-   - Symmetry in some plots (e.g., **Biodiversity**, **Soil Quality**, **Product Quality**) suggests minimal evidence of publication bias, while asymmetry in others (e.g., **Greenhouse Gas Emissions**, **Crop Yield**, **Water Quality**) indicates potential bias or heterogeneity in reported effects.
+   - Symmetry in some plots (e.g., **Biodiversity**, **Soil Quality**, **Product Quality**) suggests minimal evidence of publication bias, while asymmetry in others (e.g., **Carbon sequestration**, **Crop Yield**, **Water Quality**) indicates potential bias or heterogeneity in reported effects.
 
 2. **Shaded Regions**:
    - Most studies cluster in the **white region** (\( p > 0.10 \)), reflecting non-significant findings across the majority of studies.
@@ -2160,7 +2198,7 @@ General Insights Across All Plots:
    - The funnel shape consistently broadens as standard error increases, reflecting greater variability in effect sizes for less precise studies (higher standard error). This is consistent with expectations for meta-analyses.
 
 4. **Potential Bias**:
-   - Symmetrical plots (e.g., **Biodiversity**, **Soil Quality**) show little evidence of bias, while skewed plots (e.g., **Greenhouse Gas Emissions**, **Crop Yield**, **Water Quality**) suggest possible **publication bias** or genuine heterogeneity.
+   - Symmetrical plots (e.g., **Biodiversity**, **Soil Quality**) show little evidence of bias, while skewed plots (e.g., **Carbon sequestration**, **Crop Yield**, **Water Quality**) suggest possible **publication bias** or genuine heterogeneity.
 
 Individual Response Variable Insights:
 
@@ -2169,7 +2207,7 @@ Individual Response Variable Insights:
    - **Findings**: Most studies are non-significant, clustering in the white region.
    - **Conclusion**: No strong evidence of bias; results are consistent with null or minor effects.
 
-2. **Greenhouse Gas Emissions**:
+2. **Carbon sequestration**:
    - **Asymmetry**: Skewed to the right, indicating studies reporting positive effects are more frequent.
    - **Findings**: Non-significant results dominate, with fewer highly significant studies.
    - **Conclusion**: Potential publication bias favoring positive results; further statistical tests are recommended.
@@ -2201,7 +2239,7 @@ Individual Response Variable Insights:
 
 Overall Conclusion:
 - Symmetrical funnel plots (e.g., **Biodiversity**, **Soil Quality**, **Product Quality**) suggest **minimal publication bias** and consistent results.
-- Asymmetric plots (e.g., **Greenhouse Gas Emissions**, **Crop Yield**, **Water Quality**) highlight potential **publication bias** or **genuine heterogeneity**, warranting further statistical tests like Egger’s regression or subgroup analysis.
+- Asymmetric plots (e.g., **Carbon sequestration**, **Crop Yield**, **Water Quality**) highlight potential **publication bias** or **genuine heterogeneity**, warranting further statistical tests like Egger’s regression or subgroup analysis.
 
 
 ```{r}
@@ -2293,7 +2331,7 @@ eggers_results
 Summary of Egger’s Test for Publication Bias
 
 * No Evidence of Publication Bias for Biodiversity, Crop Yield, Pest & Disease, and Product Quality (p > 0.05). No significant funnel plot asymmetry detected.
-* Potential Publication Bias for Water Quality, Soil Quality, and Greenhouse Gas Emissions (p < 0.0001). Significant asymmetry suggests small-study effects or selective reporting. Possible Causes of Asymmetry: 1) Selective reporting bias (e.g., unpublished non-significant studies), 2) Small-study effects (exaggerated results in smaller studies), 3) High study heterogeneity (differences in study design, location, crops).
+* Potential Publication Bias for Water Quality, Soil Quality, and Carbon sequestration (p < 0.0001). Significant asymmetry suggests small-study effects or selective reporting. Possible Causes of Asymmetry: 1) Selective reporting bias (e.g., unpublished non-significant studies), 2) Small-study effects (exaggerated results in smaller studies), 3) High study heterogeneity (differences in study design, location, crops).
 
 
 
@@ -2376,8 +2414,9 @@ for (response_variable in response_variables) {
   }
 
   # Define the random effects structure
-  random_effects <- list(~ 1 | id_article/exp_id)
-
+  # random_effects <- list(~ 1 | id_article/exp_id)
+  random_effects <- list(~ 1 | id_article,                 # <----------  ! Chosen Random Effects Structure !
+                         ~ 1 | location / experiment_year)
   ###############################################################
   # NULL MODEL: GLOBAL AVERAGE WITHOUT MODERATORS
 
@@ -3120,7 +3159,9 @@ fit_moderator_models_mv <- function(meta_data, response_variables, moderators, v
   results_df <- data.frame()
   
   # Define minimal random effects structure
-  random_effects <- list(~ 1 | id_article/exp_id)
+  # random_effects <- list(~ 1 | id_article/exp_id)
+  random_effects <- list(~ 1 | id_article,                 # <----------  ! Chosen Random Effects Structure !
+                         ~ 1 | location / experiment_year)
 
   for (response_variable in response_variables) {
     

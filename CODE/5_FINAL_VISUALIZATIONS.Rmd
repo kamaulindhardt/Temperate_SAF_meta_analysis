@@ -105,6 +105,9 @@ suppressWarnings({
     patchwork,        # ggplot2 API for sequentially building up a plot
     purrr, 
     ggridges,
+    ggbreak,
+    tidyr,
+    forcats,
     ###################################################################################################################
     # Spatial Data
     tidygeocoder,     # Unified interface for performing both forward and reverse geocoding queries
@@ -129,6 +132,7 @@ suppressWarnings({
   
   # If encountering issues with raster::getData(), consider using geodata::worldclim_global() from the geodata package
 })
+
 
 ###################################################################################################################
 # Set preferences for conflicting functions
@@ -1568,7 +1572,7 @@ clean_forest_data <- function(data, yi_col, vi_col, other_cols) {
 }
 
 forest_data_clean <- clean_forest_data(
-  data = imp_dataset_imputed,
+  data = imp_dataset,
   yi_col = "yi",
   vi_col = "vi",
   other_cols = c("id_article", "id_obs", "response_variable", "crop_type", "tree_type")
@@ -1910,9 +1914,9 @@ evaluation_results
 ```
 
 ```{r}
-evaluation_results$`Crop yield`$interaction_model
-evaluation_results$`Biodiversity`$interaction_model
-evaluation_results$`Soil quality`$interaction_model
+evaluation_results$`Crop yield`$minimal_random_effects
+evaluation_results$`Biodiversity`$minimal_random_effects
+evaluation_results$`Soil quality`$minimal_random_effects
 ```
 
 ```{r}
@@ -1982,7 +1986,8 @@ back_transformed_results <- back_transform_logROM(evaluation_results)
 
 # Inspect the back-transformed results for a specific response variable
 # Choose a model from structured_results (e.g., "interaction_model", or "minimal_random_effects")
-back_transformed_results$`Water quality`$minimal_random_effects
+
+back_transformed_results$`Water quality`$minimal_random_effects # <-------------- ! Chosen Model !
 back_transformed_results$Biodiversity$minimal_random_effects
 ```
 
@@ -2068,7 +2073,7 @@ structured_results |> glimpse()
 ```{r}
 custom_colors <- c(
   "Biodiversity" = "#FF9999",
-  "Greenhouse gas emission" = "#66C266",
+  "Carbon sequestration" = "#66C266",
   "Product quality" = "#FFC000",
   "Crop yield" = "#FF9933",
   "Pest and Disease" = "#33CCCC",
@@ -2081,7 +2086,7 @@ custom_colors <- c(
 ##########################################################################################################################################
 
 # Step 1: Choose a model from structured_results (e.g., "interaction_model", or "minimal_random_effects")
-chosen_model <- "minimal_random_effects"
+chosen_model <- "minimal_random_effects" # <-------------- ! Chosen Model !
 
 # Step 2: Compute median effect sizes for ordering
 median_effects <- imp_data_rom %>%
@@ -2133,7 +2138,7 @@ forest_violin_plot <- ggplot(imp_data_rom_violin, aes(x = yi,
   scale_fill_manual(values = custom_colors) +
   labs(
     title = "", # "Overall Effects of SAF on Agroecosystem Services Relative to Monocrop"
-    x = "log RR Relative to Monocrop",
+    x = "Effect Size (logRR) Relative to Monocrop",
     y = "",
     fill = "Response Variable"
   ) +
@@ -2277,7 +2282,70 @@ print(stacked_barplot)
 
 
 
+#############
+# STEP 7
+##########################################################################################################################################
+EVIDENCE GAP MAP - HEAT MAP STYLE
+##########################################################################################################################################
 
+```{r}
+imp_data_rom |> glimpse()
+```
+```{r}
+# Evidence and Gap Map (EGM): Response Variables x Crop Types
+
+# Create a count table of response_variable by crop_type (crop_genus)
+egm_matrix <- imp_data_rom %>%
+  drop_na(response_variable, crop_genus) %>%
+  distinct(id_obs, response_variable, crop_genus) %>%
+  count(response_variable, crop_genus) %>%
+  mutate(across(where(is.character), as.factor))
+
+# Optional: order rows and columns
+crop_levels <- egm_matrix %>% 
+  count(crop_genus, wt = n) %>% 
+  arrange(desc(n)) %>% 
+  pull(crop_genus)
+
+response_levels <- egm_matrix %>% 
+  count(response_variable, wt = n) %>% 
+  arrange(desc(n)) %>% 
+  pull(response_variable)
+
+
+custom_colors <- c(
+  "Biodiversity" = "#FF9999",
+  "Carbon sequestration" = "#66C266",
+  "Product quality" = "#FFC000",
+  "Crop yield" = "#FF9933",
+  "Pest and Disease" = "#33CCCC",
+  "Soil quality" = "#9966CC",
+  "Water quality" = "#9999FF"
+)
+
+
+# Plot the EGM with reordered axes based on counts
+egm_plot <- ggplot(egm_matrix, aes(x = factor(crop_genus, levels = crop_levels),
+                                   y = factor(response_variable, levels = response_levels))) +
+  geom_point(aes(size = n, fill = response_variable), shape = 21, color = "black", alpha = 0.9) +
+  scale_fill_manual(values = custom_colors, name = "Response Variable", guide = "none") +
+  scale_size_continuous(range = c(2, 12)) +
+  theme_bw(base_size = 14) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "bottom",
+    panel.grid = element_blank()
+  ) +
+  labs(
+    title = "Evidence and Gap Map: Ecosystem Services vs Crop Types",
+    x = "Crop Type",
+    y = "Ecosystem Service (Response Variable)",
+    size = "No. of Observations"
+  )
+
+print(egm_plot)
+
+```
 
 
 
