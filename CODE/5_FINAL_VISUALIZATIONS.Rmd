@@ -12,7 +12,6 @@ knitr::opts_chunk$set(echo = TRUE)
 
 
 
-################################################################################
 Sources for developing approaches in meta-analysis: 
 
 https://wviechtb.github.io/metafor/reference/rma.mv.html 
@@ -28,14 +27,12 @@ should be rearranged accordingly. With this rearranged data format, we then cons
 With the rearranged data and variance-covariance matrix, V, we now ﬁt the ﬁxed-eﬀects meta-analysis model using metafor with the option of
 method="FE". To ﬁt the random-eﬀects multivariate meta-analysis model using the metafor package, we simply change the option to method="REML". We note that this reproduces the results, with this random-effects model, we can also test the difference between
 
-#####################################################
 
 Response Variables are measured on a continuous scale, where each individual outcome is a measurement of a numerical quantity
 Chosen Effect Size:  
 
 Formulas to estimate effects (and their standard errors)?
 
-#####################################################
 Step-by-Step Framework for Meta-Analysis
 
 1) Data Preparation
@@ -65,11 +62,7 @@ Consider meta-regression to formally test for differences in moderator effects b
 5) Visualizations
 Create comprehensive visual summaries, including caterpillar plots, forest plots, and geographical maps of study locations.
 
-#############
-# STEP 0
-##########################################################################################################################################
-PREPARING SCRIPT AND READ IN THE DATA
-##########################################################################################################################################
+# STEP 0 PREPARING SCRIPT AND READ IN THE DATA
 
 ```{r}
 # Clean workspace
@@ -183,11 +176,7 @@ imp_dataset |> glimpse()
 
 
 
-#############
-# STEP 1
-##########################################################################################################################################
-MAP OF STUDIES' GEOGRAPHIC DISTRIBUTION - SPATIAL DISTRIBUTION 
-##########################################################################################################################################
+# STEP 1 MAP OF STUDIES' GEOGRAPHIC DISTRIBUTION - SPATIAL DISTRIBUTION 
 
 
 Publication-ready map that visualizes the ecosystem services (response variables) reported in each study (id_article),
@@ -735,11 +724,7 @@ final_combined_map_of_study_geodistribution
 
 
 
-#############
-# STEP 2
-##########################################################################################################################################
-TEMPORAL DISTRIBUTION
-##########################################################################################################################################
+# STEP 2 TEMPORAL DISTRIBUTION
 
 ```{r}
 imp_dataset |> glimpse()
@@ -1077,11 +1062,8 @@ data_distribution_studies_agroclimregion
 
 
 
-#############
-# STEP 3
-##########################################################################################################################################
-PROPORTION OF EFFECT SIZE DIRECTION AS NUMBER OF POSITIVE, NEUTRAL, AND NEGATIVE
-##########################################################################################################################################
+# STEP 3 PROPORTION OF EFFECT SIZE DIRECTION AS NUMBER OF POSITIVE, NEUTRAL, AND NEGATIVE
+
 
 Based on the minimal_random_effects model
 
@@ -1164,11 +1146,8 @@ print(stacked_barplot)
 
 
 
-#############
-# STEP 4
-##########################################################################################################################################
-FORREST PLOT - OVERALL EFFECT SIZE DISTRIBUTION
-##########################################################################################################################################
+# STEP 4 FORREST PLOT - OVERALL EFFECT SIZE DISTRIBUTION
+
 
 ```{r}
 # Cleaning and preparing data
@@ -1542,6 +1521,36 @@ forest_plot_density_wide
 
 
 
+```{r}
+# Create the boxplot for the effect size (yi)
+# Order response variables by descending median effect size
+imp_data_rom_reorder <- imp_data_rom %>%
+  mutate(response_variable = fct_reorder(response_variable, yi, .fun = median, .desc = FALSE))
+
+# Create the boxplot with ordered response variables
+boxplot_raw_effect_size <- imp_data_rom_reorder |> 
+  ggplot(aes(y = response_variable, x = yi, fill = response_variable)) +
+  geom_vline(xintercept = 0, linetype = "dotted", color = "red", size = 0.8) + # Add red dotted line at x = 0
+  geom_boxplot(alpha = 0.7, outlier.size = 1) +
+  labs(
+    title = "Raw Effect Sizes (yi) Across Response Variables",
+    x = "Raw Effect Size (yi)",
+    y = "Response Variable"
+  ) +
+  scale_x_continuous(
+    trans = pseudo_log_trans(sigma = 0.1), # Apply pseudo-log transformation
+    breaks = c(0, 0.1, 1, 10, 100),       # Custom breaks
+    labels = c("0", "0.1", "1", "10", "100") # Relatable labels
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    axis.text.y = element_text(size = 12), # Adjust y-axis text size
+    axis.text.x = element_text(angle = 45, hjust = 1), # Rotate x-axis labels
+    legend.position = "none"
+  )
+
+boxplot_raw_effect_size
+```
 
 
 
@@ -1555,9 +1564,8 @@ forest_plot_density_wide
 
 
 
-##########################################################################################################################################
 FORREST PLOT - FOR INDIVIDUAL RESPONSE VARIABLES AND MODERATORS EFFECT SIZE DISTRIBUTION
-##########################################################################################################################################
+
 
 ```{r}
 # Cleaning Data
@@ -1900,11 +1908,8 @@ forest_plot_free_x
 
 
 
-#############
-# STEP 5
-##########################################################################################################################################
-FOREST PLOT (VIOLIN PLOT) EFFECT SIZES FOR ALL RESPONSE VARIABLES (THIS IS THE FINNAL FOREST PLOT)
-##########################################################################################################################################
+# STEP 5 FOREST PLOT (VIOLIN PLOT) EFFECT SIZES FOR ALL RESPONSE VARIABLES (THIS IS THE FINNAL FOREST PLOT)
+
 
 ```{r}
 # Read the pre-saved combined evaluation results object
@@ -2203,13 +2208,12 @@ structured_summary
 
 
 
-#############
-# STEP 6
-##########################################################################################################################################
-PROPORTION OF EFFECT SIZE DIRECTION AS NUMBER OF POSITIVE, NEUTRAL, AND NEGATIVE
-##########################################################################################################################################
+# STEP 6 PROPORTION OF EFFECT SIZE DIRECTION AS NUMBER OF POSITIVE, NEUTRAL, AND NEGATIVE
+
 
 Based on the minimal_random_effects model
+
+Change everything!
 
 ```{r}
 imp_data_rom <- readRDS(here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R", "imp_data_rom.rds"))
@@ -2249,7 +2253,7 @@ stacked_barplot <- ggplot(summary_data_for_eff_calc, aes(x = response_variable, 
   labs(
     title = "Percentage of Effect Sizes by Response Variable",
     x = "Response Variable",
-    y = "Percentage of Effect Sizes",
+    y = "Percentage of Effect Sizes", # %
     fill = "Effect Size Category"
   ) +
   theme_minimal(base_size = 14) +
@@ -2282,11 +2286,7 @@ print(stacked_barplot)
 
 
 
-#############
-# STEP 7
-##########################################################################################################################################
-EVIDENCE GAP MAP - HEAT MAP STYLE
-##########################################################################################################################################
+# STEP 7 EVIDENCE GAP MAP - HEAT MAP STYLE
 
 ```{r}
 imp_data_rom |> glimpse()

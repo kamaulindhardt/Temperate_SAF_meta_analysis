@@ -12,7 +12,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 
 
-################################################################################
+
 Sources for developing approaches in meta-analysis: 
 
 https://wviechtb.github.io/metafor/reference/rma.mv.html 
@@ -28,14 +28,14 @@ should be rearranged accordingly. With this rearranged data format, we then cons
 With the rearranged data and variance-covariance matrix, V, we now ﬁt the ﬁxed-eﬀects meta-analysis model using metafor with the option of
 method="FE". To ﬁt the random-eﬀects multivariate meta-analysis model using the metafor package, we simply change the option to method="REML". We note that this reproduces the results, with this random-effects model, we can also test the difference between
 
-#####################################################
+
 
 Response Variables are measured on a continuous scale, where each individual outcome is a measurement of a numerical quantity
 Chosen Effect Size:  
 
 Formulas to estimate effects (and their standard errors)?
 
-#####################################################
+
 Step-by-Step Framework for Meta-Analysis
 
 1) Data Preparation
@@ -65,11 +65,11 @@ Consider meta-regression to formally test for differences in moderator effects b
 5) Visualizations
 Create comprehensive visual summaries, including caterpillar plots, forest plots, and geographical maps of study locations.
 
-#############
+
 # STEP 0
-##########################################################################################################################################
+
 PREPARING SCRIPT AND READ IN THE DATA
-##########################################################################################################################################
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
 ```{r}
 # Clean workspace
@@ -124,6 +124,8 @@ suppressWarnings({
     metafor,          # Conduct meta-analyses and calculate effect sizes
     clubSandwich,     # Cluster-robust variance estimators for linear regression
     philentropy,      # Compute Jensen-Shannon Divergence and other divergence measures
+    MuMIn,            # For model selection and averaging
+    glmnet,           # For regularization methods
     ###################################################################################################################
     # Exploratory Data Analysis (EDA)
     DataExplorer,     # Streamline exploratory data analysis
@@ -186,13 +188,13 @@ global_palette <- c(
 
 
 custom_colors <- c(
-  "Biodiversity" = "#FF9999",
-  "Carbon sequestration" = "#66C266",
-  "Product quality" = "#FFC000",
-  "Crop yield" = "#FF9933",
-  "Pest and Disease" = "#33CCCC",
-  "Soil quality" = "#9966CC",
-  "Water quality" = "#9999FF"
+  "Biodiversity"               = "#FF9999",
+  "Carbon sequestration"       = "#66C266",
+  "Product quality"            = "#FFC000",
+  "Crop yield"                 = "#FF9933",
+  "Pest and disease control"   = "#33CCCC",
+  "Soil quality"               = "#9966CC",
+  "Water quality"              = "#9999FF"
 )
 
 # Define global ggplot2 scales for color and fill
@@ -204,7 +206,7 @@ scale_color_global <- scale_color_viridis_c(option = "D")  # Continuous
 ```
 
 
-Loading the dataset (main metadata database)
+## Loading the dataset (main metadata database)
 
 ```{r Loading database, warning=FALSE, message=FALSE}
 # Set the working directory automatically using 'here'
@@ -226,7 +228,7 @@ suppressWarnings({
   # control_sd_info (information on whether the control_var indicate _sd [TRUE] or [FALSE]),
 
   database <- readxl::read_excel(
-    here("DATA", "Meta_data_v8.xlsx"), 
+    here("DATA", "Meta_data_v78.xlsx"), 
     sheet = "Quantatitive data"
   )
   
@@ -237,18 +239,23 @@ suppressWarnings({
   # )
     
 })
-
-
 ```
 
 **Glimpse (taking a look at the data)**
 ```{r Glimpse the dataset, eval=FALSE}
 database %>% dplyr::glimpse() 
 
+# v7
 # Rows: 1,075
 # Columns: 35
+
+# v8
 # Rows: 1,126
-# Columns: 35
+# Columns: 45
+
+# v9
+# Rows: 1,126
+# Columns: 43
 ```
 
 ```{r}
@@ -256,19 +263,15 @@ database %>% summary()
 ```
 
 ```{r}
+options(pillar.sigfig = 4)
 database |> skim()
 ```
 
 
-#############
-# STEP 1
-##########################################################################################################################################
-DATA PREPROCESSING
-##########################################################################################################################################
+# STEP 1 DATA PREPROCESSING
 
-####################################
 GENERIC PREPROCESSING
-####################################
+
 
 And in step 4, generate unique study identifier ('exp_id')
 
@@ -376,9 +379,9 @@ database_clean <- database |>
 database_clean |> filter(id_article == 10)
 ```
 
-####################################
+
 GEOSPATIAL PREPROCESSING
-####################################
+
 
 In the Excel meta-data file, I am manually changing 'France (south west)' to 'France' and 'South East England(Cambridgeshire)' to 'Cambridgeshire, England' and 
 'Bramham in northern England' to 'Bramham, England'
@@ -621,9 +624,9 @@ database_clean |>
 ```
 
 
-################################################################################
+
 ASSESSING THE GENERATED RANDOM-FACTOR VARIABLES exp_id and treat_id 
-################################################################################
+
 
 Missingness Assessment for exp_id Visualization
 
@@ -969,20 +972,18 @@ missingness_moderators |>
 
 
 
-#############
-# STEP 2
-##########################################################################################################################################
-CALCULATING META-ANALYSIS QUANTITATIVE DATA (Std Dev., Std. Err. etc.)
-##########################################################################################################################################
+
+# STEP 2 CALCULATING META-ANALYSIS QUANTITATIVE DATA (Std Dev., Std. Err. etc.)
+
 
 ```{r}
 database_clean |> glimpse()
 ```
 
 
-##########################################################################################################################################
-CALCULATING STANDARD DEVIATION FROM EXISTING STANDARD ERROR
-##########################################################################################################################################
+
+## CALCULATING STANDARD DEVIATION FROM EXISTING STANDARD ERROR
+
 
 ```{r}
 # Calculate standard deviations from standard errors where _sd_info is FALSE
@@ -1083,11 +1084,8 @@ database_clean_sd
 
 
 
-#############
-# STEP 3
-##########################################################################################################################################
-ASSESS MISSINGNESS PATTERNS OF DATA BEFORE IMPUTATION
-##########################################################################################################################################
+# STEP 3 ASSESS MISSINGNESS PATTERNS OF DATA BEFORE IMPUTATION
+
 
 ```{r}
 # Check missingness summary for `control_sd` and `silvo_sd`
@@ -1229,9 +1227,8 @@ heatmap_missingness <- database_clean_sd_missingness %>%
 heatmap_missingness
 ```
 
-##########################################################################################################################################
-Assess missingness patterns for _sd variables by location and study ID (id_article)
-##########################################################################################################################################
+
+## Asessing missingness patterns for _sd variables by location and study ID (id_article)
 
 ```{r}
 # Calculate missingness by location
@@ -1300,9 +1297,7 @@ missing_by_study |>
 ```
 
 
-##########################################################################################################################################
-Little's MCAR test for missingness
-##########################################################################################################################################
+## Little's MCAR test for missingness
 
 Implications of missing.patterns:
 A high number of missing patterns indicates complex missingness in your dataset, which might suggest that the data is not Missing Completely at Random (MCAR). Instead, it might be Missing at Random (MAR) or Not Missing at Random (NMAR).
@@ -1385,8 +1380,6 @@ ggplot(test_data_cleaned_sd, aes(x = tree_age, fill = missing_control_sd)) +
   labs(title = "Relationship Between Tree Age and Missingness in control_sd_merged")
 ```
 
-Fit logistic regression models to see if missingness depends on observed variables.
-
 ```{r}
 # Test if missingness depends on observed variables using logistic regression
 
@@ -1404,20 +1397,38 @@ levels(test_data_cleaned_sd_test$season)
 levels(test_data_cleaned_sd_test$soil_texture)
 levels(test_data_cleaned_sd_test$no_tree_per_m)
 levels(test_data_cleaned_sd_test$alley_width)
+```
 
 
-# Test 1: Logistic regression using no interactions between specified moderators
+Fit logistic regression models to see if missingness depends on observed variables.
+
+```{r}
+# Test if missingness depends on observed variables using logistic regression
+
+# Filter complete cases just for the relevant variables in the model
+model_data_missing <- test_data_cleaned %>%
+  mutate(
+    missing_control_sd = as.numeric(is.na(control_sd_merged)),
+    missing_silvo_sd = as.numeric(is.na(silvo_sd_merged))
+  ) %>%
+  # Keep only complete rows for the variables used in Test 1
+  drop_na(tree_type, crop_type, age_system, tree_age, season, soil_texture,
+          no_tree_per_m, tree_height, alley_width)
+
+# Fit logistic regression models (Test 1)
 missing_control_model_1 <- glm(
-  missing_control_sd ~ (tree_type + crop_type + age_system + tree_age + season + soil_texture + no_tree_per_m + tree_height + alley_width), #^2,
-  data = test_data_cleaned_sd_test, family = binomial
+  missing_control_sd ~ tree_type + crop_type + age_system + tree_age + season +
+    soil_texture + no_tree_per_m + tree_height + alley_width,
+  data = model_data_missing, family = binomial
 )
 
 missing_silvo_model_1 <- glm(
-  missing_silvo_sd ~ (tree_type + crop_type + age_system + tree_age + season + soil_texture + no_tree_per_m + tree_height + alley_width), #^2,
-  data = test_data_cleaned_sd_test, family = binomial
+  missing_silvo_sd ~ tree_type + crop_type + age_system + tree_age + season +
+    soil_texture + no_tree_per_m + tree_height + alley_width,
+  data = model_data_missing, family = binomial
 )
 
-# Summarize results for Test 1
+# Summarize results
 cat("\nTest 1: Logistic regression results using specified moderators\n")
 cat("\nControl SD Missingness:\n")
 summary(missing_control_model_1)
@@ -1428,12 +1439,12 @@ summary(missing_silvo_model_1)
 # Test 2: Logistic regression using response variables
 missing_control_model_2 <- glm(
   missing_control_sd ~ response_variable,
-  data = test_data_cleaned_sd_test, family = binomial
+  data = model_data_missing, family = binomial
 )
 
 missing_silvo_model_2 <- glm(
   missing_silvo_sd ~ response_variable,
-  data = test_data_cleaned_sd_test, family = binomial
+  data = model_data_missing, family = binomial
 )
 
 # Summarize results for Test 2
@@ -1448,13 +1459,9 @@ summary(missing_silvo_model_2)
 
 
 
-The updated logistic regression analysis highlights that missingness in both `control_sd` and `silvo_sd` is systematically linked to observed variables, confirming that the missing data are not random. Several factors, including tree type, crop type, season, soil texture, tree age, and tree height, significantly influence missingness patterns. Tree type plays a particularly important role, with systems involving "fruit/nut & other" trees showing increased rates of missingness, likely due to variations in experimental protocols and challenges inherent in measuring more complex systems. In contrast, simpler systems such as those involving timber trees exhibit lower missingness rates, reflecting more standardized data collection methods. Similarly, crop type is a key factor, as cereal crops consistently display lower missingness, whereas systems involving tuber or root crops often experience higher rates of missing data, potentially due to logistical or methodological complexities specific to these cropping systems.
+Based on the updated logistic regression outputs, missingness in both `control_sd` and `silvo_sd` is not random but significantly associated with several observed variables, supporting the Missing at Random (MAR) assumption. Specifically, **tree age**, **season**, **soil texture**, and **tree height** were strong predictors of missingness (p < 0.01). Younger trees, stressful seasonal conditions (e.g. winter), complex soil types (e.g. clay), and taller trees were all linked to higher missing data rates—likely due to measurement challenges in early-stage systems, seasonal variability, or logistical constraints. In contrast, categorical variables like **tree type**, **crop type**, and **alley width** were not significant, suggesting their role in missingness is limited or mediated through other variables. 
 
-Environmental factors such as season and soil texture further contribute to missingness patterns. Extreme seasonal conditions, such as those associated with winter or summer stress, appear to hinder consistent data collection, resulting in higher rates of missingness. Similarly, difficult soil textures, particularly clay, are associated with significant missingness, likely reflecting the logistical challenges of managing experiments in these conditions. The analysis also reveals that tree age inversely correlates with missingness. Older tree systems tend to have more complete data, likely due to their greater experimental stability and maturity, whereas younger tree systems frequently experience missing data, reflecting the challenges of monitoring developing systems over shorter study durations. Tree height, on the other hand, is positively associated with missingness, as taller trees present additional challenges for data collection, particularly in accessing upper canopy layers or quantifying their influence on understory crops.
-
-Complex response variables, such as biodiversity and greenhouse gas emissions (Carbon sequestration), are also more prone to missing data. These variables often involve indirect measurements or multi-step processes, which increases the likelihood of incomplete reporting. In contrast, simpler response variables tend to have more complete datasets, reflecting less demanding measurement protocols. The statistical analysis provides strong evidence for these patterns, with significant coefficients for tree type, crop type, season, soil texture, tree height, and response variables, confirming that missingness follows a systematic and structured pattern.
-
-These findings underscore the validity of treating missingness as "Missing at Random" (MAR), where the probability of missing data depends on observed variables. This MAR assumption supports the use of imputation techniques that incorporate predictors such as tree type, crop type, environmental conditions, and response variables into the imputation models. By leveraging these systematic relationships, imputation approaches can reduce bias and preserve the structural integrity of the dataset. This ensures that downstream analyses remain robust and reliable, even in the context of the diverse and variable experimental settings characteristic of temperate silvoarable agroforestry systems. Understanding these mechanisms of missingness is therefore critical for addressing data gaps and maintaining the reliability of meta-analytic insights.
+A second test confirmed that missingness was also significantly associated with the type of **response variable**, where more complex ecosystem service outcomes (like biodiversity or carbon sequestration) showed higher rates of missing data. These results justify the use of imputation models based on observed predictors and reinforce the importance of considering structural missingness in silvoarable agroforestry meta-analyses.
 
 
 ```{r}
@@ -1611,11 +1618,9 @@ These patterns reinforce the importance of tailoring imputation strategies to ac
 
 
 
-#############
-# STEP 4
-##########################################################################################################################################
-HANDELING OF MISSING VALUES IN THE DATASET - IMPUTATION
-##########################################################################################################################################
+
+# STEP 4 HANDELING OF MISSING VALUES IN THE DATASET - IMPUTATION
+
 
 Perform imputation on  silvo_sd, control_sd using a variety of methods:
 
@@ -1949,6 +1954,10 @@ cat("\nTotal time taken:", time.taken, units(time.taken), "\n")
 ```{r}
 imputed_datasets |> str()
 ```
+
+
+
+
 ```{r}
 # imputed_mids_pmm
 # imputed_mids_rf
@@ -1963,7 +1972,7 @@ mids_objects <- list(
   rf = imputed_mids_rf
 )
 
-mids_objects |> str()
+# mids_objects |> str()
 ```
 
 ```{r}
@@ -2522,9 +2531,8 @@ imputed_datasets$rf_best <- imputed_rf_best
 imputed_datasets$rf_best
 ```
 
-##########################################################################################################################################
-Visually examine the imputed values - from best selected rf imputation
-##########################################################################################################################################
+
+## Visually examine the imputed values - from best selected rf imputation
 
 
 ```{r}
@@ -2675,9 +2683,7 @@ ggsave(
 
 
 
-##########################################################################################################################################
-More quantitative statistical assessment
-##########################################################################################################################################
+## More quantitative statistical assessment
 
 
 
@@ -3066,11 +3072,8 @@ imputed_datasets |> glimpse()
 
 
 
-#############
-# STEP 5
-##########################################################################################################################################
-MERGING THE IMPUTED DATASET BACK TO THE ORIGINAL DATA AND VISUALISE
-##########################################################################################################################################
+# STEP 5 MERGING THE IMPUTED DATASET BACK TO THE ORIGINAL DATA AND VISUALISE
+
 
 ```{r}
 ##############
@@ -3311,9 +3314,8 @@ print(imputation_check)
 ```
 
 
-##########################################################################################################################################
-VISUAL DIAGNOSTIGS OF MERGED DATA WITH SELECTED IMPUTATION METHOD
-##########################################################################################################################################
+## VISUAL DIAGNOSTIGS OF MERGED DATA WITH SELECTED IMPUTATION METHOD
+
 
 ```{r}
 # imputed_datasets |> str()
@@ -3549,11 +3551,8 @@ ggsave(
 ```
 
 
-#############
-# STEP 6
-##########################################################################################################################################
-SAVING TWO VERSIONS OF PREPROCESSED DATA FOR FURTHER ANALYSIS AND VISUALIZATION - RECALCULATION OF _SD WHERE THE ORIGINAL _SD IS MISSING
-##########################################################################################################################################
+# STEP 6 SAVING TWO VERSIONS OF PREPROCESSED DATA FOR FURTHER ANALYSIS AND VISUALIZATION - RECALCULATION OF _SD WHERE THE ORIGINAL _SD IS MISSING
+
 
 ```{r}
 # Imputed dataset where _se is imputed and then subsequently used to calculate _sd
@@ -3734,11 +3733,8 @@ cat("- Best-imputed dataset: imp_rf_best_dataset.rds\n")
 
 
 
-#############
-# STEP 7
-##########################################################################################################################################
-CALCULATING EFFECT SIZES FOR IMPUTED AND NON-IMPUTED DATASETS
-##########################################################################################################################################
+# STEP 7 CALCULATING EFFECT SIZES FOR IMPUTED AND NON-IMPUTED DATASETS
+
 
 Loading datasets
 ```{r}
@@ -3905,13 +3901,16 @@ differences %>% glimpse()
 
 differences |> select(
   # Updated variance columns
-    silvo_sd_rf_best, silvo_sd_rf_best_uq,
-    control_sd_rf_best, control_sd_rf_best_uq) |> 
+  silvo_sd_rf_best, silvo_sd_rf_best_uq,
+  control_sd_rf_best, control_sd_rf_best_uq) |> 
   skim()
 ```
 
 
 ```{r}
+# Only 13 observations out of 1,095 differ between rf_best and rf_best_uq
+# Going forward, let’s use the upper-quartile-imputed standard deviations as the final imputed values for control_sd_final and silvo_sd_final.
+
 imp_rf_best <- imp_rf_best_uq |> 
   mutate(
     control_sd_final = control_sd_rf_best_uq,
@@ -3922,11 +3921,8 @@ imp_rf_best <- imp_rf_best_uq |>
 
 
 
-#############
-# STEP 7
-##########################################################################################################################################
-EFFECT SIZE CALCULATION
-##########################################################################################################################################
+# STEP 8 EFFECT SIZE CALCULATION
+
 
 ```{r}
 # Function for data preparation before escalc() effect size calculation
@@ -3938,12 +3934,13 @@ prep_dataset_for_rom <- function(data) {
     filter(silvo_sd_final > 0, control_sd_final > 0) %>%
     
     # Step 2: Adjust the sign of mean values for specific response variables
-    # - For variables like "Carbon sequestrations," "Pests and Diseases," and "Water quality,"
+    # - For variables like "Pest and disease control" (Abundance of pests and diseases) and "Water quality" (Nutrient concentrations),
     #   lower values are considered better. We negate the mean values to reflect this correctly.
+    # - For other response variables, e.g. "Carbon sequestrations" (SOC stock/sequestration), the sign stays as higher values are intuitively 'better'
     mutate(
-      silvo_mean = ifelse(response_variable %in% c("Carbon sequestration", "Pests and Diseases", "Water quality"),
+      silvo_mean = ifelse(response_variable %in% c("Pest and disease control", "Water quality"),
                           -silvo_mean, silvo_mean),
-      control_mean = ifelse(response_variable %in% c("Carbon sequestration", "Pests and Diseases", "Water quality"),
+      control_mean = ifelse(response_variable %in% c("Pest and disease control", "Water quality"),
                             -control_mean, control_mean)
     ) %>%
     
@@ -3983,6 +3980,11 @@ prep_dataset_for_rom <- function(data) {
 non_imp_data_prep <- prep_dataset_for_rom(non_imp_dataset)
 imp_data_prep <- prep_dataset_for_rom(imp_rf_best)
 ```
+
+```{r}
+skimr::skim(imp_data_prep)
+```
+
 
 ```{r}
 # Generic function for effect size calculation using `escalc()`
@@ -4035,6 +4037,7 @@ imp_data_prep %>%
   filter(is.na(silvo_sd_final) | is.na(control_sd_final) | silvo_sd_final <= 0 | control_sd_final <= 0)
 ```
 
+
 ```{r}
 # Apply the function to both non-imputed and imputed datasets
 
@@ -4056,7 +4059,7 @@ non_imp_data_rom <- calculate_effect_sizes(non_imp_data_prep,
     # Geographic and temporal info
     location, final_lat, final_lon, exp_site_loc, experiment_year,
     # Moderators info
-    tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width,
+    tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width, # organic, tillage 
     # Quantitative meta-analysis variables - mean and no. of observations
     silvo_mean, control_mean, silvo_n, control_n,
     # Quantitative meta-analysis variables - variance info
@@ -4083,7 +4086,7 @@ imp_data_rom <- calculate_effect_sizes(imp_data_prep,
     # Geographic and temporal info
     location, final_lat, final_lon, exp_site_loc, experiment_year,
     # Moderators info
-    tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width,
+    tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width, # organic, tillage 
     # Quantitative meta-analysis variables - mean and no. of observations
     silvo_mean, control_mean, silvo_n, control_n,
     # Quantitative meta-analysis variables - variance info
@@ -4095,9 +4098,14 @@ imp_data_rom <- calculate_effect_sizes(imp_data_prep,
 ```{r}
 imp_data_rom |> glimpse()
 ```
+```{r}
+skimr::skim(imp_data_rom)
+```
+
+## Boxplot for the raw effect size (yi)
 
 ```{r}
-# Create the boxplot for the effect size (yi)
+# Create the boxplot for the raw effect size (yi)
 # Order response variables by descending median effect size
 imp_data_rom_reorder <- imp_data_rom %>%
   mutate(response_variable = fct_reorder(response_variable, yi, .fun = median, .desc = FALSE))
@@ -4105,22 +4113,23 @@ imp_data_rom_reorder <- imp_data_rom %>%
 # Create the boxplot with ordered response variables
 boxplot_raw_effect_size <- imp_data_rom_reorder |> 
   ggplot(aes(y = response_variable, x = yi, fill = response_variable)) +
-  geom_vline(xintercept = 0, linetype = "dotted", color = "red", size = 0.8) + # Add red dotted line at x = 0
-  geom_boxplot(alpha = 0.7, outlier.size = 1) +
+  geom_vline(xintercept = 0, linetype = "dotted", color = "red", size = 0.8) +
+  geom_boxplot(alpha = 0.7, outlier.size = 0.8, width = 0.6) +
+  geom_jitter(height = 0.1, width = 0.001, alpha = 0.3, size = 0.8) +  # Optional: visualize raw points
   labs(
     title = "Raw Effect Sizes (yi) Across Response Variables",
     x = "Raw Effect Size (yi)",
     y = "Response Variable"
   ) +
   scale_x_continuous(
-    trans = pseudo_log_trans(sigma = 0.1), # Apply pseudo-log transformation
-    breaks = c(0, 0.1, 1, 10, 100),       # Custom breaks
-    labels = c("0", "0.1", "1", "10", "100") # Relatable labels
+    breaks = seq(-0.05, 0.05, by = 0.01),
+    labels = scales::label_number(accuracy = 0.01)
   ) +
+  coord_cartesian(xlim = c(-0.05, 0.05)) +  # Zoom in tightly
   theme_minimal(base_size = 14) +
   theme(
-    axis.text.y = element_text(size = 12), # Adjust y-axis text size
-    axis.text.x = element_text(angle = 45, hjust = 1), # Rotate x-axis labels
+    axis.text.y = element_text(size = 12),
+    axis.text.x = element_text(angle = 45, hjust = 1),
     legend.position = "none"
   )
 
@@ -4410,11 +4419,10 @@ Save the high-variance plot
 
 
 
-####################################################################################################################################################
+## Heterogeneity Analysis
 
-Heterogeneity Analysis
 Compare the heterogeneity statistics between the meta-analyses conducted on the imputed and non-imputed datasets. This will help you understand if the imputation has influenced the heterogeneity of the studies.
-####################################################################################################################################################
+
 
 ```{r}
 # Prepare the original data
@@ -4456,11 +4464,23 @@ start.time <- Sys.time()
 ##################################################
 
 
-# Fit random-effects models on both datasets
-rma_non_imp <- rma(yi = yi_original, vi = vi_original, data = comparison_data)
-rma_imp <- rma(yi = yi_imputed, vi = vi_imputed, data = comparison_data)
+# Step 1: Remove rows with missing values in the columns used
+# Step 2: Fit random-effects models
+rma_non_imp <- rma(
+  yi = yi_original,
+  vi = vi_original,
+  data = comparison_data,
+  subset = !is.na(yi_original) & !is.na(vi_original)
+)
 
-# Print heterogeneity statistics
+rma_imp <- rma(
+  yi = yi_imputed,
+  vi = vi_imputed,
+  data = comparison_data,
+  subset = !is.na(yi_imputed) & !is.na(vi_imputed)
+)
+
+# Step 3: Print heterogeneity stats
 cat("Non-Imputed Data - Heterogeneity (I^2):", rma_non_imp$I2, "\n")
 cat("Non-Imputed Data - Between-study variance (tau^2):", rma_non_imp$tau2, "\n")
 
@@ -4494,6 +4514,14 @@ cat("\nTotal time taken:", time.taken, units(time.taken), "\n")
 # Imputed Data - Heterogeneity (I^2): 99.99114 
 # Imputed Data - Between-study variance (tau^2): 0.01757954 
 # Time difference of 5.538544 secs
+
+# Last go (25/03-2025)
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.
+# Non-Imputed Data - Heterogeneity (I^2): 20.68326 
+# Non-Imputed Data - Between-study variance (tau^2): 1.234911e-10 
+# Imputed Data - Heterogeneity (I^2): 99.99889 
+# Imputed Data - Between-study variance (tau^2): 4.177027e-05  
+# Total time taken: 4.124935 secs 
 ```
  
  
@@ -4531,15 +4559,15 @@ print(ks_test_result)
 # alternative hypothesis: two-sided
 ```
 
-The Kolmogorov-Smirnov (KS) test was performed to compare the distributions of effect sizes (ROM) between the non-imputed and imputed datasets. The test statistic (\(D = 0.0317\)) and its corresponding p-value (\(p = 0.6984\)) indicate no significant difference between the two distributions. This suggests that the imputed and non-imputed datasets share similar underlying distributions, and the null hypothesis of no difference cannot be rejected. While the warning about approximate p-values due to ties in the data highlights a potential limitation, the results strongly suggest that the imputation process preserved the original distributional characteristics of effect sizes.
 
-However, significant differences are evident when considering metrics for heterogeneity and between-study variance. For the non-imputed dataset, heterogeneity was relatively low (\(I^2 = 19.85\%\)) with minimal between-study variance (\(\tau^2 = 2.78 \times 10^{-6}\)), reflecting limited variability among studies. Conversely, the imputed dataset exhibited exceptionally high heterogeneity (\(I^2 = 99.99\%\)) and substantially increased between-study variance (\(\tau^2 = 0.0176\)). These findings indicate that the imputation process introduced substantial variability into the dataset, altering its structure and potentially complicating meta-analytic interpretation.
+The Kolmogorov-Smirnov (KS) test compared the distributions of effect sizes (ROM) between the non-imputed and imputed datasets. 
+The result (D = 0.0133), (p = 1) indicates no statistically significant difference, suggesting that the imputation process preserved the overall distribution of effect sizes. Although a warning was issued about approximate p-values due to ties, the extremely high p-value strongly supports the null hypothesis of no difference between the two distributions.
 
-The warnings regarding the extreme ratio of the largest to smallest sampling variances underscore potential instability in the meta-analytic models, particularly for the imputed dataset. This issue, common in meta-analyses involving imputed data, necessitates careful consideration, as it can impair the stability and reliability of meta-analytic results.
+However, a notable divergence arises in the heterogeneity metrics. The non-imputed dataset shows low heterogeneity (I^2 = 20.7%) and an almost negligible between-study variance (tau^2 = 1.23 times 10^{-10}), indicating consistent effects across studies. In contrast, the imputed dataset shows extreme heterogeneity (I^2 = 99.99%) and a sharp increase in between-study variance (tau^2 = 4.18 times 10^{-5}), implying the imputation introduced substantial variability. This may reflect the uncertainty embedded in the imputed standard deviations and variances.
 
-The KS test results confirm that the imputation process preserved the overall distribution of effect sizes. However, the sharp increase in heterogeneity and between-study variance in the imputed dataset raises concerns about the imputation’s impact on the dataset's internal structure. These changes could influence the reliability of conclusions drawn from the meta-analysis and warrant additional scrutiny.
+Additionally, warnings about the extreme ratio of the largest to smallest sampling variances signal potential instability in the meta-analytic models—particularly for the imputed data. Such variance imbalances are known to reduce model reliability and inflate heterogeneity metrics.
 
-To address these issues, it is essential to ensure transparency in reporting differences between the datasets, conduct sensitivity analyses to assess the robustness of results, and evaluate the influence of imputation on model stability. While the imputation preserved the original distributional characteristics of effect sizes, the substantial increase in variability underscores the importance of carefully interpreting results and mitigating the effects of imputation on meta-analytic findings.
+In summary, while the imputation preserved the overall distribution of effect sizes, it significantly altered the internal variance structure of the dataset. This highlights the importance of conducting sensitivity analyses, transparently reporting changes, and interpreting imputed meta-analytic results with caution.
 
 
  
@@ -4646,9 +4674,9 @@ boxplot_imp <- ggplot(imp_data_rom, aes(y = yi)) +
 ```
 
 
-##########################################################################################################################################
-ASSESSING CORRELATION BETWEEN RESPONSE VARIABLES
-##########################################################################################################################################
+
+## Assessing correlation between response variables
+
 
 ```{r}
 non_imp_data_rom |> glimpse()
@@ -4662,25 +4690,39 @@ imp_data_rom |> glimpse()
 
 # Set up data
 # Testing on the imputed dataset
-moderators_data <- imp_data_rom %>%
-  select(tree_type, crop_type, age_system, season, soil_texture) %>%
-  mutate(across(everything(), as.factor)) %>%
-  as.data.frame()
+# Step 1: Prepare data for linear model
+model_data <- imp_data_rom %>%
+  select(yi, tree_type, crop_type, age_system, season, soil_texture) %>%
+  drop_na() %>%  # Drop rows with any missing values in these columns
+  mutate(across(-yi, as.factor))  # Ensure all moderators are factors
 
 ##########################################################################
 # Fit a linear model with moderators
 ##########################################################################
 
-lm_model <- lm(yi ~ tree_type + crop_type + age_system + season + soil_texture, 
-               data = imp_data_rom)
+# Step 2: Fit the linear model
+lm_model <- lm(yi ~ tree_type + crop_type + age_system + season + soil_texture, # organic (1 = organic, 0 = conventional), tillage (1 = tillage, 0 = no tillage)
+               data = model_data)
+
+# Step 3 (Optional): Check model summary
+summary(lm_model)
 ```
 
 ```{r}
 ##########################################################################
 # 1. Correlation Analysis
 ##########################################################################
+model_data <- imp_data_rom %>%
+  select(yi, tree_type, crop_type, age_system, season, soil_texture) %>%
+  drop_na() %>%  # Drop rows with any missing values in these columns
+  mutate(across(-yi, as.factor))  # Ensure all moderators are factors
+
+moderators_data <- model_data |> as.data.frame() |>  
+  # Drop rows with any missing values in these columns
+  drop_na()
+
 # Convert categorical variables to numeric for correlation matrix
-moderators_numeric <- model.matrix(~ . + 0, data = moderators_data) %>% as.data.frame()
+moderators_numeric <- model.matrix(~ . + 0, data = moderators_data)
 
 # Calculate correlation matrix
 cor_matrix <- cor(moderators_numeric, use = "pairwise.complete.obs")
@@ -4706,16 +4748,21 @@ barplot(vif_values, main = "Variance Inflation Factors (VIF)",
         col = "blue", horiz = TRUE, las = 1, xlab = "VIF Value")
 ```
 
-The Variance Inflation Factor (VIF) helps identify if predictors in a regression model are too similar or correlated with each other. When predictors are highly related, it can make it difficult to determine the individual impact of each predictor, as their effects overlap. VIF measures how much the variance of a predictor's coefficient is inflated due to this overlap.
 
-For categorical variables with multiple levels, the Generalized VIF (GVIF) is used. GVIF adjusts for the number of levels in a categorical variable, providing a way to compare them with other predictors. A scaled version of GVIF helps interpret these adjusted values more easily.
+The Generalized Variance Inflation Factor (GVIF) assesses how much each predictor in a regression model is correlated with the others. High correlation between predictors—known as multicollinearity—can make it difficult to isolate the individual effects of each variable. GVIF is especially useful for categorical predictors with multiple levels, as it adjusts for the number of degrees of freedom (i.e., categories).
 
-In this analysis, the predictors all have low VIF values. The largest adjusted GVIF is 1.17 for soil texture, which is far below the commonly used thresholds of 5 or 10 for concern. This indicates there is no significant multicollinearity among the predictors, meaning they are not overly correlated with one another.
+To make GVIF values comparable across predictors, we use the scaled version: GVIF^(1/(2*Df)). Values near 1 indicate low correlation with other predictors, while values above 5 (or more conservatively, above 2.5) can indicate problematic multicollinearity.
 
-Since none of the predictors exhibit high VIF values, no corrective actions are needed, such as removing variables or combining them into fewer components. The predictors are providing independent and valuable information to the model, and the results can be interpreted without concerns about redundancy or instability.
+In this case, all scaled GVIF values are low:
+- **Soil texture** has the highest adjusted GVIF at **1.18**
+- All other predictors (tree type, crop type, age system, and season) range between **1.09 and 1.15**
 
-In summary, the VIF analysis confirms that the model's predictors are sufficiently independent and do not cause issues with multicollinearity. This ensures the model's results are clear, reliable, and interpretable.
+These values are well below any threshold of concern. This confirms that **none of the predictors are strongly correlated** with one another.
 
+As a result, there’s no need to remove or combine predictors. Each contributes independently to the model, and the results can be interpreted with confidence that multicollinearity is not inflating variance or undermining model stability.
+
+**Conclusion:**  
+The VIF diagnostics show that the predictors in the model are sufficiently independent. This supports the reliability and interpretability of the regression results.
 
 
 
@@ -4725,7 +4772,9 @@ In summary, the VIF analysis confirms that the model's predictors are sufficient
 # Convert categorical variables to factors (if not already factors)
 predictors <- imp_data_rom %>%
   select(tree_age, crop_type, tree_type, soil_texture, experiment_year, alley_width) %>%
-  mutate(across(where(is.character), as.factor))
+  mutate(across(where(is.character), as.factor)) |>
+  # Drop rows with any missing values in these columns
+  drop_na()
 
 # Create dummy variables for categorical predictors
 predictors_numeric <- model.matrix(~ . - 1, data = predictors) %>%  # -1 to exclude the intercept
@@ -4750,7 +4799,9 @@ biplot(pca_results)
 # Convert categorical variables to factors and create dummy variables
 predictors <- imp_data_rom %>%
   select(tree_age, crop_type, tree_type, soil_texture, experiment_year, alley_width) %>%
-  mutate(across(where(is.character), as.factor))
+  mutate(across(where(is.character), as.factor)) |>
+  # Drop rows with any missing values in these columns
+  drop_na()
 
 # Create numeric predictors with dummy variables
 predictors_numeric <- model.matrix(~ . - 1, data = predictors) %>%
@@ -4771,7 +4822,7 @@ predictors_numeric <- model.matrix(~ . - 1, data = aligned_data %>%
 response_filled <- aligned_data$yi
 
 # Fit the Random Forest model
-library(randomForest)
+
 rf_model <- randomForest(x = predictors_numeric, y = response_filled, importance = TRUE)
 
 # Display feature importance
@@ -4782,7 +4833,7 @@ The results from the random forest analysis and the correlation matrix provide i
 
 The random forest model was employed to evaluate the relative importance of variables considered as moderators in the meta-regression model (`rma.mv`). Random forest is particularly suitable for this purpose due to its ability to handle complex interactions and non-linear relationships between predictors, making it an effective tool for identifying which moderators most strongly influence the response variable. The model assessed the importance of these moderators using two key metrics: the percentage increase in mean squared error (%IncMSE) and increase in node purity (IncNodePurity). These metrics reflect how much each moderator improves the model's predictive power and reduces uncertainty.
 
-###############################################
+
 
 The results highlight tree age and experiment year as the most influential moderators. These variables significantly impact both %IncMSE and IncNodePurity, indicating their critical role in explaining variations in the response variable within the meta-analytic framework. Their importance suggests that temporal factors, such as the age of the tree systems and the year of the experiments, are vital in shaping the observed outcomes across studies.
 
@@ -4792,7 +4843,7 @@ Variables like alley width and certain crop or tree types, such as tuber/root cr
 
 The random forest results emphasize the hierarchy of moderator importance, with tree age and experiment year standing out as dominant predictors. This refined understanding can improve the meta-regression model by focusing on the most impactful moderators, simplifying the model structure while maintaining its explanatory and predictive power.
 
-###########################################
+
 
 The correlation matrix reveals the relationships between predictors. Strong correlations (shown as larger, darker circles) suggest that some predictors may overlap in the information they provide. For example, if "tree type" and "crop type" have a high positive or negative correlation, this could mean they are not entirely independent, potentially leading to redundancy in the model. This aligns with earlier findings of multicollinearity, where predictors interfere with each other.
 
@@ -4801,7 +4852,7 @@ From the PCA results, the first three principal components (PC1, PC2, and PC3) e
 Overall, while "tree type" and "crop type" seem to be the most influential predictors, their high correlation with other variables might complicate the interpretation. You should consider techniques like feature selection, dimensionality reduction, or removing redundant variables to improve model clarity and performance.
 
 
-###########################################
+
 
 
 The results of the random forest analysis reveal important limitations and implications for reporting and communicating overall meta-analysis findings. By identifying tree age and experiment year as the dominant moderators, the analysis highlights a key limitation of heterogeneity within the dataset. This underscores the challenge of attributing outcomes to specific factors when a few moderators exert disproportionate influence. Such dominance may mask the contributions of less impactful moderators and complicate the interpretation of their individual roles in the meta-analysis.
@@ -4812,7 +4863,7 @@ Communicating the meta-analysis results requires careful consideration of these 
 
 The findings also highlight the need for transparency when reporting results. Explicitly addressing the hierarchical importance of moderators, as identified by the random forest analysis, can help contextualize the results and guide readers in understanding the limitations of the analysis. Clear communication about the variability and potential biases introduced by dominant moderators is essential for ensuring that the conclusions of the meta-analysis are interpreted appropriately and applied responsibly in decision-making contexts.
 
-###########################################
+
 
 
 ```{r}
@@ -4900,13 +4951,16 @@ vip(rf_final_model) +
 
 ```
 
-##########################################################################
-3. Stepwise Regression
-##########################################################################
+## 3. Stepwise Regression
+
 
 Stepwise regression iteratively adds or removes predictors from a model to optimize the Akaike Information Criterion (AIC), balancing goodness-of-fit with model complexity. Starting with an initial model, predictors are evaluated through forward selection (adding predictors) and backward elimination (removing predictors). This process identifies the most relevant variables while discarding redundant or insignificant ones, improving model interpretability and predictive performance. It mitigates multicollinearity and avoids overfitting by ensuring parsimony. However, results should be interpreted cautiously, as stepwise methods may exclude theoretically important predictors.
 
-```{r}
+
+OBS! Takes a long time ~ 1 hour!
+
+```{r eval=FALSE}
+# Moderator Model Selection Workflow using step() and lm()
 ##########################################################################
 # Set up the parallel processing plan
 plan(multisession, workers = parallel::detectCores() - 1)
@@ -4916,20 +4970,28 @@ start.time <- Sys.time()
 ##################################################
 ##################################################
 
-# Set up data (imputed dataset)
-moderators_data <- imp_data_rom %>%
-  select(tree_type, crop_type, age_system, season, soil_texture) %>%
-  mutate(across(everything(), as.factor)) %>%
-  as.data.frame()
+# 1. Filter for complete cases
+model_data <- imp_data_rom %>%
+  # Full set of moderators: tree_type, crop_type, age_system, season, soil_texture, tree_height, alley_width, no_tree_per_m --- # organic, tillage 
+  # Reduced set of moderators: tree_type, crop_type, age_system, season, soil_texture
+  select(yi, tree_type, crop_type, age_system, season, soil_texture, tree_height, alley_width, no_tree_per_m) |> 
+  # Make sure the response variable is numeric
+  mutate(yi = as.numeric(yi)) |> 
+  # Make sure predictors are factors
+  mutate(across(-yi, as.factor)) |> 
+  drop_na()
 
 ##########################################################################
-# Fit a linear model with moderators
-lm_model <- lm(yi ~ tree_type + crop_type + age_system + season + soil_texture, 
-               data = imp_data_rom)
+# 2. Fit a linear model with moderators (removing intercept with '-1')
+# Full set of moderators: tree_type + crop_type + age_system + season + soil_texture + tree_height + alley_width + no_tree_per_m, --- # organic, tillage 
+# Reduced set of moderators: tree_type + crop_type + age_system + season + soil_texture,
+lm_model <- lm(yi ~ -1 + tree_type * crop_type * age_system * season * soil_texture * tree_height * alley_width * no_tree_per_m,
+               data = model_data)
 
-##########################################################################
-# Stepwise regression using AIC
+# 3. Run stepwise regression
 stepwise_model <- step(lm_model, direction = "both", trace = TRUE)
+
+##########################################################################
 
 # Summary of the stepwise regression model
 summary(stepwise_model)
@@ -4943,88 +5005,198 @@ end.time <- Sys.time()
 time.taken <- end.time - start.time
 cat("\nTotal time taken:", time.taken, units(time.taken), "\n")
 ##############################################################
-# Last go (24/01-2025)
-# Start:  AIC=-3165.5
-# yi ~ tree_type + crop_type + age_system + season + soil_texture
-# 
-#                Df Sum of Sq    RSS     AIC
-# <none>                      56.760 -3165.5
-# - soil_texture  2   0.35747 57.118 -3162.7
-# - tree_type     2   0.36934 57.129 -3162.5
-# - season        1   0.33810 57.098 -3161.1
-# - age_system    2   0.49991 57.260 -3160.0
-# - crop_type     2   0.79088 57.551 -3154.5
-# 
+# Last go (23/03-2025)
+# Total time taken: 46.53044 mins 
+
 # Call:
-# lm(formula = yi ~ tree_type + crop_type + age_system + season + 
-#     soil_texture, data = imp_data_rom)
+# lm(formula = yi ~ tree_type + crop_type + age_system + soil_texture + 
+#     tree_height + no_tree_per_m + tree_type:crop_type + tree_type:age_system + 
+#     crop_type:age_system + tree_type:soil_texture + crop_type:soil_texture + 
+#     age_system:soil_texture + crop_type:tree_height - 1, data = model_data)
 # 
 # Residuals:
-#      Min       1Q   Median       3Q      Max 
-# -1.44664 -0.06225 -0.00045  0.05106  2.72286 
+#       Min        1Q    Median        3Q       Max 
+# -0.312021 -0.000641 -0.000052  0.000561  0.096369 
 # 
-# Coefficients:
-#                                 Estimate Std. Error t value Pr(>|t|)    
-# (Intercept)                    0.0327965  0.0245682   1.335 0.182186    
-# tree_typeFruit,nut & other     0.0001449  0.0180118   0.008 0.993583    
-# tree_typeTimber               -0.0477382  0.0195547  -2.441 0.014797 *  
-# crop_typeLegume                0.0653241  0.0197544   3.307 0.000975 ***
-# crop_typeTuber,root and other -0.0482183  0.0325947  -1.479 0.139347    
-# age_systemMedium              -0.0061044  0.0180220  -0.339 0.734887    
-# age_systemYoung                0.0521375  0.0203419   2.563 0.010511 *  
-# seasonWinter                  -0.0477622  0.0189099  -2.526 0.011687 *  
-# soil_textureSand               0.0046211  0.0193535   0.239 0.811329    
-# soil_textureSilt              -0.0435694  0.0215358  -2.023 0.043309 *  
+# Coefficients: (5 not defined because of singularities)
+#                                                            Estimate Std. Error t value Pr(>|t|)    
+# tree_typeBiomass                                         -9.330e-02  1.080e-02  -8.635  < 2e-16 ***
+# tree_typeFruit,nut & other                                6.393e-04  1.094e-02   0.058 0.953430    
+# tree_typeTimber                                          -4.277e-03  2.991e-02  -0.143 0.886337    
+# crop_typeLegume                                           6.809e-05  6.290e-03   0.011 0.991367    
+# crop_typeTuber,root and other                            -1.472e-03  2.116e-02  -0.070 0.944562    
+# age_systemMedium                                          9.314e-02  1.595e-02   5.841 9.05e-09 ***
+# age_systemYoung                                           3.569e-04  7.663e-03   0.047 0.962875    
+# soil_textureSand                                          1.194e-01  1.616e-02   7.391 5.67e-13 ***
+# soil_textureSilt                                          8.805e-02  1.752e-02   5.026 6.87e-07 ***
+# tree_heightTall                                          -9.326e-02  1.351e-02  -6.904 1.44e-11 ***
+# no_tree_per_mLow                                          9.334e-02  8.611e-03  10.839  < 2e-16 ***
+# tree_typeFruit,nut & other:crop_typeLegume               -6.865e-02  1.064e-02  -6.454 2.45e-10 ***
+# tree_typeTimber:crop_typeLegume                           9.305e-02  2.098e-02   4.436 1.12e-05 ***
+# tree_typeFruit,nut & other:crop_typeTuber,root and other  1.132e-04  1.421e-02   0.008 0.993647    
+# tree_typeTimber:crop_typeTuber,root and other                    NA         NA      NA       NA    
+# tree_typeFruit,nut & other:age_systemMedium              -9.309e-02  2.503e-02  -3.718 0.000222 ***
+# tree_typeTimber:age_systemMedium                         -8.840e-02  2.784e-02  -3.175 0.001582 ** 
+# tree_typeFruit,nut & other:age_systemYoung                       NA         NA      NA       NA    
+# tree_typeTimber:age_systemYoung                          -8.608e-02  3.587e-02  -2.400 0.016735 *  
+# crop_typeLegume:age_systemMedium                         -9.349e-02  2.683e-02  -3.485 0.000533 ***
+# crop_typeTuber,root and other:age_systemMedium           -1.394e-03  2.257e-02  -0.062 0.950782    
+# crop_typeLegume:age_systemYoung                                  NA         NA      NA       NA    
+# crop_typeTuber,root and other:age_systemYoung             9.448e-02  2.709e-02   3.487 0.000528 ***
+# tree_typeFruit,nut & other:soil_textureSand              -1.219e-01  1.683e-02  -7.239 1.59e-12 ***
+# tree_typeTimber:soil_textureSand                         -3.250e-02  4.573e-02  -0.711 0.477634    
+# tree_typeFruit,nut & other:soil_textureSilt              -9.433e-02  1.577e-02  -5.981 4.07e-09 ***
+# tree_typeTimber:soil_textureSilt                         -9.355e-02  1.983e-02  -4.718 3.05e-06 ***
+# crop_typeLegume:soil_textureSand                          9.300e-02  3.062e-02   3.037 0.002506 ** 
+# crop_typeTuber,root and other:soil_textureSand            2.464e-03  1.719e-02   0.143 0.886083    
+# crop_typeLegume:soil_textureSilt                          5.028e-04  1.890e-02   0.027 0.978785    
+# crop_typeTuber,root and other:soil_textureSilt            3.307e-03  2.572e-02   0.129 0.897748    
+# age_systemMedium:soil_textureSand                        -2.125e-01  2.935e-02  -7.240 1.58e-12 ***
+# age_systemYoung:soil_textureSand                         -1.180e-01  3.704e-02  -3.187 0.001524 ** 
+# age_systemMedium:soil_textureSilt                        -8.860e-02  1.357e-02  -6.531 1.53e-10 ***
+# age_systemYoung:soil_textureSilt                                 NA         NA      NA       NA    
+# crop_typeLegume:tree_heightTall                           9.320e-02  2.310e-02   4.034 6.28e-05 ***
+# crop_typeTuber,root and other:tree_heightTall                    NA         NA      NA       NA    
 # ---
 # Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
 # 
-# Residual standard error: 0.2302 on 1071 degrees of freedom
-#   (14 observations deleted due to missingness)
-# Multiple R-squared:  0.06863,	Adjusted R-squared:  0.06081 
-# F-statistic: 8.769 on 9 and 1071 DF,  p-value: 8.363e-13
-# 
-# Time difference of 0.2677081 secs
+# Residual standard error: 0.02164 on 532 degrees of freedom
+# Multiple R-squared:  0.254,	Adjusted R-squared:  0.2091 
+# F-statistic:  5.66 on 32 and 532 DF,  p-value: < 2.2e-16
+# Total time taken: 46.53044 mins 
 ```
 
-The stepwise regression analysis evaluated the impact of moderators (tree type, crop type, age system, season, and soil texture) on the response variable (\(yi\)). The final model retained all predictors, as their removal increased the AIC from its optimal value (-3165.5), confirming that each variable contributed meaningfully to explaining variations in the response variable.
-
-Moderator Effects:
-- **Tree Type:**
-  - Timber trees significantly reduced the response variable (\(p = 0.015\)), emphasizing their unique role compared to the reference group.
-  - "Fruit, nut, and other" trees showed no significant effect (\(p = 0.994\)), indicating minimal influence.
-
-- **Crop Type:**
-  - Legumes were positively and significantly associated with the response variable (\(p < 0.001\)), highlighting their potential benefits.
-  - Tuber, root, and other crops had no significant effect (\(p = 0.139\)).
-
-- **Age System:**
-  - Young systems had a significant positive effect (\(p = 0.011\)), suggesting greater benefits during early stages of system development.
-  - Medium-aged systems showed no significant impact (\(p = 0.735\)).
-
-- **Season:**
-  - Winter significantly decreased the response variable (\(p = 0.012\)), reflecting clear seasonal differences.
-
-- **Soil Texture:**
-  - Silt had a significant negative effect (\(p = 0.043\)), indicating possible context-dependent influences.
-  - Sand showed no significant effect (\(p = 0.811\)).
-
-Model Performance:
-The model explained 6.9% of the variance in the response variable (\(R^2 = 0.0686\)), indicating that the included moderators contribute meaningfully but still leave most variability unexplained. The adjusted \(R^2\) was slightly lower (\(R^2_{adj} = 0.0608\)), reflecting a modest fit. The overall model was statistically significant (\(F(9, 1071) = 8.77\), \(p < 0.001\)), underscoring the collective influence of the predictors on the response variable. The residual standard error was 0.230, showing the degree of variation not captured by the model.
-
-Implications for Meta-Analysis:
-The results identify key moderators—tree type, crop type, age system, season, and soil texture—as influential in explaining variations in the response variable. Specifically:
-- **Legumes** and **young systems** showed consistent positive effects, suggesting management practices promoting these features could enhance outcomes.
-- **Timber trees**, **winter seasons**, and **silt soils** were associated with reductions in the response variable, indicating areas requiring further investigation or context-specific management strategies.
-
-Despite the significance of these moderators, the relatively low \(R^2\) suggests that additional factors, unmeasured moderators, or interactions may play a significant role. This underscores the need for further exploration of potential nonlinear relationships, interactions, and additional variables to better understand the complexity of the dataset.
-
-Conclusion:
-The analysis highlights the importance of specific moderators while revealing the need to refine the model to account for unexplained variability. These findings provide valuable insights for meta-analyses and suggest future efforts should focus on identifying additional drivers and incorporating interaction effects to enhance model explanatory power.
-
-
+```{r}
+# Advanced Moderator Model Selection Workflow using glmnet and MuMIn
 ##########################################################################
-4. Principal Component Analysis (PCA)
-##########################################################################
+# Set up the parallel processing plan
+plan(multisession, workers = parallel::detectCores() - 1)
+##################################################
+# Start time tracking
+start.time <- Sys.time()
+##################################################
+##################################################
+
+# Step 1: Prepare data with only complete cases
+model_data <- imp_data_rom %>%
+  select(yi, tree_type, crop_type, age_system, season, soil_texture, tree_height, alley_width, no_tree_per_m) %>%
+  mutate(yi = as.numeric(yi)) %>%
+  mutate(across(-yi, as.factor)) %>%
+  drop_na()
+
+# Step 2: Fit full linear model with all moderators (and selected interactions)
+full_model <- lm(yi ~ tree_type * crop_type +
+                    age_system * tree_height +
+                    crop_type * no_tree_per_m +
+                    season + soil_texture + alley_width, 
+                 data = model_data)
+
+# Step 3: All-subsets model selection using AICc (MuMIn)
+options(na.action = "na.fail")  # Required for dredge
+model_set <- dredge(full_model)
+
+# View top models within delta AICc < 4
+model_set_subset <- subset(model_set, delta < 4)
+print(model_set_subset)
+
+# Step 4: Model averaging across best models
+avg_model <- model.avg(model_set_subset)
+summary(avg_model)
+
+# Step 5: Regularization using LASSO (glmnet)
+# Create design matrix and response
+X <- model.matrix(~ tree_type + crop_type + age_system + season + soil_texture + 
+                    tree_height + alley_width + no_tree_per_m, 
+                  data = model_data)[, -1]  # remove intercept column
+
+y <- model_data$yi
+
+# Cross-validated LASSO
+cv_lasso <- cv.glmnet(X, y, alpha = 1)
+
+# Best lambda and coefficients
+best_lambda <- cv_lasso$lambda.min
+coef(cv_lasso, s = best_lambda)
+
+# Step 6 (optional): Plot variable importance from model.avg()
+importance_vals <- sw(avg_model)
+importance_df <- data.frame(variable = names(importance_vals), importance = importance_vals)
+
+# ggplot2 version of variable importance plot
+ggplot(importance_df, aes(x = reorder(variable, importance), y = importance)) +
+  geom_col(fill = "steelblue") +
+  labs(title = "Variable Importance (Model Averaging)",
+       x = "Moderator Variable",
+       y = "Relative Importance") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+##################################################
+# End time tracking
+end.time <- Sys.time()
+# Calculate time taken
+time.taken <- end.time - start.time
+cat("\nTotal time taken:", time.taken, units(time.taken), "\n")
+##############################################################
+# Last go (23/03-2025)
+```
+
+
+Two approaches were used to identify which moderator variables explain differences in effect sizes (\(yi\)). In the **stepwise regression** model, key moderators such as **tree type**, **age system**, **soil texture**, **tree height**, and **tree density** were retained, along with meaningful two-way interactions—particularly between **tree type and crop type**, **age and soil texture**, and **crop type and tree height**. This model showed moderate explanatory power (\(R^2_{adj} = 0.21\)). In contrast, the **model averaging approach** (MuMIn with selected interactions) focused on simpler, robust combinations. It confirmed the importance of variables like **alley width**, **legume crops**, and interactions such as **legume × low tree density** and **legume × fruit trees**, which showed strong and opposing effects. Together, these methods highlight that the effects of agroforestry systems on outcomes depend not just on individual moderators, but also on how they interact—especially between system type, crop choice, and structural traits.
+
+
+
+Updated Interpretation of Moderator Selection and Interaction Models
+
+Two complementary approaches were used to explore how moderator variables explain variation in effect sizes (\(yi\)) across studies.
+
+ Method 1: Stepwise Regression with High-Order Interactions
+This method used a saturated model including all moderators and their interactions (e.g., `tree_type * crop_type * age_system * season * soil_texture * ...`) and employed stepwise selection to reduce complexity. The final model retained a subset of main effects and several two-way interactions, such as:
+- **Tree Type × Crop Type**
+- **Tree Type × Age System**
+- **Crop Type × Tree Height**
+- **Age System × Soil Texture**
+
+Significant effects included:
+- **Tree type** (Biomass systems strongly negative, p < 0.001),
+- **Age system (Medium)** (positive main effect, p < 0.001),
+- **Tree height (Tall)** (negative, p < 0.001),
+- **Soil texture (Sand and Silt)** (positive main effects, p < 0.001),
+- **Tree density** (Low density associated with positive \(yi\), p < 0.001),
+- And several **interactions**, notably:
+  - *Tree type × Crop type* (e.g., fruit trees × legumes: strongly negative),
+  - *Crop type × Tree height* (e.g., legumes × tall trees: positive interaction),
+  - *Age system × Soil texture* (e.g., medium × sand: strongly negative).
+
+Overall, this model revealed complex interdependencies among variables, with an adjusted \(R^2 = 0.21\), substantially higher than baseline models, indicating moderate explanatory power.
+
+Method 2: All-Subsets Selection and Model Averaging (MuMIn + glmnet)
+This method limited interaction depth (e.g., selected 2-way terms only) and tested all variable combinations within a reduced model space to avoid overfitting. The top models (ΔAICc < 4) were averaged, producing robust estimates. Key findings:
+- Significant predictors included:
+  - **Alley width** (Wide: negative effect),
+  - **Crop type (Legumes)** (negative),
+  - **Tree type (Fruit/nut)** (weakly negative),
+  - **Crop type × Tree type** (Legumes × Fruit/nut: strong negative interaction),
+  - **Crop type × Tree density** (Legumes × Low density: strong positive interaction),
+  - **Age system × Tree height** (Medium × Tall: weak negative).
+
+Model averaging and regularized regression (LASSO) confirmed the importance of these moderators and stabilized coefficient estimates. Though the adjusted \(R^2\) was slightly lower than in Method 1, the results were more generalizable due to reduced complexity.
+
+---
+
+**Implications for Meta-Analysis**
+Both approaches underscore that **no single moderator** dominates the response variable—rather, **interactions between moderators matter**. Tree type, crop type, age, and structural system traits like height, density, and alley width interact in complex ways, influencing ecosystem service outcomes. For instance:
+- **Legumes** in low-density systems or paired with specific tree types may yield higher benefits.
+- **Tall trees in young systems** or **biomass-based systems** may reduce effectiveness.
+
+Given the modest explanatory power of the models, unexplained heterogeneity likely remains, suggesting the need for future inclusion of **contextual variables** (e.g., climate, geography, management intensity) and more flexible non-linear modeling.
+
+---
+
+
+
+## 4. Principal Component Analysis (PCA)
+
 
 ```{r}
 # Perform PCA on the numeric moderator data
@@ -5050,9 +5222,9 @@ barplot(explained_variance, names.arg = paste0("PC", 1:length(explained_variance
 biplot(pca_results, scale = 0, main = "PCA Biplot")
 ```
 
-##########################################################################
-5. Cross-Validation
-##########################################################################
+
+## 5. Cross-Validation
+
 
 ```{r}
 # Define predictors and response
@@ -5131,20 +5303,114 @@ print(results)
 ```
 
 
-The cross-validation analysis assessed the predictive performance of selected meta-analysis moderators—tree type, crop type, age system, season, and soil texture—on the variability of the response variable (\(yi\)). Using a dataset of 1,095 observations with numerically encoded categorical moderators, linear regression was performed with a split of 80% for training and 20% for testing. A 10-fold cross-validation approach was applied to evaluate model performance.
+The cross-validation analysis evaluated how well five selected moderators—tree type, crop type, age system, season, and soil texture—predict variation in the response variable (yi). The predictors were numerically encoded, and after removing missing data, a dataset of 1,095 observations was used. Linear regression was trained using 80% of the data with 10-fold cross-validation and tested on the remaining 20%.
 
-During cross-validation, the model achieved a Root Mean Square Error (RMSE) of 0.2274, a Mean Absolute Error (MAE) of 0.1181, and an \(R^2\) of 0.0379, indicating small prediction errors but limited explanatory power, with the moderators accounting for only 3.8% of the variability in \(yi\). On the test set, the model yielded consistent results, with an RMSE of 0.1962, an MAE of 0.1201, and an \(R^2\) of 0.0473. The stable RMSE across datasets suggests no overfitting; however, the low \(R^2\) highlights the limited ability of the predictors to explain the variability in the response variable.
+During cross-validation, the model yielded a low Root Mean Square Error (RMSE = 0.1293), a small Mean Absolute Error (MAE = 0.0408), and a very low R^2 = 0.0081, indicating minimal explanatory power. On the test set, performance remained consistent with an RMSE of 0.0488, an MAE of 0.0344, and R^2 = 0.0014. These results confirm the model is not overfitting but also reveal that the selected moderators explain almost none of the variance in yi.
 
-These results indicate that while the selected moderators contribute to predicting \(yi\), their collective explanatory power is minimal. The findings suggest that additional moderators, interaction effects, or non-linear relationships may need to be explored to better capture the complexity of the data. Advanced modeling approaches, such as mixed-effects models or machine learning techniques, could also help improve predictive performance.
+However, it is important to note that this analysis was conducted on the full dataset and not on subsets grouped by response variable. As a result, it does not capture potential differences in how well the moderators explain variation across different types of responses (e.g., yield, biodiversity, or carbon sequestration). A stratified analysis would be needed to assess moderator performance within each response category.
 
-In conclusion, the analysis demonstrates the importance of the selected moderators but also reveals their limitations in explaining the response variable. Future efforts should focus on expanding the scope of potential predictors and refining the model to account for the substantial unexplained variability.
+In summary, while the selected moderators contribute limited predictive insight into yi across the full dataset, the absence of response-specific analysis limits conclusions about their relative importance in explaining different outcomes. Expanding the model to include additional predictors, interaction effects, or more flexible modeling techniques may help capture the complexity of the system.
 
 
-#############
-# STEP 8
-##########################################################################################################################################
-SAVING FINAL PREPROCESSED META-DATASETS (IMPUTED AND NON-IMPUTED) - THESE ARE USED FOR RMA.MV() MODELLING
-##########################################################################################################################################
+```{r}
+# Define file paths
+non_imp_data_rom <- readRDS(here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R", "non_imp_data_rom.rds"))
+imp_data_rom <- readRDS(here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R", "imp_data_rom.rds"))
+
+# Define your moderators and target
+moderators <- c("tree_type", "crop_type", "age_system", "season", "soil_texture") # organic (1 = organic, 0 = conventional), tillage (1 = tillage, 0 = no tillage)
+
+# Create a function to perform cross-validation for each response type
+run_cv_by_response <- function(data, response_type) {
+  cat("\n\nRunning CV for response:", response_type, "\n")
+  
+  # Subset data
+  data_subset <- data %>%
+    filter(response_variable == response_type) %>%
+    select(all_of(c("yi", moderators))) %>%
+    drop_na()
+  
+  # Encode as numeric for modeling
+  predictors <- data_subset %>%
+    select(all_of(moderators)) %>%
+    mutate(across(everything(), ~as.numeric(as.factor(.))))
+  
+  response <- data_subset$yi
+  
+  if (nrow(data_subset) < 30) {
+    warning(paste("Too few samples for response:", response_type))
+    return(tibble(response_variable = response_type, RMSE = NA, Rsquared = NA, MAE = NA))
+  }
+  
+  # Split into training/testing
+  set.seed(123)
+  train_idx <- createDataPartition(response, p = 0.8, list = FALSE)
+  train_x <- predictors[train_idx, ]
+  train_y <- response[train_idx]
+  test_x <- predictors[-train_idx, ]
+  test_y <- response[-train_idx]
+  
+  # Fit model with CV
+  cv_model <- train(
+    x = train_x,
+    y = train_y,
+    method = "lm",
+    trControl = trainControl(method = "cv", number = 10)
+  )
+  
+  # Predict and evaluate
+  test_preds <- predict(cv_model, newdata = test_x)
+  test_metrics <- postResample(test_preds, test_y)
+  
+  return(tibble(
+    response_variable = response_type,
+    RMSE = test_metrics[["RMSE"]],
+    Rsquared = test_metrics[["Rsquared"]],
+    MAE = test_metrics[["MAE"]]
+  ))
+}
+
+# Run the function over all response variable types
+results_by_response <- imp_data_rom %>%
+  distinct(response_variable) %>%
+  pull() %>%
+  map_dfr(~run_cv_by_response(imp_data_rom, .x))
+
+# View results
+print(results_by_response)
+```
+```{r}
+ggplot(results_by_response, aes(x = response_variable, y = Rsquared)) +
+  geom_col(fill = "steelblue") +
+  theme_minimal() +
+  labs(title = "Explanatory Power of Moderators (R²) by Response Variable",
+       y = "R² (Test Set)",
+       x = "Response Variable") +
+  geom_text(aes(label = round(Rsquared, 3)), vjust = -0.5) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+```
+
+
+The response-specific cross-validation analysis reveals considerable variation in how well the selected moderators — tree type, crop type, age system, season, and soil texture — explain different outcomes in the meta-analysis.
+
+- **Carbon sequestration** stands out with the **highest predictive performance**: R^2 = 0.52 indicates that over **50% of the variation** in effect sizes can be explained by the selected moderators. The RMSE (0.00148) and MAE (0.00114) are also very low, reflecting accurate and stable predictions.
+
+- **Water quality** and **pest and disease control** also showed moderate to strong explanatory power:  
+  R^2 = 0.29 and R^2 = 0.24, respectively, suggesting that these outcomes are influenced to a fair extent by the selected moderators.
+
+- **Product quality**, **biodiversity**, and **crop yield** fell into a more modest explanatory range, with R^2 values of 0.19, 0.17, and 0.09.  
+  This implies that while some variation is captured by the moderators, a substantial portion remains unexplained.
+
+- **Soil quality** had the weakest model performance, with an R^2 of just **0.007**, indicating that the selected moderators provide almost no predictive value for this outcome. This may suggest that other unmeasured moderators or processes are driving soil-related responses.
+
+Overall, these findings demonstrate that **moderator explanatory power is outcome-specific**. The same set of variables can be highly informative for some outcomes (e.g., carbon, water quality) but nearly irrelevant for others (e.g., soil quality). This highlights the importance of tailoring moderator models to individual response variables rather than relying on a one-size-fits-all approach.
+
+
+# STEP 8 SAVING FINAL PREPROCESSED META-DATASETS (IMPUTED AND NON-IMPUTED) - THESE ARE USED FOR RMA.MV() MODELLING
+
 
 
 Saving the datasets that is used for the rma.mv() modelling
@@ -5166,7 +5432,7 @@ saveRDS(non_imp_data_rom,
 
 ## IMPUTED
 saveRDS(imp_data_rom,
-        file = here::here(output_dir, "imp_data_rom.rds"))
+        file = here::here(output_dir, "imp_data_rom.rds"))    # <---------------- ! This is the dataset that is used for meta-analysis model fitting !
 
 
 

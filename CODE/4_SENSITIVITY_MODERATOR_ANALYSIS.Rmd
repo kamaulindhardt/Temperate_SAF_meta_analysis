@@ -277,7 +277,7 @@ Biodiversity: the effect sizes are mostly positive, suggesting that agroforestry
 Crop Yield: the effect sizes are genrally negative, indicating potential yield reductions in agroforestry systems.
 Soil Quality: tend to show positive effect sizes, suggesting an improvement in these aspects under agroforestry systems.
 Product Quality: 
-Pest and Diseases:
+Pest and disease control:
 Carbon sequestration:
 
 The variation in the effect sizes for each response variable indicates heterogeneity, showing that the impact of agroforestry varies across different studies and contexts. However, the effect sizes in this plot do not account for potential study-level covariates or moderators, which could influence the observed differences. It will be important to consider the sampling variance (vi) associated with each effect size when interpreting these results, as larger studies (with smaller variance) provide more reliable estimates.
@@ -378,7 +378,7 @@ ggplot(long_data, aes(x = mean_value, fill = group)) +
 
 ```{r}
 # List of response variables and moderators
-response_variables <- c("Biodiversity", "Crop yield", "Water quality", "Pest and Disease", 
+response_variables <- c("Biodiversity", "Crop yield", "Water quality", "Pest and disease control", 
                         "Soil quality", "Greenhouse gas emission", "Product quality")
 
 moderators <- c("tree_type", "crop_type", "age_system", "season", 
@@ -840,7 +840,7 @@ mv_influence_diagnostics_summary <- mv_influence_diagnostics %>%
   left_join(mv_thresholds, by = "Response_Variable") 
 
 # Define response variables to exclude due to sparse data, e.g. "Water quality"
-exclude_responses <- c("Greenhouse gas emission", "Water quality", "Pest and Disease")
+exclude_responses <- c("Greenhouse gas emission", "Water quality", "Pest and disease control")
 
 mv_influence_diagnostics_summary <- mv_influence_diagnostics_summary |> 
   filter(!Response_Variable %in% exclude_responses)
@@ -2051,13 +2051,13 @@ forest_data <- bias_results_df %>%
 
 # Custom colors for each response variable
 custom_colors <- c(
-  "Biodiversity" = "#FF9999",
-  "Greenhouse gas emission" = "#66C266",
-  "Product quality" = "#FFC000",
-  "Crop yield" = "#FF9933",
-  "Pest and Disease" = "#33CCCC",
-  "Soil quality" = "#9966CC",
-  "Water quality" = "#9999FF"
+  "Biodiversity"             = "#FF9999",
+  "Greenhouse gas emission"  = "#66C266",
+  "Product quality"          = "#FFC000",
+  "Crop yield"               = "#FF9933",
+  "Pest and disease control" = "#33CCCC",
+  "Soil quality"             = "#9966CC",
+  "Water quality"            = "#9999FF"
 )
 
 # Plot with ggplot2
@@ -2130,7 +2130,7 @@ The forest plot provides a visual summary of the Trim-and-Fill adjusted effect s
 Observations:
 - **Significant Findings**: "Water quality" has a positive adjusted estimate with CIs excluding zero, indicating statistical significance.
 - **Negative Adjustments**: "Crop yield" and "Product quality" show negative adjusted estimates, with precise but non-significant results.
-- **High Uncertainty**: "Pest and Disease" has wide CIs, indicating variability or uncertainty in its adjusted effect size.
+- **High Uncertainty**: "Pest and disease control" has wide CIs, indicating variability or uncertainty in its adjusted effect size.
 
 This analysis demonstrates the importance of adjusting for publication bias, revealing both robust and potentially biased estimates across response variables. The plot provides clear, publication-ready visual insights for understanding the impact of bias adjustments in meta-analysis.
 
@@ -2222,7 +2222,7 @@ Individual Response Variable Insights:
    - **Findings**: The distribution suggests potential publication bias or selective reporting.
    - **Conclusion**: Asymmetry raises concerns; statistical tests (e.g., Egger’s test) are needed.
 
-5. **Pest and Disease**:
+5. **Pest and disease control**:
    - **Symmetry**: Moderate symmetry with more studies closer to the center of the funnel.
    - **Findings**: Non-significant results dominate, with limited significant findings.
    - **Conclusion**: No substantial bias detected, but further analysis can confirm.
@@ -2330,7 +2330,7 @@ eggers_results
 
 Summary of Egger’s Test for Publication Bias
 
-* No Evidence of Publication Bias for Biodiversity, Crop Yield, Pest & Disease, and Product Quality (p > 0.05). No significant funnel plot asymmetry detected.
+* No Evidence of Publication Bias for Biodiversity, Crop Yield, Pest and disease control, and Product Quality (p > 0.05). No significant funnel plot asymmetry detected.
 * Potential Publication Bias for Water Quality, Soil Quality, and Carbon sequestration (p < 0.0001). Significant asymmetry suggests small-study effects or selective reporting. Possible Causes of Asymmetry: 1) Selective reporting bias (e.g., unpublished non-significant studies), 2) Small-study effects (exaggerated results in smaller studies), 3) High study heterogeneity (differences in study design, location, crops).
 
 
@@ -2783,7 +2783,7 @@ get_moderator_group <- function(moderator) {
   } else if (grepl("alley_width", moderator)) {
     return("alley_width")
     # The intercept is not relevant when the models have been fitted without global intercept
-    # However, its apparently necessary for the response variables: Greenhouse gas emission, Pest and Disease, and Water quality. 
+    # However, its apparently necessary for the response variables: Greenhouse gas emission, Pest and disease control, and Water quality. 
   } else if (grepl("intrcpt", moderator)) {  
     return("intrcpt")
   } else {
@@ -3145,7 +3145,7 @@ MODERATOR ANALYSIS - STATISTICAL ANALYSIS OF MODERATORS' EFFECTS FOR EACH RESPON
 
 ```{r eval=FALSE}
 # List of response variables and moderators
-response_variables <- c("Biodiversity", "Crop yield", "Water quality", "Pest and Disease", 
+response_variables <- c("Biodiversity", "Crop yield", "Water quality", "Pest and disease control", 
                         "Soil quality", "Greenhouse gas emission", "Product quality")
 
 moderators <- c("tree_type", "crop_type", "age_system", "season", 

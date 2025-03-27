@@ -10,7 +10,7 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 
-#####################################################
+
 Step-by-Step Framework for Meta-Analysis
 
 1) Data Preparation
@@ -41,11 +41,8 @@ Consider meta-regression to formally test for differences in moderator effects b
 Create comprehensive visual summaries, including caterpillar plots, forest plots, and geographical maps of study locations.
 
 
-#############
-# STEP 0
-##########################################################################################################################################
-PREPARING SCRIPT AND READ IN THE DATA
-##########################################################################################################################################
+# STEP 0 PREPARING SCRIPT AND READ IN THE DATA
+
 
 ```{r}
 # Clean workspace
@@ -106,23 +103,22 @@ setwd(here::here())
 suppressWarnings({
 
 # Define file paths
-non_imp_file <- here::here("DATA", "OUTPUT_FROM_R", "non_imp_dataset.csv")
-imp_file <- here::here("DATA", "OUTPUT_FROM_R", "imp_dataset.csv")
+non_imp_data_rom <- readRDS(here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R", "non_imp_data_rom.rds"))
+imp_data_rom <- readRDS(here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R", "imp_data_rom.rds"))
 
 # Read in the non-imputed dataset
-non_imp_dataset <- read_csv(non_imp_file) %>%
+non_imp_dataset <- non_imp_data_rom %>%
   as.data.frame()
 
 # Read in the imputed dataset
-imp_dataset <- read_csv(imp_file) %>%
+imp_dataset <- imp_data_rom %>%
   as.data.frame()
 })
 ```
 
 
-##########################################################################################################################################
-ASSESSING IMPUTATION
-##########################################################################################################################################
+## Assisseng Imputations
+
 
 
 Assessment of Missing Data for Moderators
@@ -194,6 +190,8 @@ assess_missing_data <- function(dataset, moderators, dataset_name = "Dataset") {
 
 moderators <- c("tree_type", "crop_type", "age_system", "season", 
                 "soil_texture", "no_tree_per_m", "tree_height", "alley_width")
+# organic (1 = organic, 0 = conventional)
+# tillage (1 = tillage, 0 = no tillage)
 
 # Assess missing data for non-imputed dataset
 # assess_missing_data(non_imp_dataset, moderators, "Non-Imputed Dataset")
@@ -206,11 +204,9 @@ assess_missing_data(imp_dataset, moderators, "Imputed Dataset")
 
 
 
-#############
-# STEP 1
-##########################################################################################################################################
-SPATIAL DISTRIBUTION 
-##########################################################################################################################################
+
+# STEP 1 SPATIAL DISTRIBUTION 
+
 
 ```{r}
 # Step 1: Filter distinct studies based on coordinates
@@ -251,19 +247,16 @@ print(map_plot)
 
 
 
-#############
-# STEP 1
-##########################################################################################################################################
-TEMPORAL DISTRIBUTION
-##########################################################################################################################################
+
+# STEP 2 TEMPORAL DISTRIBUTION
 
 
 Step 2: Distribution of Studies Over Time
 
 ```{r}
-# Histogram for the distribution of entries over time (assuming study_year_start represents 'Year')
+# Histogram for the distribution of entries over time (assuming study_year_start represents 'Year' - otherwise 'experiment_year')
 imp_dataset |> 
-  ggplot(aes(x = as.Date(study_year_start))) +
+  ggplot(aes(x = as.Date(experiment_year))) +
   geom_histogram(binwidth = 1, fill = "skyblue", color = "black") +
   labs(title = "Distribution of Entries Over Time", x = "Year", y = "Number of Entries") +
   theme_minimal()
@@ -272,8 +265,8 @@ imp_dataset |>
 ```{r}
 # Histogram for the distribution of unique studies over time
 imp_dataset |> 
-  distinct(id_article, study_year_start) |> 
-ggplot(aes(x = as.Date(study_year_start))) +
+  distinct(id_article, experiment_year) |> 
+ggplot(aes(x = as.Date(experiment_year))) +
   geom_histogram(binwidth = 1, fill = "lightgreen", color = "black") +
   labs(title = "Distribution of Unique Studies Over Time", x = "Year", y = "Number of Studies") +
   theme_minimal()
@@ -326,11 +319,12 @@ imp_dataset |>
 Step 6: Distribution in Space (Using generated Categorized Location Column)
 
 ```{r}
-# Bar plot for the number of studies per sub_region
+# Bar plot for the number of studies per bioclim_sub_regions
 imp_dataset |> 
-  ggplot(aes(x = sub_region)) +
+  ggplot(aes(x = bioclim_sub_regions)) +
   geom_bar(fill = "steelblue") +
-  labs(title = "Number of Studies Per Continent", x = "Continent", y = "Number of Studies") +
-  theme_minimal()
+  labs(title = "Number of Studies Per Bioclimatic subregion", x = "Bioclimat region", y = "Number of Studies") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 
