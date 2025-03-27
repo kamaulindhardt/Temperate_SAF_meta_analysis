@@ -1005,6 +1005,8 @@ cat("\nTotal time taken:", time.taken, units(time.taken), "\n")
 # Last go (27/03-2025) 
 # Total time taken: 1.374625 mins 
 ```
+
+
 The meta-analysis model testing successfully fitted intercept-only and one-by-one moderator models across all response variables, providing a reproducible structure for interpreting silvoarable effects. However, several two-way interaction models failed, primarily due to missing values, single-level factors, or factors with only one valid level, which prevents contrast estimation. Warnings about extreme variance ratios suggest caution in interpreting models with highly imbalanced sampling precision. Despite these issues, most models ran as expected and were saved successfully. Future runs should filter incomplete combinations and ensure all interaction moderators have at least two levels and sufficient non-missing data across response variables.
 
 ```{r}

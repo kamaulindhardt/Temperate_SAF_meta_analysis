@@ -3937,13 +3937,13 @@ prep_dataset_for_rom <- function(data) {
     # - For variables like "Pest and disease control" (Abundance of pests and diseases) and "Water quality" (Nutrient concentrations),
     #   lower values are considered better. We negate the mean values to reflect this correctly.
     # - For other response variables, e.g. "Carbon sequestrations" (SOC stock/sequestration), the sign stays as higher values are intuitively 'better'
-    mutate(
-      silvo_mean = ifelse(response_variable %in% c("Pest and disease control", "Water quality"),
-                          -silvo_mean, silvo_mean),
-      control_mean = ifelse(response_variable %in% c("Pest and disease control", "Water quality"),
-                            -control_mean, control_mean)
-    ) %>%
-    
+    # mutate(
+    #   silvo_mean = ifelse(response_variable %in% c("Pest and disease control", "Water quality"),
+    #                       -silvo_mean, silvo_mean),
+    #   control_mean = ifelse(response_variable %in% c("Pest and disease control", "Water quality"),
+    #                         -control_mean, control_mean)
+    # ) %>%
+    # 
     # Step 3: Exclude specific response variables from analysis
     # - "Soil water content" is excluded due to inconsistent data or limited measurements.
     filter(response_variable != "Soil water content") %>%
@@ -4101,6 +4101,64 @@ imp_data_rom |> glimpse()
 ```{r}
 skimr::skim(imp_data_rom)
 ```
+## Flipping direction of selected response variables
+
+```{r}
+# Define which response variables need direction flipping
+reverse_effects <- c("Pest and disease control", "Water quality") # "Carbon sequestration"
+
+# Flip the direction of yi for those specific response variables
+imp_data_rom <- imp_data_rom %>%
+  mutate(
+    yi = ifelse(response_variable %in% reverse_effects, -yi, yi),
+    # Optionally tag flipped rows
+    effect_flipped = response_variable %in% reverse_effects
+  )
+```
+
+
+```{r}
+# Create the boxplot for the effect size (yi)
+# Order response variables by descending median effect size
+
+# Install the scales package if it is not already installed
+#install.packages("scales")
+
+
+# Reorder response variables by descending median effect size
+imp_data_rom_reorder <- imp_data_rom %>%
+  mutate(response_variable = fct_reorder(response_variable, yi, .fun = median, .desc = FALSE))
+
+# Create the boxplot styled like a forest plot
+boxplot_raw_effect_size <- imp_data_rom_reorder |> 
+  ggplot(aes(y = response_variable, x = yi, fill = response_variable)) +
+  geom_vline(xintercept = 0, linetype = "solid", color = "black", size = 0.8) + # Solid black line at x = 0 (center)
+  geom_boxplot(alpha = 0.7, outlier.size = 1) +
+  labs(
+    title = "Raw Effect Sizes (yi) Across Response Variables",
+    x = "Raw Effect Size",  # Label x-axis
+    y = "Response Variable"      # Label y-axis
+  ) +
+  scale_x_continuous(
+    limits = c(-1, 1),                # Set x-axis limits symmetrically around 0
+    breaks = seq(-1, 0.8, by = 0.2),    # Custom breaks for better granularity
+    labels = seq(-1, 0.8, by = 0.2)     # Corresponding labels
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    panel.grid = element_blank(),           # Remove background grids
+    axis.line = element_line(color = "black"),  # Add axis lines
+    axis.text.y = element_text(size = 12),  # Adjust y-axis text size
+    axis.text.x = element_text(angle = 0, hjust = 0.5), # Keep x-axis labels horizontal
+    legend.position = "none"                # Remove legend
+  )
+
+
+
+# Display the plot
+print(boxplot_raw_effect_size)
+```
+
 
 ## Boxplot for the raw effect size (yi)
 
