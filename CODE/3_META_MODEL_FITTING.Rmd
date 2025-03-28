@@ -375,6 +375,7 @@ Ridge Plot: Shows the distribution of effect sizes for each response variable.
 ```{r}
 # meta_data |> glimpse()
 ```
+
 ```{r}
 # Extract relevant columns, including vi
 # effect_size_data <- meta_data %>%
@@ -641,9 +642,9 @@ extract_summary <- function(results, response) {
     AIC = purrr::map_dbl(results, ~ if (!is.null(.x)) .x$AIC else NA_real_),
     BIC = purrr::map_dbl(results, ~ if (!is.null(.x)) .x$BIC else NA_real_),
     logLik = purrr::map_dbl(results, ~ if (!is.null(.x)) .x$logLik else NA_real_),
-    total_tau2 = purrr::map_dbl(results, ~ if (!is.null(.x$tau2)) sum(.x$tau2) else NA_real_)
-  )
-}
+    total_tau2 = purrr::map_dbl(results, ~ if (!is.null(.x$tau2)) sum(.x$tau2) else NA_real_))}
+  
+
 
 # Compile all
 model_re_structures_summary <- purrr::map2_dfr(model_comparison_results, names(model_comparison_results), extract_summary)
@@ -927,7 +928,9 @@ fit_meta_analysis_moderator_models <- function(data_subset, response_variable, v
     c("tree_type", "age_system"),
     c("crop_type", "season"),
     c("soil_texture", "age_system"),
-    c("tree_height", "alley_width")
+    c("tree_height", "alley_width"),
+    c("tillage", "organic"),
+     c("crop_type", "tree_height", "alley_width")
     # organic (1 = organic, 0 = conventional)
     # tillage (1 = tillage, 0 = no tillage)
   )
@@ -1474,6 +1477,48 @@ base_model_table <- table_base %>%
 
 base_model_table
 ```
+```{r}
+
+# Assuming the table has columns for 'estimate', 'ci.lb', and 'ci.ub', which are not backtransformed
+
+# Create the table without any transformations
+base_model_table_no_backtransformed <- table_base %>%
+  mutate(across(where(is.numeric), round, 3)) %>%
+  gt() %>%
+  tab_header(title = "Base Model Results - Non-backtransformed") %>%
+  cols_label(
+    response = "Response",
+    model = "Model",
+    estimate = "Estimate (non-backtransformed)",
+    se = "SE",
+    zval = "Z-value",
+    pval = "P-value",
+    ci.lb = "CI lower (non-backtransformed)",
+    ci.ub = "CI upper (non-backtransformed)",
+    ROM_percent = "ROM (%)",
+    ROM_lower_percent = "ROM lower (%)",
+    ROM_upper_percent = "ROM upper (%)",
+    signif = "Significance"
+  ) %>%
+  cols_hide(columns = c("ROM_percent", "ROM_lower_percent", "ROM_upper_percent"))
+
+# Extract the non-backtransformed estimates and CI
+non_backtransformed_data <- table_base %>%
+  select(response, model, estimate, ci.lb, ci.ub)
+
+# Print the table with non-backtransformed values
+print(base_model_table_no_backtransformed)
+
+# Alternatively, if you have an additional column that indicates whether a transformation was applied, you can filter by that column
+# For example, if you have a column `backtransformed` that indicates if the values were backtransformed, you could filter:
+# table_base %>% filter(backtransformed == FALSE)
+
+
+```
+
+
+Extracting to non-backtransformed estimates and confidence intervals
+
 
 ```{r}
 # 2. Tidy table for moderator models
@@ -1591,6 +1636,7 @@ heterogeneity_base <- extract_heterogeneity_stats(model_results)
 # View results
 heterogeneity_base
 ```
+
 ```{r}
 
 
@@ -1684,6 +1730,7 @@ The consistently high I² across most models underscores the complexity of agroe
 ```{r}
 imp_dataset |> glimpse()
 ```
+
 ```{r}
 # Custom color palette for each response variable
 custom_colors <- c(
@@ -1833,8 +1880,94 @@ ggplot() +
   )
 
 ```
+Added log estimates and confidence interval without water quality
+
+```{r}
+library(tidyverse)
+library(ggplot2)
+
+# Set custom color palette and factor order
+custom_colors <- c(
+  "Biodiversity"             = "#FF9999",
+  "Carbon sequestration"     = "#66C266",
+  "Product quality"          = "#FFC000",
+  "Crop yield"               = "#FF9933",
+  "Pest and disease control" = "#33CCCC",
+  "Soil quality"             = "#9966CC"
+)
+response_levels <- names(custom_colors)
+
+# Prepare raw data (no back-transformation) and filter extreme outliers
+violin_data <- imp_dataset %>%
+  filter(response_variable %in% response_levels) %>%
+  mutate(
+    response_variable = factor(response_variable, levels = rev(response_levels))
+  ) %>%
+  filter(abs(yi) <= 1000)  # Filter out extreme values (no back-transformation needed)
+
+# Extract summary model estimates (non-back-transformed)
+summary_data <- map_dfr(response_levels, function(resp) {
+  mod <- model_results[[resp]]$base_model
+  if (is.null(mod)) return(NULL)
+  estimate <- mod$b[1]
+  ci_lb <- mod$ci.lb[1]
+  ci_ub <- mod$ci.ub[1]
+  
+  tibble(
+    response_variable = resp,
+    summary_mean = estimate,       # Non-transformed estimate
+    summary_lower = ci_lb,         # Non-transformed CI lower
+    summary_upper = ci_ub          # Non-transformed CI upper
+  )
+}) %>%
+  mutate(response_variable = factor(response_variable, levels = rev(response_levels)))
+
+# Plot: horizontal violin + summary point-range (Non-back-transformed values)
+ggplot() +
+  # Violin plot with adjusted alpha
+  geom_violin(
+    data = violin_data,
+    aes(y = response_variable, x = yi, fill = response_variable),
+    color = NA, alpha = 0.4, trim = FALSE
+  ) +
+  # Jitter points for raw data
+  geom_jitter(
+    data = violin_data,
+    aes(y = response_variable, x = yi),
+    width = 0.15, height = 0.15, alpha = 0.2, size = 1, color = "black"
+  ) +
+  # Summary error bars with increased thickness
+  geom_pointrange(
+    data = summary_data,
+    aes(y = response_variable, x = summary_mean,
+        xmin = summary_lower, xmax = summary_upper),
+    shape = 21, fill = "darkgray", color = "black", linewidth = 1  # Increased error bar thickness
+  ) +
+  # Larger summary points with stroke
+  geom_point(
+    data = summary_data,
+    aes(y = response_variable, x = summary_mean),
+    shape = 21, fill = "gray", color = "black", size = 2, stroke = 2  # Bigger points with border
+  ) +
+  scale_fill_manual(values = custom_colors) +
+  scale_x_continuous(
+    breaks = c(-100, -50, -10, 0, 10, 50, 100, 300, 500, 1000),
+    labels = label_number(accuracy = 1)
+  ) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "red", linewidth = 1) +
+  labs(
+    x = "Effect Size (lnRR)", y = NULL, fill = NULL
+  ) +
+  theme_minimal(base_size = 15) +
+  theme(
+    axis.text.y = element_text(size = 14),
+    axis.text.x = element_text(size = 12),
+    plot.title = element_text(face = "bold"),
+    legend.position = "none"
+  )
 
 
+```
 
  
  
