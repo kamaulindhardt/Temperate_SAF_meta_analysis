@@ -315,7 +315,7 @@ database_clean <- database |>
   
   # Step 4: Create Identifiers (Experiment, Treatment, Common Control)
   # Group data by relevant columns for Treatment ID
-  group_by(id_article, tree_type, crop_type, location, experiment_year) |>
+  group_by(id_article, tree_type, crop_type, location, experiment_year,experiment_site) |>
   mutate(treat_id = cur_group_id()) |>
   ungroup() |>
   
@@ -417,7 +417,7 @@ database_clean <- database_clean |>
     # Response variable info
     response_variable, sub_response_variable,
     # Geographic and temporal info
-    location, final_lat, final_lon, exp_site_loc, experiment_year,
+    location, final_lat, final_lon, exp_site_loc, experiment_year,experiment_site,
     # Moderators info
     tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width,
     # Quantitative meta-analysis effect size info
@@ -697,7 +697,7 @@ plot_heatmap <- function(data, y_var) {
 plot_heatmap(database_clean, "location")
 
 # Example usage: Plot for site
-plot_heatmap(database_clean, "site")
+plot_heatmap(database_clean, "experiment_site")
 
 # Example usage: Plot for bioclim_sub_region
 plot_heatmap(database_clean, "bioclim_sub_regions")
@@ -3113,7 +3113,7 @@ merged_rf_best_data <- database_clean_sd_df %>%
     # Response variable info
     response_variable, sub_response_variable,
     # Geographic and temporal info
-    location, climate_zone, bioclim_sub_regions, final_lat, final_lon, exp_site_loc, experiment_year,
+    location, climate_zone, bioclim_sub_regions, final_lat, final_lon, exp_site_loc, experiment_year, experiment_site,
     # Moderators info
     tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width,
     # Quantitative meta-analysis variables - mean and no. of observations
@@ -3567,7 +3567,7 @@ imp_rf_best <- merged_data |>
     # Response variable info
     response_variable, sub_response_variable,
     # Geographic and temporal info
-    location, final_lat, final_lon, exp_site_loc, experiment_year,
+    location, final_lat, final_lon, exp_site_loc, experiment_year,experiment_site,
     # Moderators info
     tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width,
     # Quantitative meta-analysis variables - mean and no. of observations
@@ -3603,7 +3603,7 @@ non_imp_dataset <- database_clean_sd |>
     # Response variable info
     response_variable, sub_response_variable,
     # Geographic and temporal info
-    location, final_lat, final_lon, exp_site_loc, experiment_year,
+    location, final_lat, final_lon, exp_site_loc, experiment_year,experiment_site,
     # Moderators info
     tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width,
     # Quantitative meta-analysis variables - mean and no. of observations
@@ -3877,7 +3877,7 @@ differences <- imp_rf_best_uq %>%
     # Response variable info
     response_variable, sub_response_variable,
     # Geographic and temporal info
-    location, exp_site_loc, experiment_year,
+    location, exp_site_loc, experiment_year,experiment_site,
     # Moderators info
     tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width,
     # Quantitative meta-analysis variables - mean and no. of observations
@@ -3995,7 +3995,7 @@ calculate_effect_sizes <- function(data, measure = "ROM") {
   # Check if the required columns are present in the dataset
   required_columns <- c("silvo_mean", "silvo_n", "silvo_sd_final", 
                         "control_mean", "control_n", "control_sd_final",
-                        "id_article", "id_obs", "experiment_year")
+                        "id_article", "id_obs", "experiment_year","experiment_site" )
   
   if (!all(required_columns %in% names(data))) {
     stop("The dataset is missing one or more required columns.")
@@ -4057,7 +4057,7 @@ non_imp_data_rom <- calculate_effect_sizes(non_imp_data_prep,
     # Response variable info
     response_variable, sub_response_variable,
     # Geographic and temporal info
-    location, final_lat, final_lon, exp_site_loc, experiment_year,
+    location, final_lat, final_lon, exp_site_loc, experiment_year, experiment_site,
     # Moderators info
     tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width, # organic, tillage 
     # Quantitative meta-analysis variables - mean and no. of observations
@@ -4084,7 +4084,7 @@ imp_data_rom <- calculate_effect_sizes(imp_data_prep,
     # Response variable info
     response_variable, sub_response_variable,
     # Geographic and temporal info
-    location, final_lat, final_lon, exp_site_loc, experiment_year,
+    location, final_lat, final_lon, exp_site_loc, experiment_year,experiment_site,
     # Moderators info
     tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width, # organic, tillage 
     # Quantitative meta-analysis variables - mean and no. of observations
@@ -4098,6 +4098,7 @@ imp_data_rom <- calculate_effect_sizes(imp_data_prep,
 ```{r}
 imp_data_rom |> glimpse()
 ```
+
 ```{r}
 skimr::skim(imp_data_rom)
 ```
@@ -5501,4 +5502,23 @@ cat("Files saved successfully to:", output_dir, "\n")
 git fetch origin
 git pull origin main
 git push origin HEAD:refs/heads/main --force
+
+
+```{r}
+# Define the path
+file_path <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R", "imp_data_rom.rds")
+
+# Load the RDS file
+imp_data_rom <- readRDS(file_path)
+
+# View the first few rows of the dataset
+head(imp_data_rom)
+
+# Get a summary of the dataset
+summary(imp_data_rom)
+
+# Check the structure of the dataset
+str(imp_data_rom)
+
+```
 
