@@ -4857,7 +4857,7 @@ biplot(pca_results)
 ```{r}
 # Convert categorical variables to factors and create dummy variables
 predictors <- imp_data_rom %>%
-  select(tree_age, crop_type, tree_type, soil_texture, experiment_year, alley_width) %>%
+  select(tree_age, crop_type, tree_type, soil_texture, experiment_year, alley_width) %>% # experiment_site
   mutate(across(where(is.character), as.factor)) |>
   # Drop rows with any missing values in these columns
   drop_na()
@@ -4869,7 +4869,7 @@ predictors_numeric <- model.matrix(~ . - 1, data = predictors) %>%
 # Ensure the response is aligned with predictors
 # Keep only rows where both predictors and response are not missing
 aligned_data <- imp_data_rom %>%
-  select(tree_age, crop_type, tree_type, soil_texture, experiment_year, alley_width, yi) %>%
+  select(tree_age, crop_type, tree_type, soil_texture, experiment_year, alley_width, yi) %>% # experiment_site
   drop_na()
 
 # Split aligned data into predictors and response
@@ -4933,7 +4933,7 @@ imp_data_rom <- imp_data_rom %>%
 
 # Define the predictors and response
 predictors <- imp_data_rom %>%
-  select(tree_age, crop_type, tree_type, soil_texture, experiment_year, alley_width)
+  select(tree_age, crop_type, tree_type, soil_texture, experiment_year, alley_width) # experiment_site
 
 
 response <- imp_data_rom$yi
@@ -5198,6 +5198,7 @@ time.taken <- end.time - start.time
 cat("\nTotal time taken:", time.taken, units(time.taken), "\n")
 ##############################################################
 # Last go (23/03-2025)
+# Total time taken: 3.867962 secs 
 ```
 
 
@@ -5370,11 +5371,12 @@ However, it is important to note that this analysis was conducted on the full da
 
 In summary, while the selected moderators contribute limited predictive insight into yi across the full dataset, the absence of response-specific analysis limits conclusions about their relative importance in explaining different outcomes. Expanding the model to include additional predictors, interaction effects, or more flexible modeling techniques may help capture the complexity of the system.
 
+experiment_site
 
 ```{r}
 # Define file paths
-non_imp_data_rom <- readRDS(here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R", "non_imp_data_rom.rds"))
-imp_data_rom <- readRDS(here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R", "imp_data_rom.rds"))
+# non_imp_data_rom <- readRDS(here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R", "non_imp_data_rom.rds"))
+# imp_data_rom <- readRDS(here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R", "imp_data_rom.rds"))
 
 # Define your moderators and target
 moderators <- c("tree_type", "crop_type", "age_system", "season", "soil_texture") # organic (1 = organic, 0 = conventional), tillage (1 = tillage, 0 = no tillage)
@@ -5438,6 +5440,11 @@ results_by_response <- imp_data_rom %>%
 # View results
 print(results_by_response)
 ```
+```{r}
+imp_data_rom |> glimpse()
+```
+
+
 ```{r}
 ggplot(results_by_response, aes(x = response_variable, y = Rsquared)) +
   geom_col(fill = "steelblue") +

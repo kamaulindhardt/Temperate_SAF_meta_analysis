@@ -29993,3 +29993,30 @@ This suggests that existing moderators may already be capturing much of the rele
 
 
 
+```{r}
+# EXAMPLE WITH BIODIVERSITY RESPONSE VARIABLE
+
+# STEP 1: Extract the model object for the 'Biodiversity' response variable
+# model_results$Biodiversity$soil_texture  # <--- This might be the real model, not a summary
+soil_texture_model <- model_results$Biodiversity$soil_texture # <--- the real model, not a summary
+
+# Confirm it's an rma.mv object and not a data.frame
+if (!inherits(soil_texture_model, "rma.mv")) stop("You are using the summary data.frame, not the actual model object.")
+
+# 2. Extract coefficient names (will look like: "soil_textureClay", etc.)
+coef_names <- rownames(soil_texture_model$b)
+print(coef_names)  # Sanity check
+
+
+# 3. Build contrast matrix — pairwise comparisons between 3 levels
+contrast_matrix <- rbind(
+  "Clay vs Sand" = c(1, -1, 0),
+  "Clay vs Silt" = c(1, 0, -1),
+  "Sand vs Silt" = c(0, 1, -1)
+)
+colnames(contrast_matrix) <- coef_names  # Align names!
+
+# 4. Run ANOVA (Wald-type test for linear hypotheses)
+anova_results <- anova(soil_texture_model, X = contrast_matrix)
+print(anova_results)
+```
