@@ -12,7 +12,6 @@ knitr::opts_chunk$set(echo = TRUE)
 
 
 
-################################################################################
 Sources for developing approaches in meta-analysis: 
 
 https://wviechtb.github.io/metafor/reference/rma.mv.html 
@@ -28,14 +27,13 @@ should be rearranged accordingly. With this rearranged data format, we then cons
 With the rearranged data and variance-covariance matrix, V, we now ﬁt the ﬁxed-eﬀects meta-analysis model using metafor with the option of
 method="FE". To ﬁt the random-eﬀects multivariate meta-analysis model using the metafor package, we simply change the option to method="REML". We note that this reproduces the results, with this random-effects model, we can also test the difference between
 
-#####################################################
+
 
 Response Variables are measured on a continuous scale, where each individual outcome is a measurement of a numerical quantity
 Chosen Effect Size:  
 
 Formulas to estimate effects (and their standard errors)?
 
-#####################################################
 Step-by-Step Framework for Meta-Analysis
 
 1) Data Preparation
@@ -65,11 +63,8 @@ Consider meta-regression to formally test for differences in moderator effects b
 5) Visualizations
 Create comprehensive visual summaries, including caterpillar plots, forest plots, and geographical maps of study locations.
 
-#############
-# STEP 0
-##########################################################################################################################################
-PREPARING SCRIPT AND READ IN THE DATA
-##########################################################################################################################################
+# STEP 0 PREPARING SCRIPT AND READ IN THE DATA
+
 
 ```{r}
 # Clean workspace
@@ -146,7 +141,7 @@ conflict_prefer("intersect", "base")
 ```
 
 
-Loading the datasets
+## Loading the datasets
 
 ```{r Loading database, warning=FALSE, message=FALSE}
 # Set the working directory automatically using 'here'
@@ -170,7 +165,7 @@ loading fitted models
 
 ```{r}
 # Save all models in a combined file
-model_results <- readRDS(here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R", "fitted_models_all_new.rds"))
+# model_results <- readRDS(here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R", "fitted_models_all_new.rds"))
 ```
 
 
@@ -179,11 +174,8 @@ model_results <- readRDS(here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM
 imp_dataset |> glimpse()
 ```
 
-############
-# STEP 1
-##########################################################################################################################################
-EXPLORE AND VISUALIZE THE DATA INITIAL ASSERMENT
-##########################################################################################################################################
+
+# STEP 1 EXPLORE AND VISUALIZE THE DATA INITIAL ASSERMENT
 
 
 ```{r}
@@ -528,16 +520,10 @@ ggplot(heatmap_data, aes(x = moderator, y = response_variable, fill = count)) +
 ```
 
 
-############
-# STEP 2
-##########################################################################################################################################
-INFLUENCE DIAGNOSTICS FOR META-ANALYSIS MODEL EVALUATION 
-##########################################################################################################################################
+# STEP 2 INFLUENCE DIAGNOSTICS FOR META-ANALYSIS MODEL EVALUATION 
 
 
-##########################################################################################################################################
-Influence Diagnostics for Meta-Analysis Models (Sensitivity Analysis)
-##########################################################################################################################################
+## Influence Diagnostics for Meta-Analysis Models (Sensitivity Analysis)
 
 Cook’s Distance, DFBETAS, and Hat Values are key influence diagnostics used in meta-analysis to assess the impact of individual studies on the overall model results. Each of these measures serves a different purpose in identifying influential studies that could potentially distort the conclusions of a meta-analysis.
 
@@ -557,72 +543,55 @@ start.time <- Sys.time()
 # Set up parallel processing
 plan(multisession, workers = parallel::detectCores() - 1)
 ##########################################################################
-
-# Load precomputed variance-covariance matrices
-output_dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
-v_matrices <- readRDS(file.path(output_dir, "v_matrices_by_response_variable.rds"))
-
-# WORING ON THE IMPUTED DATASET
+# Load input data and precomputed variance-covariance matrices
 meta_data <- imp_dataset
+v_matrices <- readRDS(here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R", "v_matrices_by_response_variable.rds"))
 
-# Global control parameters for optimization
+# Define model control parameters
 control_params <- list(
-  optimizer = "optim",       # Use base R optimizer
-  method = "BFGS",          # Quasi-Newton optimization method
-  iter.max = 10000,          # Maximum number of iterations
-  rel.tol = 1e-12            # Relative tolerance for convergence
+  optimizer = "optim",
+  method = "BFGS",
+  iter.max = 10000,
+  rel.tol = 1e-12
 )
 
-# Function to fit minimal random effects models (intercept-only)
-fit_minimal_random_effects <- function(data, response, random_effects) {
-  
-  # Subset data for the response variable
-  data_subset <- data %>% filter(response_variable == response)
-  
-  # Extract correct variance-covariance matrix
+# Define random effects structure
+random_effects <- list(~ 1 | id_article / location * experiment_year)  # <------- ! Chosen Random Effects Structure !
+
+
+# Function to fit rma.mv models using variance-covariance matrices
+fit_minimal_model <- function(data, response, random_effects) {
+  message("Fitting model for: ", response)
+
+  data_subset <- filter(data, response_variable == response)
   v_matrix <- v_matrices[[response]]
-  
-  # Ensure id_study exists
-  if (!"id_study" %in% colnames(data_subset)) {
-    stop("id_study column is missing in data")
-  }
-  
-  model <- tryCatch({
+
+  tryCatch({
     rma.mv(
       yi = yi,
-      V = v_matrix,                 # Variance-covariance matrix
-      mods = ~ 1,                   # Intercept-only model
-      # mods = as.formula(paste("~", paste(moderators, collapse = " + "))),
-      random = random_effects,      # Crossed and Nested random effects
+      V = v_matrix,
+      mods = ~ 1,
+      random = random_effects,
       data = data_subset,
+      slab = data_subset$id_study,
       method = "REML",
-      slab = data_subset$id_study,  # Study labels
       control = control_params
     )
   }, error = function(e) {
-    cat("Model fitting failed for", response, ":", e$message, "\n")
-    return(NULL)
+    message("Model fitting failed for ", response, ": ", e$message)
+    NULL
   })
-  
-  return(model)
 }
 
-# Define response variables and random effects structure
+# Get all unique response variables
 response_variables <- unique(meta_data$response_variable)
-random_effects <- list(~ 1 | id_article,                 # <----------  ! Chosen Random Effects Structure !
-                       ~ 1 | location / experiment_year)
-# random_effects <- list(~ 1 | id_article/exp_id)  # Hierarchical structure
-# moderators <- c("tree_type", "crop_type", "age_system", "season", "soil_texture") #, "no_tree_per_m", "tree_height", "alley_width")
 
-# Fit models sequentially
-model_results_mv <- list()
+# Fit models across all response variables
+model_results_mv <- map(
+  .x = response_variables,
+  .f = ~ fit_minimal_model(meta_data, .x, random_effects)
+)
 
-for (response in response_variables) {
-  cat("Fitting model for:", response, "...\n")
-  model_results_mv[[response]] <- fit_minimal_random_effects(meta_data, response, random_effects)
-}
-
-# Assign names to the list
 names(model_results_mv) <- response_variables
 
 
@@ -636,19 +605,37 @@ cat("\nTotal time taken:", time.taken, units(time.taken), "\n")
 # Total time taken: 9.153187 secs 
 # Last go (25/03-2025) 
 # Total time taken: 10.69201 secs 
-# Fitting model for: Biodiversity ...
-# Fitting model for: Crop yield ...
-# Fitting model for: Water quality ...
-# Advarsel: Single-level factor(s) found in 'random' argument. Corresponding 'sigma2' value(s) fixed to 0.
-# Fitting model for: Pest and Disease ...
-# Fitting model for: Soil quality ...
+# Last go (01/04-2025) 
+# Total time taken: 8.850986 secs 
+# Fitting model for: Biodiversity
 # Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.
-# Fitting model for: Carbon sequestration ...
-# Fitting model for: Product quality ...
+# Fitting model for: Crop yield
+# Model fitting failed for Crop yield: Length of 'yi' (277) and the length/dimensions of 'V' (107) are not the same.
+# Fitting model for: Water quality
+# Advarsel: Single-level factor(s) found in 'random' argument. Corresponding 'sigma2' value(s) fixed to 0.
+# Fitting model for: Pest and disease control
+# Model fitting failed for Pest and disease control: Length of 'yi' (49) and the length/dimensions of 'V' (277) are not the same.
+# Fitting model for: Soil quality
+# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.
+# Fitting model for: Carbon sequestration
+# Fitting model for: Product quality
+# Model fitting failed for Product quality: Length of 'yi' (107) and the length/dimensions of 'V' (49) are not the same.
 ```
 
 ```{r}
 model_results_mv
+```
+```{r}
+for (response in response_variables) {
+  data_subset <- filter(meta_data, response_variable == response)
+  v_matrix <- v_matrices[[response]]
+
+  if (!is.null(v_matrix)) {
+    cat("✓", response, "→", nrow(data_subset), "rows; V-dim:", dim(v_matrix), "\n")
+  } else {
+    cat("⚠️", response, "has no V matrix.\n")
+  }
+}
 ```
 
 ```{r eval=FALSE}
@@ -660,66 +647,62 @@ start.time <- Sys.time()
 plan(multisession, workers = parallel::detectCores() - 1)
 ##########################################################################
 
-
 # Function to extract influence diagnostics for rma.mv models
-extract_mv_influence_diagnostics <- function(response, model) {
+extract_mv_influence <- function(response, model) {
   if (is.null(model) || !inherits(model, "rma.mv")) {
-    cat("Skipping influence diagnostics for:", response, "- Model is NULL or incorrect type.\n")
+    message("Skipping: ", response, " – model is NULL or not of class rma.mv")
     return(NULL)
   }
-  
-  cat("Extracting influence diagnostics for:", response, "...\n")
 
-  # Compute Cook's Distance
+  message("Extracting influence diagnostics for: ", response)
+
   cooks_d <- tryCatch({
-    cooks.distance(model, progbar=TRUE)
+    cooks.distance(model, progbar = TRUE)
   }, error = function(e) {
-    cat("Cook's Distance failed for:", response, "\n")
-    return(rep(NA, length(model$yi)))
+    message("Cook's Distance failed for ", response)
+    rep(NA_real_, model$k)
   })
-  
-  # Compute DFBETAS (Maximum absolute values per study)
+
   df_betas <- tryCatch({
-    dfbetas_values <- dfbetas(model, progbar=TRUE)
-    apply(dfbetas_values, 1, max, na.rm = TRUE)
+    db <- dfbetas(model, progbar = TRUE)
+    apply(db, 1, function(x) max(abs(x), na.rm = TRUE))
   }, error = function(e) {
-    cat("DFBETAS extraction failed for:", response, "\n")
-    return(rep(NA, length(model$yi)))
+    message("DFBETAS failed for ", response)
+    rep(NA_real_, model$k)
   })
-  
-  # Compute Hat Values
+
   hat_vals <- tryCatch({
-    hatvalues(model, type="diagonal")
+    hatvalues(model, type = "diagonal")
   }, error = function(e) {
-    cat("Hat values extraction failed for:", response, "\n")
-    return(rep(NA, length(model$yi)))
+    message("Hat values failed for ", response)
+    rep(NA_real_, model$k)
   })
-  
-  # Create a data frame with extracted influence diagnostics values
-  data.frame(
+
+  tibble(
     Response_Variable = response,
-    Study = model$slab,  # Study labels
+    Study = model$slab,
     Cooks_Distance = cooks_d,
     Max_DFBeta = df_betas,
-    Max_Hat = hat_vals,
-    stringsAsFactors = FALSE
+    Hat_Value = hat_vals
   )
 }
 
-# Ensure only valid models are used
+# Run extraction across all valid models
 valid_models <- keep(model_results_mv, ~ inherits(.x, "rma.mv"))
 
-# Apply function to all models and combine into one dataframe
-mv_influence_diagnostics <- map2_dfr(names(valid_models), 
-                                     valid_models, 
-                                     extract_mv_influence_diagnostics)
+mv_influence_diagnostics <- map2_dfr(
+  .x = names(valid_models),
+  .y = valid_models,
+  .f = extract_mv_influence
+)
 
-# Check results
-mv_influence_diagnostics
-
-# Save Influence Diagnostics dataset
-output_dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
+# Save influence diagnostics output
+output_dir <- here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
 saveRDS(mv_influence_diagnostics, file = file.path(output_dir, "mv_influence_diagnostics.rds"))
+
+
+# mv_influence_diagnostics |> glimpse()
+mv_influence_diagnostics
 
 ##########################################################################
 # End time tracking
@@ -727,55 +710,12 @@ end.time <- Sys.time()
 time.taken <- end.time - start.time
 cat("\nTotal time taken:", time.taken, units(time.taken), "\n")
 ##########################################################################
-# Last go (04/02-2025) 
-# Extracting influence diagnostics for: Biodiversity ...
-#   |==================================================| 100% elapsed=23s  
-#   |==================================================| 100% elapsed=37s  
-# Extracting influence diagnostics for: Crop yield ...
-#   |==================================================| 100% elapsed=01m 29s
-#   |==================================================| 100% elapsed=01m 59s
-# Extracting influence diagnostics for: Water quality ...
-#   |==================================================| 100% elapsed=09s  
-#   |==================================================| 100% elapsed=09s
-# Extracting influence diagnostics for: Pest and Disease ...
-#   |==================================================| 100% elapsed=02s  
-#   |==================================================| 100% elapsed=02s  
-# Extracting influence diagnostics for: Soil quality ...
-#   |==================================================| 100% elapsed=01m 25s
-#   |==================================================| 100% elapsed=01m 56s
-# Extracting influence diagnostics for: Greenhouse gas emission ...
-#   |==================================================| 100% elapsed=06s  
-#   |==================================================| 100% elapsed=15s  
-# Extracting influence diagnostics for: Product quality ...
-#   |==================================================| 100% elapsed=07s  
-#   |==================================================| 100% elapsed=12s  
-# 
-# Total time taken: 8.95111 mins 
-
 # Last go (23/03-2025) 
-# Extracting influence diagnostics for: Biodiversity ...
-#   |==================================================| 100% elapsed=29s  
-#   |==================================================| 100% elapsed=42s  
-# Extracting influence diagnostics for: Crop yield ...
-#   |==================================================| 100% elapsed=01m 58s
-#   |==================================================| 100% elapsed=02m 53s
-# Extracting influence diagnostics for: Water quality ...
-#   |==================================================| 100% elapsed=12s  
-#   |==================================================| 100% elapsed=10s
-# Extracting influence diagnostics for: Pest and Disease ...
-#   |==================================================| 100% elapsed=02s  
-#   |==================================================| 100% elapsed=03s  
-# Extracting influence diagnostics for: Soil quality ...
-#   |==================================================| 100% elapsed=01m 22s
-#   |==================================================| 100% elapsed=02m 16s
-# Extracting influence diagnostics for: Carbon sequestration ...
-#   |==================================================| 100% elapsed=08s  
-#   |==================================================| 100% elapsed=09s 
-# Extracting influence diagnostics for: Product quality ...
-#   |==================================================| 100% elapsed=12s  
-#   |==================================================| 100% elapsed=16s
-# 
 # Total time taken: 10.98624 mins 
+# Last go (01/04-2025)
+# Total time taken: 11.01093 mins 
+# Last go (01/04-2025)
+# Total time taken: 6.433458 mins 
 ```
 
 ```{r}
@@ -789,45 +729,42 @@ mv_influence_diagnostics <- readRDS(file.path(dir, "mv_influence_diagnostics.rds
 # Define Thresholds for Influence Diagnostics
 ##########################################################################
 
-# Function to clean study names (remove suffixes)
+# Function to clean study names (remove suffixes like ".1", ".2", etc.)
 clean_study_name <- function(study) {
-  str_replace(study, "\\.\\d+$", "")  # Removes last dot followed by numbers
+  stringr::str_replace(study, "\\.\\d+$", "")
 }
 
-# Apply function to clean study names before summarizing
+# Add cleaned study names
 mv_influence_diagnostics <- mv_influence_diagnostics %>%
-  mutate(Study_Clean = clean_study_name(Study))
+  dplyr::mutate(Study_Clean = clean_study_name(Study))
 
-# Function to calculate thresholds per Response Variable
-calculate_thresholds <- function(data) {
-  data %>%
-    group_by(Response_Variable) %>%
-    summarise(
-      n_studies = n_distinct(Study_Clean),  # Count unique studies per response variable
-      Cooks_Threshold = 4 / n_studies,  # Cook’s Distance threshold (rule-of-thumb)
-      DFBETAS_Threshold = 2 / sqrt(n_studies),  # DFBETAS threshold
-      Hat_Threshold = 3 * mean(Max_Hat, na.rm = TRUE),  # Hat value threshold
+# Function to calculate thresholds per response variable
+calculate_thresholds <- function(df) {
+  df %>%
+    dplyr::group_by(Response_Variable) %>%
+    dplyr::summarise(
+      Cooks_Threshold = 4 / n(),
+      DFBeta_Threshold = 2 / sqrt(n()),
+      Hat_Threshold = 3 * mean(Hat_Value, na.rm = TRUE),
       .groups = "drop"
     )
 }
 
-# Compute thresholds per Response Variable
+# Compute thresholds
 mv_thresholds <- calculate_thresholds(mv_influence_diagnostics)
 
-# Summarize per Study & Response Variable
+# Summarize per study and response variable
 mv_influence_diagnostics_summary <- mv_influence_diagnostics %>%
-  group_by(Response_Variable, Study_Clean) %>%
-  summarise(
+  dplyr::group_by(Response_Variable, Study_Clean) %>%
+  dplyr::summarise(
     Mean_Cooks_Distance = mean(Cooks_Distance, na.rm = TRUE),
     Mean_DFBeta = mean(Max_DFBeta, na.rm = TRUE),
-    Mean_Hat = mean(Max_Hat, na.rm = TRUE),
+    Mean_Hat = mean(Hat_Value, na.rm = TRUE),
 
-    # Compute standard errors for confidence intervals
-    SE_Cooks_Distance = sd(Cooks_Distance, na.rm = TRUE) / sqrt(n()),
-    SE_DFBeta = sd(Max_DFBeta, na.rm = TRUE) / sqrt(n()),
-    SE_Hat = sd(Max_Hat, na.rm = TRUE) / sqrt(n()),
+    SE_Cooks_Distance = sd(Cooks_Distance, na.rm = TRUE) / sqrt(dplyr::n()),
+    SE_DFBeta = sd(Max_DFBeta, na.rm = TRUE) / sqrt(dplyr::n()),
+    SE_Hat = sd(Hat_Value, na.rm = TRUE) / sqrt(dplyr::n()),
 
-    # Compute confidence intervals (CI = Mean ± 1.96 × SE)
     Lower_CI_Cooks = Mean_Cooks_Distance - 1.96 * SE_Cooks_Distance,
     Upper_CI_Cooks = Mean_Cooks_Distance + 1.96 * SE_Cooks_Distance,
     Lower_CI_DFBeta = Mean_DFBeta - 1.96 * SE_DFBeta,
@@ -836,68 +773,69 @@ mv_influence_diagnostics_summary <- mv_influence_diagnostics %>%
     Upper_CI_Hat = Mean_Hat + 1.96 * SE_Hat,
     .groups = "drop"
   ) %>%
-  # Merge thresholds into summary data
-  left_join(mv_thresholds, by = "Response_Variable") 
+  dplyr::left_join(mv_thresholds, by = "Response_Variable")
 
-# Define response variables to exclude due to sparse data, e.g. "Water quality"
-exclude_responses <- c("Greenhouse gas emission", "Water quality", "Pest and disease control")
+# Optionally exclude certain responses
+excluded_responses <- c("Greenhouse gas emission", "Water quality", "Pest and disease control")
 
-mv_influence_diagnostics_summary <- mv_influence_diagnostics_summary |> 
-  filter(!Response_Variable %in% exclude_responses)
+mv_influence_diagnostics_summary <- mv_influence_diagnostics_summary %>%
+  dplyr::filter(!Response_Variable %in% excluded_responses)
 
-# Final Influence Diagnostics dataset ready for plotting
+# Final dataset ready for visualization or reporting
 mv_influence_diagnostics_summary
+
 ```
+
+### DFBETAS Plot
 
 ```{r}
 ##########################################################################
 # DFBETAS Plot for Influence Diagnostics
 ##########################################################################
 
-# Compute mean DFBETAS threshold per response variable
-mv_mean_dfbeta_threshold <- mv_influence_diagnostics_summary %>%
-  group_by(Response_Variable) %>%
-  summarise(Mean_DFBETAS_Threshold = mean(DFBETAS_Threshold, na.rm = TRUE), .groups = "drop")
+# Thresholds are already included in mv_influence_diagnostics_summary
+# Rename to match ggplot usage
+dfbetas_plot_data <- mv_influence_diagnostics_summary %>%
+  mutate(Is_Influential = abs(Mean_DFBeta) > DFBeta_Threshold)
 
-
-# Merge computed thresholds back into the diagnostics dataset
-mv_influence_diagnostics_summary_dfbeta <- mv_influence_diagnostics_summary %>%
-  left_join(mv_mean_dfbeta_threshold, by = "Response_Variable") 
-
-mv_influence_diagnostics_summary_dfbeta |> glimpse()
-
-# **Filter out unwanted response variables**
-dfbetas_plot_data <- mv_influence_diagnostics_summary_dfbeta %>%
-  mutate(Is_Influential = abs(Mean_DFBeta) > Mean_DFBETAS_Threshold)
-
-# Create DFBETAS Plot with CI
-dfbetas_plot_data |> 
+# Create DFBETAS Influence Plot
+dfbetas_plot_data %>%
   ggplot(aes(x = reorder(Study_Clean, Mean_DFBeta), y = Mean_DFBeta)) +
+  
+  # Add 95% confidence intervals
   geom_pointrange(aes(ymin = Lower_CI_DFBeta, ymax = Upper_CI_DFBeta), 
-                  color = "black", size = 0.5) +  # Confidence intervals
-  geom_point(color = "black", size = 1) +  # Individual data points
-  geom_line(aes(group = Response_Variable), color = "black") +  # Connecting lines
-  geom_hline(yintercept = 0, linetype = "dashed", color = "gray50") +  # Reference line at 0
-  #geom_hline(aes(yintercept = Mean_DFBETAS_Threshold), linetype = "dotted", color = "blue") +  # Mean threshold per response
-  #geom_hline(aes(yintercept = -Mean_DFBETAS_Threshold), linetype = "dotted", color = "blue") +  # Negative threshold
-  geom_point(data = dfbetas_plot_data %>% filter(Is_Influential), 
-             aes(y = Mean_DFBeta), color = "red", size = 2) +  # Highlight influential studies
-  facet_wrap(~Response_Variable, scales = "free", nrow = 1) +  # Facet per response variable
+                  size = 0.4, color = "black") +
+  
+  # Highlight influential studies
+  geom_point(aes(color = Is_Influential), size = 2) +
+  scale_color_manual(values = c("FALSE" = "black", "TRUE" = "red")) +
+  
+  # Add horizontal reference line at 0
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray50") +
+
+  # Add positive and negative threshold lines
+  geom_hline(aes(yintercept = DFBeta_Threshold), linetype = "dotted", color = "blue") +
+  geom_hline(aes(yintercept = -DFBeta_Threshold), linetype = "dotted", color = "blue") +
+
+  # Facet by response variable
+  facet_wrap(~Response_Variable, scales = "free_y", nrow = 1) +
+  
+  # Labels and theme
   labs(
-    title = "DFBETAS Influence Diagnostics (with Confidence Intervals)",
+    title = "DFBETAS Influence Diagnostics with 95% CI",
+    subtitle = "Red dots = influential studies; Blue lines = ± threshold",
     x = "Study",
-    y = "DFBETAS",
-    caption = "Dashed line = 0, Dotted lines = ± Threshold, Black bars = CI"
+    y = "Mean DFBETA (± CI)"
   ) +
   theme_bw() +
-  #scale_y_continuous(limits = c(-0.5, 0.5)) +  # Set x-axis limits for better visualization
   theme(
-    strip.text = element_text(face = "bold", size = 12),  # Highlight facet labels
-    axis.text.x = element_text(angle = 90, hjust = 1, size = 8),  # Rotate x-axis labels
-    panel.grid.minor = element_blank()  # Clean up grid
+    strip.text = element_text(face = "bold", size = 12),
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 8),
+    legend.position = "none"
   )
 ```
 
+### Cook's Distance Plot
 
 ```{r}
 ##########################################################################
@@ -941,6 +879,8 @@ cooks_plot_data |>
     panel.grid.minor = element_blank()  # Clean up grid
   )
 ```
+
+### Hat Values Plot
 
 ```{r}
 ##########################################################################
@@ -1120,7 +1060,8 @@ time.taken
 
 
 
-LOADING THE INFLUENCE DIAGNOSTICS DATA
+## Load the influence diagnostics results from the saved RDS file and display a preview of the data
+
 ```{r}
 # Define the directory where results are stored
 dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
@@ -1140,6 +1081,9 @@ if (file.exists(influence_results_path)) {
 # Display a preview of the loaded data
 influence_results |> glimpse()  
 ```
+
+
+## Influence Diagnostics plots: Cook’s Distance, DFBETAS, and Hat Values
 
 ```{r}
 # Plot Cook’s Distance
@@ -1185,11 +1129,7 @@ ggplot(influence_results, aes(x = reorder(Study, -Hat_Values), y = Hat_Values)) 
 
 
 
-############
-# STEP 3
-##########################################################################################################################################
-SENSITIVITY ANALYSIS (LEAVE-ONE-OUT SENSTIVITY ANALYSIS)
-##########################################################################################################################################
+# STEP 3 SENSITIVITY ANALYSIS (LEAVE-ONE-OUT SENSTIVITY ANALYSIS)
 
 
 ```{r}
@@ -1331,10 +1271,8 @@ full_model <- function(data, random_effects_formula) {
 # Set the model formula function to use for LOO analysis (e.g., minimal_random_effects_model, interaction_model or full_model)
 model_to_use <- interaction_model  # Change this to minimal_random_effects_model if needed
 
-# Define random effects structure [before this was: ~ 1 | exp_id]
-# random_effects_formula <- list(~ 1 | id_article/exp_id)
-random_effects_formula <- list(~ 1 | id_article,                 # <----------  ! Chosen Random Effects Structure !
-                               ~ 1 | location / experiment_year)
+# Define random effects structure 
+random_effects <- list(~ 1 | id_article / location * experiment_year)  # <------- ! Chosen Random Effects Structure !
 
 # Initialize a list to store results for each response variable
 response_specific_results <- list()
@@ -1782,11 +1720,7 @@ study_contribution_summary
 
 
 
-############
-# STEP 4
-##########################################################################################################################################
-PUBLICATION BIAS INVESTIGATION FOR META-ANALYSIS - FUNNEL PLOT ETC.
-##########################################################################################################################################
+# STEP 4 PUBLICATION BIAS INVESTIGATION FOR META-ANALYSIS - FUNNEL PLOT ETC.
 
 
 ```{r}
@@ -2136,9 +2070,7 @@ This analysis demonstrates the importance of adjusting for publication bias, rev
 
 
 
-##########################################################################################################################################
-PUBLICATION BIAS ASSESSMENT - FUNNEL PLOTS
-##########################################################################################################################################
+## Publication Bias Assessment - Funnel Plots
 
 
 ```{r}
@@ -2338,11 +2270,7 @@ Summary of Egger’s Test for Publication Bias
 
 
 
-############
-# STEP 5
-##########################################################################################################################################
-MODERATOR ANALYSIS - INFLUENCE OF SILVOARABLE AGROFORESTRY CHARACTERISTICS - (INCL. BOOTSTRAPPING)
-##########################################################################################################################################
+# STEP 5 MODERATOR ANALYSIS - INFLUENCE OF SILVOARABLE AGROFORESTRY CHARACTERISTICS - (INCL. BOOTSTRAPPING)
 
 ```{r}
 # model_results$`Crop yield`$full_model$tau2
@@ -2415,8 +2343,8 @@ for (response_variable in response_variables) {
 
   # Define the random effects structure
   # random_effects <- list(~ 1 | id_article/exp_id)
-  random_effects <- list(~ 1 | id_article,                 # <----------  ! Chosen Random Effects Structure !
-                         ~ 1 | location / experiment_year)
+  random_effects <- list(~ 1 | id_article / location * experiment_year)  # <------- ! Chosen Random Effects Structure !
+  
   ###############################################################
   # NULL MODEL: GLOBAL AVERAGE WITHOUT MODERATORS
 
@@ -2835,11 +2763,7 @@ ggplot(summary_peh_by_group, aes(x = Avg_PE_Heterogeneity, y = ModeratorGroup, f
 
 
 
-
-
-####################################################################################################
-BOOTSTRAPPING FOR PROPORTION OF EXPLAINED HETEROGENEITY (PEH) ANALYSIS
-####################################################################################################
+## Bootstrapping for Proportion of Explained Heterogeneity (PEH) Analysis
 
 Bootstrapping involves resampling with replacement to estimate confidence intervals for PEH. 
 This helps assess the robustness of the estimated heterogeneity explained
@@ -3137,11 +3061,9 @@ ggplot(filtered_data, aes(x = Moderator, y = MeanPEH, fill = Moderator)) +
 ```
 
 
-############
-# STEP 6
-##########################################################################################################################################
-MODERATOR ANALYSIS - STATISTICAL ANALYSIS OF MODERATORS' EFFECTS FOR EACH RESPONSE VARIABLE - VISUALISED WITH FOREST PLOTS
-##########################################################################################################################################
+
+
+# STEP 6 MODERATOR ANALYSIS - STATISTICAL ANALYSIS OF MODERATORS' EFFECTS FOR EACH RESPONSE VARIABLE - VISUALISED WITH FOREST PLOTS
 
 ```{r eval=FALSE}
 # List of response variables and moderators
@@ -3160,8 +3082,7 @@ fit_moderator_models_mv <- function(meta_data, response_variables, moderators, v
   
   # Define minimal random effects structure
   # random_effects <- list(~ 1 | id_article/exp_id)
-  random_effects <- list(~ 1 | id_article,                 # <----------  ! Chosen Random Effects Structure !
-                         ~ 1 | location / experiment_year)
+  random_effects <- list(~ 1 | id_article / location * experiment_year)  # <------- ! Chosen Random Effects Structure !
 
   for (response_variable in response_variables) {
     
@@ -3439,11 +3360,7 @@ final_forest_plot
 
 
 
-############
-# STEP 7
-##########################################################################################################################################
-FOREST PLOT FOR VISUALIZING META-ANALYSIS RESULTS 
-##########################################################################################################################################
+# STEP 7 FOREST PLOT FOR VISUALIZING META-ANALYSIS RESULTS 
 
 OBS: To see the final forest plot (violin plot) of overall effect sizes for all response variables see script "5_FINAL_VISUALIZATIONS"
 

@@ -38,7 +38,7 @@ Step-by-Step Framework for Meta-Analysis
 
 1) Data Preparation
 Clean and transform the data.
-Standardize location information and create unique identifiers.
+Standardize experiment_site information and create unique identifiers.
 Classify locations by continent.
 --- DESCRIPTIVE_VIZ: Exploratory data analysis and visualization.
 Standardize measures of variation and convert SE to SD (save this version).
@@ -178,7 +178,7 @@ non_imp_dataset <- non_imp_data_rom %>%
     # Response variable info
     response_variable, sub_response_variable,
     # Geographic and temporal info
-    experiment_site, location, final_lat, final_lon, exp_site_loc, experiment_year,
+    location, experiment_site, final_lat, final_lon, exp_site_loc, experiment_year,
     # Moderators info
     tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width, organic, tillage,
     # Quantitative meta-analysis variables - mean and no. of observations
@@ -199,7 +199,7 @@ imp_dataset <- imp_data_rom %>%
     # Response variable info
     response_variable, sub_response_variable,
     # Geographic and temporal info
-    experiment_site, location, final_lat, final_lon, exp_site_loc, experiment_year,
+    location, experiment_site, final_lat, final_lon, exp_site_loc, experiment_year,
     # Moderators info
     tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width, organic, tillage,
     # Quantitative meta-analysis variables - mean and no. of observations
@@ -375,7 +375,6 @@ Ridge Plot: Shows the distribution of effect sizes for each response variable.
 ```{r}
 # meta_data |> glimpse()
 ```
-
 ```{r}
 # Extract relevant columns, including vi
 # effect_size_data <- meta_data %>%
@@ -464,8 +463,7 @@ assess_missing_data <- function(dataset, moderators, dataset_name = "Dataset") {
 # Assessing Moderator missingness
 
 moderators <- c("tree_type", "crop_type", "age_system", "season", 
-                "soil_texture", "no_tree_per_m", "tree_height", "alley_width",
-                "organic", "tillage")
+                "soil_texture", "no_tree_per_m", "tree_height", "alley_width", "organic", "tillage")
 
 # Assess missing data for non-imputed dataset
 assess_missing_data(non_imp_dataset, moderators, "Non-Imputed Dataset")
@@ -583,19 +581,11 @@ meta_data <- imp_dataset
 # Define the 4 random effects structures to test
 random_effect_structures <- list(
   study_year         = list(~ 1 | id_article / experiment_year),
-  study_loc_year     = list(~ 1 | id_article / experiment_site * experiment_year),  # <------- Chosen random effects structure !!!!!!
-  study_and_loc_year = list(~ 1 | id_article,                                       # <------- Slightly lower AIC than the chosen one
+  study_loc_year     = list(~ 1 | id_article / experiment_site * experiment_year),  # <------- ! Chosen Random Effects Structure !
+  study_and_loc_year = list(~ 1 | id_article,
                             ~ 1 | experiment_site / experiment_year)
-  )
-
-# Other random effects structures to that was tested but not included here are:
-# study_loc_year     = list(~ 1 | id_article / location * experiment_year)
-# study_and_loc_year = list(~ 1 | id_article, ~ 1 | location / experiment_year)
-# study_exp = list(~ 1 | id_article / exp_id)
-
-# Define moderators
-moderators <- c("tree_type", "crop_type", "age_system", "season", "soil_texture", "no_tree_per_m", "tree_height", "alley_width",
-                "organic", "tillage")
+  # study_exp = list(~ 1 | id_article / exp_id)
+)
 
 # Global control parameters for optimization
 control_params <- list(
@@ -604,6 +594,9 @@ control_params <- list(
   iter.max = 10000,
   rel.tol = 1e-12
 )
+
+# Define moderators
+moderators <- c("tree_type", "crop_type", "age_system", "season", "soil_texture", "no_tree_per_m", "tree_height", "alley_width", "organic", "tillage")
 
 # Run model comparisons for each response variable under each random effect structure
 model_comparison_results <- list()
@@ -648,7 +641,7 @@ for (response in names(v_matrices)) {
 }
 
 # Summarize results into a data frame
-extract_summary <- function(results, response){
+extract_summary <- function(results, response) {
   tibble::tibble(
     response_variable = response,
     random_structure = names(results),
@@ -656,9 +649,8 @@ extract_summary <- function(results, response){
     BIC = purrr::map_dbl(results, ~ if (!is.null(.x)) .x$BIC else NA_real_),
     logLik = purrr::map_dbl(results, ~ if (!is.null(.x)) .x$logLik else NA_real_),
     total_tau2 = purrr::map_dbl(results, ~ if (!is.null(.x$tau2)) sum(.x$tau2) else NA_real_)
-    )
+  )
 }
-  
 
 
 # Compile all
@@ -678,19 +670,13 @@ cat("\nTotal time taken:", time.taken, units(time.taken), "\n")
 # Total time taken: 6.676552 mins 
 # Last go (25/03-2025) 
 # Total time taken: 17.43763 mins 
-# Last go (01/04-2025) 
-# Total time taken: 26.87301 secs
+# Last go (01/04-2025)
+# Total time taken: 24.03345 secs 
 ```
 ## Best Random Effects Structure Per Response Variable (based on AIC)
 
 ```{r}
-best_random_structure_by_response <- model_re_structures_summary %>%
-  group_by(response_variable) %>%
-  arrange(AIC, .by_group = TRUE) %>%
-  slice(1) %>%
-  ungroup()
-
-# Mean AIC per Random Effects Structure Grouped by Response Variable
+# Mean AIC per Random Effects Structure
 mean_aic_by_response <- model_re_structures_summary %>%
   group_by(response_variable, random_structure) %>%
   summarise(mean_AIC = mean(AIC, na.rm = TRUE), .groups = "drop") %>%
@@ -702,16 +688,25 @@ mean_aic_by_response
 ## Overall Best Random Effects Structure (across all responses)
 
 ```{r}
-# Count how many times each structure performed best
+best_random_structure_by_response <- model_re_structures_summary %>%
+  group_by(response_variable) %>%
+  arrange(AIC, .by_group = TRUE) %>%
+  slice(1) %>%
+  ungroup()
+
+# Count how many times each random structure was best
 overall_best_random_structure <- best_random_structure_by_response %>%
   count(random_structure, sort = TRUE)
 
-# Overall Mean AIC per Random Effects Structure
+# Compute mean AIC across all models for each random structure
 mean_aic_overall <- model_re_structures_summary %>%
   group_by(random_structure) %>%
   summarise(mean_AIC = mean(AIC, na.rm = TRUE), .groups = "drop") %>%
   arrange(mean_AIC)
 
+# View results
+best_random_structure_by_response
+overall_best_random_structure
 mean_aic_overall
 ```
 
@@ -841,9 +836,6 @@ extreme_variance_rows |> glimpse()
 ## Fitting models (sub-group) for each response variable using precomputed v_matrices
 
 ```{r}
-# Saving in new data variable, just to ensure consistency
-# WORING ON THE IMPUTED DATASET
-meta_data <- imp_dataset
 meta_data |> skimr::skim()
 ```
 
@@ -870,9 +862,8 @@ control_params <- list(
 
 # Explicitly Convert all moderators to factors
 data_subset <- data_subset %>%
-  mutate(across(c(age_system, crop_type, tree_type, season, soil_texture, no_tree_per_m, tree_height, alley_width,
-                  organic, tillage), 
-                as.factor))
+  mutate(across(c(age_system, crop_type, tree_type, season, soil_texture,
+                  no_tree_per_m, tree_height, alley_width, organic, tillage), as.factor))
 
 
 # Transparent and reproducible 'cabbage-style' meta-analysis moderator testing
@@ -950,6 +941,7 @@ fit_meta_analysis_moderator_models <- function(data_subset, response_variable, v
     rma.mv(yi, V = v_matrix, mods = ~ -1 + tillage, random = random_effects,           # Tillage
            data = data_subset, method = "REML", control = control_params)
   }, error = function(e) NULL)
+  
 
   # ------------------------------------------------------------------------------------------------
   # Two-way interaction models between selected pairs
@@ -960,11 +952,10 @@ fit_meta_analysis_moderator_models <- function(data_subset, response_variable, v
     c("crop_type", "season"),
     c("soil_texture", "age_system"),
     c("tree_height", "alley_width"),
-    c("tillage", "organic"),
-    # Three-way interaction, tested on all, but only valid and relevant for the 'Crop yield' response variable
+    # Selected three-way interactions
     c("crop_type", "tree_height", "alley_width"),
-    # Management interactions - also tested as moderators
-    c("organic", "tillage") #  (1 = organic, 0 = conventional) and (1 = tillage, 0 = no tillage)
+    # Management interactions
+    c("organic", "tillage") # <- organic (1 = organic, 0 = conventional; tillage (1 = tillage, 0 = no tillage)
   )
 
   for (pair in interaction_pairs) {
@@ -999,8 +990,7 @@ for (response in names(v_matrices)) {
   data_subset <- meta_data[meta_data$response_variable == response, ]
   v_matrix <- v_matrices[[response]]
   
-  random_effects <- list(~ 1 | id_article / experiment_site * experiment_year) # <------- Chosen random effects structure !!!!!!
-  # Other random effects structures that were tested but not included here are:
+  random_effects <- list(~ 1 | id_article / experiment_site * experiment_year)
   # random_effects <- list(~ 1 | id_article / experiment_year)
   # random_effects <- list(~ 1 | id_article,
   #                        ~ 1 |experiment_site/experiment_year)
@@ -1040,23 +1030,19 @@ cat("\nTotal time taken:", time.taken, units(time.taken), "\n")
 ##########################################################################
 # Last go (27/03-2025) 
 # Total time taken: 1.374625 mins 
-# Last go (01/04-2025) 
-# Total time taken: 1.74668 mins
 ```
 
 
 The meta-analysis model testing successfully fitted intercept-only and one-by-one moderator models across all response variables, providing a reproducible structure for interpreting silvoarable effects. However, several two-way interaction models failed, primarily due to missing values, single-level factors, or factors with only one valid level, which prevents contrast estimation. Warnings about extreme variance ratios suggest caution in interpreting models with highly imbalanced sampling precision. Despite these issues, most models ran as expected and were saved successfully. Future runs should filter incomplete combinations and ensure all interaction moderators have at least two levels and sufficient non-missing data across response variables.
 
 ```{r}
-# Initial rough checking data
-model_results$`Crop yield`
-model_results$Biodiversity$organic
+# Cross-checking data
+# table(meta_data$id_article, meta_data$experiment_site, meta_data$experiment_year)
+# table(meta_data$experiment_site, meta_data$experiment_year)
 ```
 
 
 Explanations of the above Multi-Model Fitting 
-
-## Exstracting and assessing the fitted models
 
 ```{r}
 # Load and assess the model results from the saved file
@@ -1080,8 +1066,7 @@ evaluate_model <- function(models, response_variable) {
 
   # Individual moderator models
   moderator_names <- c("tree_type", "crop_type", "age_system", "season",
-                       "soil_texture", "no_tree_per_m", "tree_height", "alley_width",
-                       "organic", "tillage")
+                       "soil_texture", "no_tree_per_m", "tree_height", "alley_width", "organic", "tillage")
 
   cat("\n[Moderators] Individual moderator models:\n")
   evaluation_results$moderators <- list()
@@ -1096,19 +1081,16 @@ evaluate_model <- function(models, response_variable) {
   }
 
   # Two-way interaction models
-  interaction_pairs <- list(                                                         # Selected two-way interactions 
+  interaction_pairs <- list(
     c("tree_type", "crop_type"),
     c("tree_type", "age_system"),
     c("crop_type", "season"),
     c("soil_texture", "age_system"),
     c("tree_height", "alley_width"),
-    c("tillage", "organic"),
-    # Three-way interaction, tested on all, but only valid and relevant for the 'Crop yield' response variable
-    c("crop_type", "tree_height", "alley_width"),
-    # Management interactions - also tested as moderators
-    c("organic", "tillage") #  (1 = organic, 0 = conventional) and (1 = tillage, 0 = no tillage)
+    c("organic", "tillage")
+  # c("crop_type", "tree_height", "alley_width"),
   )
-  
+
   cat("\n[Interactions] Two-way interaction models:\n")
   evaluation_results$interactions <- list()
   for (pair in interaction_pairs) {
@@ -1161,9 +1143,15 @@ evaluation_results$`Crop yield`$interactions$soil_texture_x_age_system
 # Example of extracting individual base model and moderator model results
 evaluation_results$`Crop yield`$base_model
 evaluation_results$`Crop yield`$moderators
+evaluation_results$`Crop yield`$interactions
 
 evaluation_results$Biodiversity$base_model
 evaluation_results$Biodiversity$moderators
+evaluation_results$Biodiversity$interactions
+
+evaluation_results$`Carbon sequestration`$base_model
+evaluation_results$`Carbon sequestration`$moderators
+evaluation_results$`Carbon sequestration`$interactions
 ```
 
 
@@ -1203,192 +1191,109 @@ model_fits %>% dplyr::arrange(response_variable, AIC)
 
 # STEP 6 ANOVA CONTRAST OF MULTI-MODEL EFFECTS ESTIMATES
 
-```{r}
-# STEP 1: Define a Generic Contrast Function (using the structure: "anova(res, X=rbind(c(1,0,0),c(0,1,0),c(0,0,1)))")
-
-run_contrast_tests <- function(model_results) {
-  contrast_summary_all <- tibble()
-
-  for (response in names(model_results)) {
-    cat("\n🔎 Response:", response)
-
-    for (moderator in names(model_results[[response]])) {
-      model <- model_results[[response]][[moderator]]
-
-      # Check if it's a valid metafor model
-      if (is.null(model) || !inherits(model, "rma.mv")) {
-        cat("\n  ⏩ Skipping", moderator, "- Not a model")
-        next
-      }
-
-      # Extract coefficient names
-      coef_names <- rownames(model$b)
-      if (length(coef_names) < 2) {
-        cat("\n  ⏩ Skipping", moderator, "- Only 1 level")
-        next
-      }
-
-      # Get all pairwise combinations
-      pairwise_contrasts <- combinat::combn(coef_names, 2, simplify = FALSE)
-
-      # Construct the contrast matrix
-      contrast_matrix <- lapply(pairwise_contrasts, function(pair) {
-        vec <- setNames(rep(0, length(coef_names)), coef_names)
-        vec[pair[1]] <- 1
-        vec[pair[2]] <- -1
-        vec
-      }) |> (\(x) do.call(rbind, x))()
-
-      rownames(contrast_matrix) <- sapply(pairwise_contrasts, \(x) paste(x[1], "-", x[2]))
-
-      # Run Wald-type ANOVA
-      contrast_results <- tryCatch({
-        anova(model, X = contrast_matrix)
-      }, error = function(e) {
-        cat("\n  ⚠️ Error for", moderator, ":", e$message)
-        return(NULL)
-      })
-
-      # Save results if successful
-      if (!is.null(contrast_results)) {
-        contrast_tbl <- tibble::tibble(
-          Response = response,
-          Moderator = moderator,
-          Contrast = rownames(contrast_matrix),
-          Estimate = contrast_results$estimate,
-          SE = contrast_results$se,
-          Zval = contrast_results$zval,
-          P = contrast_results$pval
-        )
-
-        contrast_summary_all <- dplyr::bind_rows(contrast_summary_all, contrast_tbl)
-        cat("\n  ✅ Added:", moderator)
-      }
-    }
-  }
-
-  # Add significance levels
-  if (nrow(contrast_summary_all) > 0) {
-    contrast_summary_all <- contrast_summary_all %>%
-      mutate(Significance = case_when(
-        P < 0.001 ~ "***",
-        P < 0.01  ~ "**",
-        P < 0.05  ~ "*",
-        P < 0.1   ~ ".",
-        TRUE      ~ ""
-      ))
-  }
-
-  return(contrast_summary_all)
-}
-
-# STEP 2: Apply to All Moderator Models for All Response Variables
-
-contrast_summary_all <- run_contrast_tests(model_results)
-
-# View top contrasts
-contrast_summary_all
-```
+anova(res, X=rbind(c(1,0,0),c(0,1,0),c(0,0,1)))
 
 ```{r}
-# Explicit pairwise Wald ANOVA function
-perform_all_pairwise_contrasts <- function(model, response, moderator) {
-  # 1. Validate model
-  if (is.null(model) || !inherits(model, "rma.mv")) {
-    warning(paste("Model is NULL or not of class rma.mv for", response, "-", moderator))
-    return(NULL)
-  }
-  
-  # 2. Extract coefficient names
-  coef_names <- rownames(model$b)
-  if (length(coef_names) < 2) {
-    warning(paste("Fewer than 2 coefficients for", response, "-", moderator))
-    return(NULL)
-  }
+# Biodiversity - soil_texture
+#---------------------------------------------------------------
 
-  # 3. Build all pairwise contrast matrix
-  pairwise_combos <- combinat::combn(coef_names, 2, simplify = FALSE)
-  contrast_matrix <- lapply(pairwise_combos, function(pair) {
-    vec <- setNames(rep(0, length(coef_names)), coef_names)
-    vec[pair[1]] <- 1
-    vec[pair[2]] <- -1
-    vec
-  }) |> (\(x) do.call(rbind, x))()
-  
-  rownames(contrast_matrix) <- sapply(pairwise_combos, \(x) paste(x[1], "-", x[2]))
+# STEP 1: Extract the model object
+soil_texture_model <- model_results$Biodiversity$soil_texture  # <--- This might be the real model, not a summary
 
-  # 4. Run Wald-type test
-  contrast_test <- tryCatch({
-    anova(model, X = contrast_matrix)
-  }, error = function(e) {
-    warning(paste("Failed ANOVA for", response, "-", moderator, ":", e$message))
-    return(NULL)
-  })
+# Confirm it's an rma.mv object and not a data.frame
+if (!inherits(soil_texture_model, "rma.mv")) stop("You are using the summary data.frame, not the actual model object.")
 
-  # 5. Output as tibble
-  if (!is.null(contrast_test)) {
-    tibble::tibble(
-      Response = response,
-      Moderator = moderator,
-      Contrast = rownames(contrast_matrix),
-      Estimate = contrast_test$estimate,
-      SE = contrast_test$se,
-      Zval = contrast_test$zval,
-      P = contrast_test$pval
-    ) %>%
-      dplyr::mutate(Significance = dplyr::case_when(
-        P < 0.001 ~ "***",
-        P < 0.01 ~ "**",
-        P < 0.05 ~ "*",
-        P < 0.1 ~ ".",
-        TRUE ~ ""
-      ))
-  } else {
-    return(NULL)
-  }
-}
-```
+# 2. Extract coefficient names (will look like: "soil_textureClay", etc.)
+coef_names <- rownames(soil_texture_model$b)
+print(coef_names)  # Sanity check
 
-```{r}
-# Test Biodiversity ~ soil_texture
-mod <- model_results$Biodiversity$soil_texture
 
-# Run the generic pairwise contrast evaluation
-contrast_output <- perform_all_pairwise_contrasts(
-  model = mod,
-  response = "Biodiversity",
-  moderator = "soil_texture"
+# 3. Build contrast matrix — pairwise comparisons between 3 levels
+contrast_matrix <- rbind(
+  "Clay vs Sand" = c(1, -1, 0),
+  "Clay vs Silt" = c(1, 0, -1),
+  "Sand vs Silt" = c(0, 1, -1)
 )
+colnames(contrast_matrix) <- coef_names  # Align names!
 
-contrast_output
+# 4. Run ANOVA (Wald-type test for linear hypotheses)
+anova_results <- anova(soil_texture_model, X = contrast_matrix)
+print(anova_results)
 ```
 
-From the Wald-type ANOVA contrast test on the soil_texture moderator in the Biodiversity model, none of the pairwise comparisons between soil types show statistically significant differences. Here's how to interpret each contrast:
-  - Clay vs Sand: The estimate is close to zero with a p-value of 0.925, indicating no difference in biodiversity outcomes between Clay and Sand soils.
-  - Clay vs Silt: The contrast is also non-significant (p = 0.768). Although the estimate is slightly positive, it is well within the margin of error, suggesting no meaningful difference in biodiversity effects between Clay and Silt.
-  - Sand vs Silt: Likewise, this comparison is not significant (p = 0.697). The small positive estimate suggests a slight tendency for Silt soils to support stronger biodiversity outcomes than Sand, but this trend is not statistically reliable.
-Conclusion:
-Across all three contrasts, there is no statistically significant difference in biodiversity effects of silvoarable systems across the soil textures Clay, Sand, and Silt. The estimates are small, and the confidence intervals are wide, indicating that soil texture — at least in this model — does not significantly modify biodiversity outcomes.
+Clay vs Sand: There is no difference in biodiversity effects between Clay and Sand soils. The estimate is essentially zero, and the p-value is extremely high (0.999). Clay vs Silt: Again, no meaningful difference. The negative estimate suggests a slight trend of lower effects in Silt, but it's not statistically significant. Sand vs Silt: This is significant (p = 0.012). The negative estimate (−0.110) means biodiversity effects under Silt soils are higher than under Sand soils. In other words, Silt soils support stronger biodiversity benefits from silvoarable systems compared to Sand soils — and this difference is statistically reliable.
 
 ```{r}
-# Test Crop yield ~ soil_texture
-mod <- model_results$`Crop yield`$soil_texture
+# Pest and disease control - tree_type
+#---------------------------------------------------------------
+mod <- model_results$`Pest and disease control`$tree_type
+stopifnot(inherits(mod, "rma.mv"))
 
-# Run the generic pairwise contrast evaluation
-contrast_output <- perform_all_pairwise_contrasts(
-  model = mod,
-  response = "Crop yield",
-  moderator = "soil_texture"
+coef_names <- rownames(mod$b)
+print(coef_names)  # Should include: tree_typeBiomass, Fruit,nut & other, Timber
+
+contrast_tree_type <- rbind(
+  "Biomass vs Fruit/Nut" = c(1, -1, 0),
+  "Biomass vs Timber"    = c(1, 0, -1),
+  "Fruit/Nut vs Timber"  = c(0, 1, -1)
 )
+colnames(contrast_tree_type) <- coef_names
 
-contrast_output
+anova(mod, X = contrast_tree_type)
 ```
-The results above compare how crop yield responds to different soil textures under silvoarable systems. The contrasts test whether the average effect sizes differ between each pair of soil types:
-  - Clay vs Sand: The estimated difference in crop yield effects is very small and non-significant (p = 0.707). This suggests that Clay and Sand soils do not differ meaningfully in how they influence yield outcomes under agroforestry.
-  - Clay vs Silt: This comparison is marginally non-significant (p = 0.061), with a positive estimate. This hints that Silt soils may support slightly better yield outcomes than Clay, but the evidence isn't strong enough to be statistically conclusive.
-  - Sand vs Silt: This contrast is statistically significant (p = 0.038). The positive estimate means that Silt soils lead to stronger crop yield benefits under silvoarable systems compared to Sand soils. This finding is statistically reliable at the 5% level.
-Conclusion:
-Among the soil textures tested, Silt soils appear to outperform Sand in terms of crop yield responses to agroforestry, while differences involving Clay are less clear or not statistically significant. This suggests that soil texture can influence yield outcomes, and Silt may offer more favorable conditions for crop production in agroforestry systems.
+```{r}
+# Crop yield - crop_type
+#---------------------------------------------------------------
+mod <- model_results$`Crop yield`$crop_type
+stopifnot(inherits(mod, "rma.mv"))
+
+coef_names <- rownames(mod$b)
+print(coef_names)  # crop_typeCereal, crop_typeLegume, crop_typeTuber,root and other
+
+contrast_crop_type <- rbind(
+  "Cereal vs Legume" = c(1, -1, 0),
+  "Cereal vs Tuber"  = c(1, 0, -1),
+  "Legume vs Tuber"  = c(0, 1, -1)
+)
+colnames(contrast_crop_type) <- coef_names
+
+anova(mod, X = contrast_crop_type)
+```
+
+```{r}
+# Carbon sequestration - age_system
+#---------------------------------------------------------------
+mod <- model_results$`Carbon sequestration`$age_system
+stopifnot(inherits(mod, "rma.mv"))
+
+coef_names <- rownames(mod$b)
+print(coef_names)
+
+contrast_age_system <- rbind(
+  "Mature vs Medium" = c(0, 1)
+)
+colnames(contrast_age_system) <- coef_names
+
+anova(mod, X = contrast_age_system)
+```
+
+```{r}
+# Soil quality - season
+#---------------------------------------------------------------
+mod <- model_results$`Soil quality`$season
+stopifnot(inherits(mod, "rma.mv"))
+
+coef_names <- rownames(mod$b)
+print(coef_names)
+
+contrast_season <- rbind(
+  "Summer vs Reference" = c(0, 1)  # Assuming intercept is baseline (e.g., Spring)
+)
+colnames(contrast_season) <- coef_names
+
+anova(mod, X = contrast_season)
+```
+
 
 
 # STEP 7 BACK-TRANSFORM MODEL RESULTS FROM LOG-ROM TO PERCENTAGE FOR ALL RESPONSE VARIABLES
@@ -1455,7 +1360,7 @@ back_transformed_base
 ```
 
 
-## Extracting and back-transforming model evaluation results (moderator interaction models)
+## Function for extracting and back-transforming model evaluation results (moderator interaction models)
 
 ```{r}
 # Fixed function: Back-transform moderator models (not interactions)
@@ -1593,10 +1498,8 @@ back_transformed_interactions <- back_transform_moderator_models_with_interactio
 back_transformed_interactions
 ```
 
-OBS! Needs updating after the new random effects structure has been implemented - "random_effects <- list(~ 1 | id_article / experiment_site * experiment_year)"
 
 
-(OBS: INTERPRETATION BELOW NEEDS REVISION AFTER NEW RANDOM EFFECTS STRUCTURE IMPLEMENTED AND MODEL FITTING RE-RUN WITH MANAGEMENT)
 
 
 
@@ -1679,45 +1582,6 @@ base_model_table <- table_base %>%
 
 base_model_table
 ```
-```{r}
-# Assuming the table has columns for 'estimate', 'ci.lb', and 'ci.ub', which are not backtransformed
-
-# Create the table without any transformations
-base_model_table_no_backtransformed <- table_base %>%
-  mutate(across(where(is.numeric), round, 3)) %>%
-  gt() %>%
-  tab_header(title = "Base Model Results - Non-backtransformed") %>%
-  cols_label(
-    response = "Response",
-    model = "Model",
-    estimate = "Estimate (non-backtransformed)",
-    se = "SE",
-    zval = "Z-value",
-    pval = "P-value",
-    ci.lb = "CI lower (non-backtransformed)",
-    ci.ub = "CI upper (non-backtransformed)",
-    ROM_percent = "ROM (%)",
-    ROM_lower_percent = "ROM lower (%)",
-    ROM_upper_percent = "ROM upper (%)",
-    signif = "Significance"
-  ) %>%
-  cols_hide(columns = c("ROM_percent", "ROM_lower_percent", "ROM_upper_percent"))
-
-# Extract the non-backtransformed estimates and CI
-non_backtransformed_data <- table_base %>%
-  select(response, model, estimate, ci.lb, ci.ub)
-
-# Print the table with non-backtransformed values
-print(base_model_table_no_backtransformed)
-
-# Alternatively, if you have an additional column that indicates whether a transformation was applied, you can filter by that column
-# For example, if you have a column `backtransformed` that indicates if the values were backtransformed, you could filter:
-# table_base %>% filter(backtransformed == FALSE)
-```
-
-
-Extracting to non-backtransformed estimates and confidence intervals
-
 
 ```{r}
 # 2. Tidy table for moderator models
@@ -1775,10 +1639,8 @@ interaction_model_table
 
 
 
-OBS! Needs updating after the new random effects structure has been implemented - "random_effects <- list(~ 1 | id_article / experiment_site * experiment_year)"
+(OBS! Needs updating after the new random effects structure has been implemented)
 
-
-(OBS: INTERPRETATION BELOW NEEDS REVISION AFTER NEW RANDOM EFFECTS STRUCTURE IMPLEMENTED AND MODEL FITTING RE-RUN WITH MANAGEMENT)
 
 Interpretation of Back-Transformed Effects (ROM %) for Agroforestry Outcomes
 The back-transformed Ratio of Means (ROM) values, expressed as percentages, provide an interpretable measure of effect size across response variables, indicating the relative change under agroforestry compared to open-field controls. Confidence intervals (CIs) reflect the uncertainty around these estimates.
@@ -1797,9 +1659,6 @@ Overall, these results suggest that agroforestry can deliver clear benefits for 
 ```{r}
 # model_results |> str()
 # model_results$`Crop yield` |> str()
-
-model_results$`Crop yield`$base_model$QE
-model_results$`Crop yield`$base_model$tau2
 
 model_results$`Crop yield`$base_model
 ```
@@ -1840,8 +1699,9 @@ heterogeneity_base <- extract_heterogeneity_stats(model_results)
 # View results
 heterogeneity_base
 ```
-
 ```{r}
+
+
 ##########################################################################################################################################
 # B: Extract heterogeneity statistics from interaction models
 ##########################################################################################################################################
@@ -1932,7 +1792,6 @@ The consistently high I² across most models underscores the complexity of agroe
 ```{r}
 imp_dataset |> glimpse()
 ```
-
 ```{r}
 # Custom color palette for each response variable
 custom_colors <- c(
@@ -2079,91 +1938,8 @@ ggplot() +
   )
 
 ```
-Added log estimates and confidence interval without water quality
-
-```{r}
-# Set custom color palette and factor order
-custom_colors <- c(
-  "Biodiversity"             = "#FF9999",
-  "Carbon sequestration"     = "#66C266",
-  "Product quality"          = "#FFC000",
-  "Crop yield"               = "#FF9933",
-  "Pest and disease control" = "#33CCCC",
-  "Soil quality"             = "#9966CC"
-)
-response_levels <- names(custom_colors)
-
-# Prepare raw data (no back-transformation) and filter extreme outliers
-violin_data <- imp_dataset %>%
-  filter(response_variable %in% response_levels) %>%
-  mutate(
-    response_variable = factor(response_variable, levels = rev(response_levels))
-  ) %>%
-  filter(abs(yi) <= 1000)  # Filter out extreme values (no back-transformation needed)
-
-# Extract summary model estimates (non-back-transformed)
-summary_data <- map_dfr(response_levels, function(resp) {
-  mod <- model_results[[resp]]$base_model
-  if (is.null(mod)) return(NULL)
-  estimate <- mod$b[1]
-  ci_lb <- mod$ci.lb[1]
-  ci_ub <- mod$ci.ub[1]
-  
-  tibble(
-    response_variable = resp,
-    summary_mean = estimate,       # Non-transformed estimate
-    summary_lower = ci_lb,         # Non-transformed CI lower
-    summary_upper = ci_ub          # Non-transformed CI upper
-  )
-}) %>%
-  mutate(response_variable = factor(response_variable, levels = rev(response_levels)))
-
-# Plot: horizontal violin + summary point-range (Non-back-transformed values)
-ggplot() +
-  # Violin plot with adjusted alpha
-  geom_violin(
-    data = violin_data,
-    aes(y = response_variable, x = yi, fill = response_variable),
-    color = NA, alpha = 0.4, trim = FALSE
-  ) +
-  # Jitter points for raw data
-  geom_jitter(
-    data = violin_data,
-    aes(y = response_variable, x = yi),
-    width = 0.15, height = 0.15, alpha = 0.2, size = 1, color = "black"
-  ) +
-  # Summary error bars with increased thickness
-  geom_pointrange(
-    data = summary_data,
-    aes(y = response_variable, x = summary_mean,
-        xmin = summary_lower, xmax = summary_upper),
-    shape = 21, fill = "darkgray", color = "black", linewidth = 1  # Increased error bar thickness
-  ) +
-  # Larger summary points with stroke
-  geom_point(
-    data = summary_data,
-    aes(y = response_variable, x = summary_mean),
-    shape = 21, fill = "gray", color = "black", size = 2, stroke = 2  # Bigger points with border
-  ) +
-  scale_fill_manual(values = custom_colors) +
-  scale_x_continuous(
-    breaks = c(-100, -50, -10, 0, 10, 50, 100, 300, 500, 1000),
-    labels = label_number(accuracy = 1)
-  ) +
-  geom_vline(xintercept = 0, linetype = "dashed", color = "red", linewidth = 1) +
-  labs(
-    x = "Effect Size (lnRR)", y = NULL, fill = NULL
-  ) +
-  theme_minimal(base_size = 15) +
-  theme(
-    axis.text.y = element_text(size = 14),
-    axis.text.x = element_text(size = 12),
-    plot.title = element_text(face = "bold"),
-    legend.position = "none"
-  )
 
 
-```
 
  
  

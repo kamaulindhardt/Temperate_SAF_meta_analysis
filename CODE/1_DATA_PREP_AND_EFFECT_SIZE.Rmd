@@ -315,7 +315,7 @@ database_clean <- database |>
   
   # Step 4: Create Identifiers (Experiment, Treatment, Common Control)
   # Group data by relevant columns for Treatment ID
-  group_by(id_article, tree_type, crop_type, location, experiment_year,experiment_site) |>
+  group_by(id_article, tree_type, crop_type, location, experiment_year) |>
   mutate(treat_id = cur_group_id()) |>
   ungroup() |>
   
@@ -417,9 +417,9 @@ database_clean <- database_clean |>
     # Response variable info
     response_variable, sub_response_variable,
     # Geographic and temporal info
-    location, final_lat, final_lon, exp_site_loc, experiment_year,experiment_site,
+    location, experiment_site, final_lat, final_lon, exp_site_loc, experiment_year,
     # Moderators info
-    tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width,
+    tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width, organic, tillage,
     # Quantitative meta-analysis effect size info
     silvo_mean, silvo_se, silvo_sd, silvo_n, control_mean, control_se, control_sd, control_n
   )
@@ -585,9 +585,9 @@ database_clean <- database_clean_sf |>
     # Response variable info
     response_variable, sub_response_variable,
     # Geographic and temporal info
-    location, climate_zone, bioclim_sub_regions, final_lat, final_lon, exp_site_loc, experiment_year,
+    location, experiment_site, climate_zone, bioclim_sub_regions, final_lat, final_lon, exp_site_loc, experiment_year,
     # Moderators info
-    tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width,
+    tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width, organic, tillage,
     # Quantitative mata-analysis effect size info
     silvo_mean, control_mean, 
     silvo_n, control_n,
@@ -776,7 +776,8 @@ missingness_summary <- database_clean %>%
     missing_moderators = sum(
       is.na(tree_type) | is.na(crop_type) | is.na(age_system) | 
       is.na(tree_age) | is.na(season) | is.na(soil_texture) | 
-      is.na(no_tree_per_m) | is.na(tree_height) | is.na(alley_width)
+      is.na(no_tree_per_m) | is.na(tree_height) | is.na(alley_width) | 
+      is.na(organic) | is.na(tillage)
     ),
     # Count missing values for response variables
     missing_response = sum(
@@ -922,13 +923,14 @@ moderators_data %>%
 
 
 Bar Chart: Missingness by Moderators (Exp ID Count)
+
 ```{r}
 # Count missing values for each moderator
 # Ensure all columns have the same data type before pivoting
 missingness_moderators <- database_clean %>%
   as.data.frame() %>%
   select(
-    exp_id, tree_type, crop_type, age_system, tree_age, season, 
+    exp_id, tree_type, crop_type, age_system, tree_age, season, organic, tillage,
     soil_texture, no_tree_per_m, tree_height, alley_width
   ) %>%
   mutate(across(-exp_id, as.character)) %>%  # Convert all non-exp_id columns to character
@@ -1016,9 +1018,9 @@ database_clean_sd <- database_clean %>%
     # Response variable info
     response_variable, sub_response_variable,
     # Geographic and temporal info
-    location, climate_zone, bioclim_sub_regions, final_lat, final_lon, exp_site_loc, experiment_year,
+    location, experiment_site, climate_zone, bioclim_sub_regions, final_lat, final_lon, exp_site_loc, experiment_year,
     # Moderators info
-    tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width,
+    tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width, organic, tillage,
     # Quantitative mata-analysis effect size info
     silvo_mean, silvo_se, silvo_sd, silvo_n, silvo_sd_from_se, silvo_sd_merged,
     control_mean, control_se, control_sd, control_n, control_sd_from_se, control_sd_merged
@@ -1044,7 +1046,7 @@ message("Percentage of missing SD values for silvo group (_sd_final): ", round(m
 missing_sd_final <- database_clean_sd %>%
   filter(is.na(control_sd_merged) | is.na(silvo_sd_merged)) %>%
   relocate(
-    id_article, id_obs, response_variable, location,
+    id_article, id_obs, response_variable, location, experiment_site, 
     # Quantitative meta-analysis effect size info
     silvo_mean, silvo_se, silvo_sd, silvo_sd_from_se, silvo_sd_merged, silvo_n,
     control_mean, control_se, control_sd, control_sd_from_se, control_sd_merged, control_n
@@ -1211,7 +1213,7 @@ missing_sd_summary_rel |>
 
 ```{r}
 # Assess missingness patterns across moderators
-moderators <- c("tree_type", "crop_type", "age_system", "season", "soil_texture")
+moderators <- c("tree_type", "crop_type", "age_system", "season", "soil_texture", "organic", "tillage")
 
 missingness_by_moderators <- database_clean_sd_missingness %>%
   select(all_of(moderators), missing_control_sd, missing_silvo_sd) %>%
@@ -1331,7 +1333,7 @@ test_data_cleaned <- test_data_numeric %>%
   # Keep control_sd_merged and silvo_sd_merged
   select(control_sd_merged, silvo_sd_merged, response_variable, experiment_year, year_est_exp, exp_id,
          # Moderators info
-         tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width) %>%  
+         tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width, organic, tillage) %>%  
   # Remove columns with >50% missing
   select(where(~ sum(is.na(.)) < nrow(test_data_numeric) * 0.5)) |> 
   # Convert date-time columns to numeric (e.g., extract the year)
@@ -2609,8 +2611,8 @@ generate_density_plot <- function(data, title_suffix, scale_type = "linear") {
     theme(strip.text = element_text(size = 10, face = "bold"))
   
   if (scale_type == "pseudo_log") {
-    plot <- plot + scale_x_continuous(trans = pseudo_log_trans(sigma = 0.1)) +
-      scale_y_continuous(trans = pseudo_log_trans(sigma = 0.1))
+    plot <- plot + scale_x_continuous(trans = scales::pseudo_log_trans(sigma = 0.1)) +
+      scale_y_continuous(trans = scales::pseudo_log_trans(sigma = 0.1))
   }
   
   return(plot)
@@ -3113,9 +3115,9 @@ merged_rf_best_data <- database_clean_sd_df %>%
     # Response variable info
     response_variable, sub_response_variable,
     # Geographic and temporal info
-    location, climate_zone, bioclim_sub_regions, final_lat, final_lon, exp_site_loc, experiment_year, experiment_site,
+    location, experiment_site, climate_zone, bioclim_sub_regions, final_lat, final_lon, exp_site_loc, experiment_year,
     # Moderators info
-    tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width,
+    tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width, organic, tillage,
     # Quantitative meta-analysis variables - mean and no. of observations
     silvo_mean, control_mean, silvo_n, control_n,
     # Quantitative meta-analysis variables - variance info
@@ -3567,9 +3569,9 @@ imp_rf_best <- merged_data |>
     # Response variable info
     response_variable, sub_response_variable,
     # Geographic and temporal info
-    location, final_lat, final_lon, exp_site_loc, experiment_year,experiment_site,
+    location, experiment_site, final_lat, final_lon, exp_site_loc, experiment_year,
     # Moderators info
-    tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width,
+    tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width, organic, tillage,
     # Quantitative meta-analysis variables - mean and no. of observations
     silvo_mean, control_mean, silvo_n, control_n,
     # Quantitative meta-analysis variables - variance info
@@ -3603,9 +3605,9 @@ non_imp_dataset <- database_clean_sd |>
     # Response variable info
     response_variable, sub_response_variable,
     # Geographic and temporal info
-    location, final_lat, final_lon, exp_site_loc, experiment_year,experiment_site,
+    location, experiment_site, final_lat, final_lon, exp_site_loc, experiment_year,
     # Moderators info
-    tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width,
+    tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width, organic, tillage,
     # Quantitative meta-analysis variables - mean and no. of observations
     silvo_mean, control_mean, silvo_n, control_n,
     # Quantitative meta-analysis variables - variance info
@@ -3877,9 +3879,9 @@ differences <- imp_rf_best_uq %>%
     # Response variable info
     response_variable, sub_response_variable,
     # Geographic and temporal info
-    location, exp_site_loc, experiment_year,experiment_site,
+    location, experiment_site, exp_site_loc, experiment_year,
     # Moderators info
-    tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width,
+    tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width, organic, tillage,
     # Quantitative meta-analysis variables - mean and no. of observations
     silvo_mean, control_mean, silvo_n, control_n,
     # Quantitative meta-analysis variables - variance info
@@ -3995,7 +3997,7 @@ calculate_effect_sizes <- function(data, measure = "ROM") {
   # Check if the required columns are present in the dataset
   required_columns <- c("silvo_mean", "silvo_n", "silvo_sd_final", 
                         "control_mean", "control_n", "control_sd_final",
-                        "id_article", "id_obs", "experiment_year","experiment_site" )
+                        "id_article", "id_obs", "experiment_year")
   
   if (!all(required_columns %in% names(data))) {
     stop("The dataset is missing one or more required columns.")
@@ -4057,9 +4059,9 @@ non_imp_data_rom <- calculate_effect_sizes(non_imp_data_prep,
     # Response variable info
     response_variable, sub_response_variable,
     # Geographic and temporal info
-    location, final_lat, final_lon, exp_site_loc, experiment_year, experiment_site,
+    location, experiment_site, final_lat, final_lon, exp_site_loc, experiment_year,
     # Moderators info
-    tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width, # organic, tillage 
+    tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width, organic, tillage, 
     # Quantitative meta-analysis variables - mean and no. of observations
     silvo_mean, control_mean, silvo_n, control_n,
     # Quantitative meta-analysis variables - variance info
@@ -4084,9 +4086,9 @@ imp_data_rom <- calculate_effect_sizes(imp_data_prep,
     # Response variable info
     response_variable, sub_response_variable,
     # Geographic and temporal info
-    location, final_lat, final_lon, exp_site_loc, experiment_year,experiment_site,
+    location, experiment_site, final_lat, final_lon, exp_site_loc, experiment_year,
     # Moderators info
-    tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width, # organic, tillage 
+    tree_type, crop_type, age_system, tree_age, season, soil_texture, no_tree_per_m, tree_height, alley_width, organic, tillage, 
     # Quantitative meta-analysis variables - mean and no. of observations
     silvo_mean, control_mean, silvo_n, control_n,
     # Quantitative meta-analysis variables - variance info
@@ -4098,7 +4100,6 @@ imp_data_rom <- calculate_effect_sizes(imp_data_prep,
 ```{r}
 imp_data_rom |> glimpse()
 ```
-
 ```{r}
 skimr::skim(imp_data_rom)
 ```
@@ -4117,6 +4118,7 @@ imp_data_rom <- imp_data_rom %>%
   )
 ```
 
+## Boxplot for the raw effect size (yi)
 
 ```{r}
 # Create the boxplot for the effect size (yi)
@@ -4161,8 +4163,6 @@ print(boxplot_raw_effect_size)
 ```
 
 
-## Boxplot for the raw effect size (yi)
-
 ```{r}
 # Create the boxplot for the raw effect size (yi)
 # Order response variables by descending median effect size
@@ -4181,10 +4181,10 @@ boxplot_raw_effect_size <- imp_data_rom_reorder |>
     y = "Response Variable"
   ) +
   scale_x_continuous(
-    breaks = seq(-0.05, 0.05, by = 0.01),
+    breaks = seq(-1.15, 1.15, by = 0.1),
     labels = scales::label_number(accuracy = 0.01)
   ) +
-  coord_cartesian(xlim = c(-0.05, 0.05)) +  # Zoom in tightly
+  coord_cartesian(xlim = c(-1.15, 1.15)) +  # Zoom in tightly
   theme_minimal(base_size = 14) +
   theme(
     axis.text.y = element_text(size = 12),
@@ -4198,7 +4198,7 @@ boxplot_raw_effect_size
 
 Save raw effect size plot of each response variable
 
-```{r}
+```{r eval=FALSE}
 # Increase base text size and adjust all styling for the plots
 theme_custom <- theme_minimal(base_size = 30) + 
   theme(
@@ -4256,6 +4256,8 @@ ggplot(data_long, aes(x = Group, y = Mean, fill = Group)) +
   )
 ```
 
+
+
 ```{r}
 # Boxplot comparison for control and silvo groups
 imp_data_rom_long <- imp_data_rom %>%
@@ -4274,6 +4276,7 @@ ggplot(imp_data_rom_long, aes(x = Group, y = Mean, fill = Group)) +
   theme_minimal(base_size = 14) +
   theme(legend.position = "none")
 ```
+
 
 ```{r}
 # Step 1: Define high variance threshold per `sub_response_variable`
@@ -4333,6 +4336,7 @@ list(
   unique_articles = unique_high_variance_articles
 )
 ```
+
 
 ```{r}
 # Step 1: Define thresholds for high and low variance per `sub_response_variable`
@@ -4395,6 +4399,8 @@ combined_plot <- high_variance_plot + non_high_variance_plot +
 print(combined_plot)
 ```
 
+## High variance plot for individual observations
+
 ```{r}
 # High variance plot for individual observations with increased jitter
 
@@ -4415,7 +4421,7 @@ high_variance_plot <- ggplot(high_variance_data, aes(x = as.factor(id_article), 
   ) +
   scale_color_manual(values = global_palette) +  # Use predefined color palette
   scale_y_continuous(
-    trans = pseudo_log_trans(sigma = 0.1),  # Pseudo log transformation
+    trans = scales::pseudo_log_trans(sigma = 0.1),  # Pseudo log transformation
     breaks = c(0, 0.1, 1, 10, 30),
     labels = c("0", "0.1", "1", "10", "30")
   ) +
@@ -4446,7 +4452,7 @@ non_high_variance_plot <- ggplot(non_high_variance_data, aes(x = as.factor(id_ar
   scale_fill_manual(values = global_palette) +  # Use predefined color palette
   scale_color_manual(values = global_palette) +  # Match jitter points to boxplot fill
   scale_y_continuous(
-    trans = pseudo_log_trans(sigma = 0.1),  # Pseudo log transformation
+    trans = scales::pseudo_log_trans(sigma = 0.1),  # Pseudo log transformation
     breaks = c(0, 0.01, 0.1, 1),
     labels = c("0", "0.01", "0.1", "1")
   ) +
@@ -4477,8 +4483,9 @@ Save the high-variance plot
 
 
 
+# STEP 9 HETEROGENEITY ANALYSIS
 
-## Heterogeneity Analysis
+## 0. Heterogeneity Analysis
 
 Compare the heterogeneity statistics between the meta-analyses conducted on the imputed and non-imputed datasets. This will help you understand if the imputation has influenced the heterogeneity of the studies.
 
@@ -4511,6 +4518,7 @@ comparison_data <- original_data_x %>%
 
 comparison_data |> glimpse()
 ```
+
 
 ```{r}
 ##########################################################################
@@ -4553,27 +4561,6 @@ end.time <- Sys.time()
 time.taken <- end.time - start.time
 cat("\nTotal time taken:", time.taken, units(time.taken), "\n")
 ##############################################################
-# Last go (12/01-2025)
-# Advarsel: 184 studies with NAs omitted from model fitting.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Non-Imputed Data - Heterogeneity (I^2): 9.354748 
-# Non-Imputed Data - Between-study variance (tau^2): 1.438406e-06 
-# Imputed Data - Heterogeneity (I^2): 99.93201 
-# Imputed Data - Between-study variance (tau^2): 0.01006262 
-# Time difference of 3.647738 secs
-
-# Last go (16/01-2025)
-# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Non-Imputed Data - Heterogeneity (I^2): 15.35531 
-# Non-Imputed Data - Between-study variance (tau^2): 2.04823e-06 
-# Imputed Data - Heterogeneity (I^2): 15.35531 
-# Imputed Data - Between-study variance (tau^2): 2.04823e-06 
-# Time difference of 0.9310322 secs
-
-# Last go (24/01-2025)
-# Advarsel: 181 studies with NAs omitted from model fitting.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Non-Imputed Data - Heterogeneity (I^2): 19.85375 
-# Non-Imputed Data - Between-study variance (tau^2): 2.782961e-06 
-# Imputed Data - Heterogeneity (I^2): 99.99114 
-# Imputed Data - Between-study variance (tau^2): 0.01757954 
-# Time difference of 5.538544 secs
-
 # Last go (25/03-2025)
 # Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.
 # Non-Imputed Data - Heterogeneity (I^2): 20.68326 
@@ -4581,11 +4568,15 @@ cat("\nTotal time taken:", time.taken, units(time.taken), "\n")
 # Imputed Data - Heterogeneity (I^2): 99.99889 
 # Imputed Data - Between-study variance (tau^2): 4.177027e-05  
 # Total time taken: 4.124935 secs 
+
+# Last go (01/04-2025)
+# Total time taken: 36.42266 secs
 ```
  
  
  
-Kolmogorov-Smirnov Test
+## 1. Kolmogorov-Smirnov Test
+
 The Kolmogorov-Smirnov (KS) test can be used to compare the distributions of effect sizes.
 
 ```{r}
@@ -4593,28 +4584,20 @@ The Kolmogorov-Smirnov (KS) test can be used to compare the distributions of eff
 ks_test_result <- ks.test(non_imp_data_rom$yi, imp_data_rom$yi)
 print(ks_test_result)
 
-# Last go (12/01-2025)
-# Advarsel: p-value will be approximate in the presence of ties
-# 	Asymptotic two-sample Kolmogorov-Smirnov test
-# 
-# data:  non_imp_data_rom$yi and imp_data_rom$yi
-# D = 0.032653, p-value = 0.6621
-# alternative hypothesis: two-sided
-
-# Last go (16/01-2025)
-# Advarsel: p-value will be approximate in the presence of ties
-# 	Asymptotic two-sample Kolmogorov-Smirnov test
-# 
-# data:  non_imp_data_rom$yi and imp_data_rom$yi
-# D = 0.033209, p-value = 0.6425
-# alternative hypothesis: two-sided
-
 # Last go (24/01-2025)
 # Advarsel: p-value will be approximate in the presence of ties
 # 	Asymptotic two-sample Kolmogorov-Smirnov test
 # 
 # data:  non_imp_data_rom$yi and imp_data_rom$yi
 # D = 0.031708, p-value = 0.6984
+# alternative hypothesis: two-sided
+
+# Last go (01/04-2025)
+# Advarsel: p-value will be approximate in the presence of ties
+# 	Asymptotic two-sample Kolmogorov-Smirnov test
+# 
+# data:  non_imp_data_rom$yi and imp_data_rom$yi
+# D = 0.051477, p-value = 0.1426
 # alternative hypothesis: two-sided
 ```
 
@@ -4651,24 +4634,6 @@ summary_imp <- imp_data_rom %>%
 summary_non_imp
 summary_imp
 
-# Last go (16/01-2025)
-# Description:df [1 × 3]
-# mean_yi
-# <dbl>
-# median_yi
-# <dbl>
-# sd_yi
-# <dbl>
-# 0.02767394	0.003205885	0.2501374
-# 
-# mean_yi
-# <dbl>
-# median_yi
-# <dbl>
-# sd_yi
-# <dbl>
-# 0.0237652	0.00181963	0.2388941	
-
 # Last go (24/01-2025)
 # Description:df [1 × 3]
 # mean_yi
@@ -4687,7 +4652,18 @@ summary_imp
 # sd_yi
 # <dbl>
 # 0.02328872	0.001916168	0.2360473
+
+# Last go (01/04-2025)
+# Description:df [1 × 3]
+# mean_yi
+# <dbl>
+# median_yi
+# <dbl>
+# sd_yi
+# <dbl>
+# 0.05939467	0.00373367	0.4808079
 ```
+ 
  
 ```{r}
 # Density plot for non-imputed data
@@ -4697,7 +4673,7 @@ density_plot_non_imp <- ggplot(non_imp_data_rom, aes(x = yi)) +
        x = "Effect Size (yi)", y = "Density") +
   theme_minimal() +
   # Use pseudo-log transformation for x-axis
-  scale_x_continuous(trans = pseudo_log_trans(sigma = 0.1))
+  scale_x_continuous(trans = scales::pseudo_log_trans(sigma = 0.1))
 
 # Density plot for imputed data
 density_plot_imp <- ggplot(imp_data_rom, aes(x = yi)) +
@@ -4706,7 +4682,7 @@ density_plot_imp <- ggplot(imp_data_rom, aes(x = yi)) +
        x = "Effect Size (yi)", y = "Density") +
   theme_minimal() +
   # Use pseudo-log transformation for x-axis
-  scale_x_continuous(trans = pseudo_log_trans(sigma = 0.1))
+  scale_x_continuous(trans = scales::pseudo_log_trans(sigma = 0.1))
 
 # Boxplot for non-imputed data
 boxplot_non_imp <- ggplot(non_imp_data_rom, aes(y = yi)) +
@@ -4715,7 +4691,7 @@ boxplot_non_imp <- ggplot(non_imp_data_rom, aes(y = yi)) +
        y = "Effect Size (yi)") +
   theme_minimal() +
   # Use pseudo-log transformation for y-axis
-  scale_y_continuous(trans = pseudo_log_trans(sigma = 0.1))
+  scale_y_continuous(trans = scales::pseudo_log_trans(sigma = 0.1))
 
 # Boxplot for imputed data
 boxplot_imp <- ggplot(imp_data_rom, aes(y = yi)) +
@@ -4724,7 +4700,7 @@ boxplot_imp <- ggplot(imp_data_rom, aes(y = yi)) +
        y = "Effect Size (yi)") +
   theme_minimal() +
   # Use pseudo-log transformation for y-axis
-  scale_y_continuous(trans = pseudo_log_trans(sigma = 0.1))
+  scale_y_continuous(trans = scales::pseudo_log_trans(sigma = 0.1))
 
 # Arrange the plots in a 2x2 layout
 (density_plot_non_imp | boxplot_non_imp) /
@@ -4734,7 +4710,7 @@ boxplot_imp <- ggplot(imp_data_rom, aes(y = yi)) +
 
 
 
-## Assessing correlation between response variables
+## 2. Assessing correlation between response variables
 
 
 ```{r}
@@ -4751,7 +4727,7 @@ imp_data_rom |> glimpse()
 # Testing on the imputed dataset
 # Step 1: Prepare data for linear model
 model_data <- imp_data_rom %>%
-  select(yi, tree_type, crop_type, age_system, season, soil_texture) %>%
+  select(yi, tree_type, crop_type, age_system, season, soil_texture, organic, tillage) %>%
   drop_na() %>%  # Drop rows with any missing values in these columns
   mutate(across(-yi, as.factor))  # Ensure all moderators are factors
 
@@ -4760,7 +4736,7 @@ model_data <- imp_data_rom %>%
 ##########################################################################
 
 # Step 2: Fit the linear model
-lm_model <- lm(yi ~ tree_type + crop_type + age_system + season + soil_texture, # organic (1 = organic, 0 = conventional), tillage (1 = tillage, 0 = no tillage)
+lm_model <- lm(yi ~ tree_type + crop_type + age_system + season + soil_texture + organic + tillage, 
                data = model_data)
 
 # Step 3 (Optional): Check model summary
@@ -4857,7 +4833,7 @@ biplot(pca_results)
 ```{r}
 # Convert categorical variables to factors and create dummy variables
 predictors <- imp_data_rom %>%
-  select(tree_age, crop_type, tree_type, soil_texture, experiment_year, alley_width) %>% # experiment_site
+  select(tree_age, crop_type, tree_type, soil_texture, experiment_year, alley_width) %>%
   mutate(across(where(is.character), as.factor)) |>
   # Drop rows with any missing values in these columns
   drop_na()
@@ -4869,7 +4845,7 @@ predictors_numeric <- model.matrix(~ . - 1, data = predictors) %>%
 # Ensure the response is aligned with predictors
 # Keep only rows where both predictors and response are not missing
 aligned_data <- imp_data_rom %>%
-  select(tree_age, crop_type, tree_type, soil_texture, experiment_year, alley_width, yi) %>% # experiment_site
+  select(tree_age, crop_type, tree_type, soil_texture, experiment_year, alley_width, yi) %>%
   drop_na()
 
 # Split aligned data into predictors and response
@@ -4933,7 +4909,7 @@ imp_data_rom <- imp_data_rom %>%
 
 # Define the predictors and response
 predictors <- imp_data_rom %>%
-  select(tree_age, crop_type, tree_type, soil_texture, experiment_year, alley_width) # experiment_site
+  select(tree_age, crop_type, tree_type, soil_texture, experiment_year, alley_width)
 
 
 response <- imp_data_rom$yi
@@ -5033,7 +5009,7 @@ start.time <- Sys.time()
 model_data <- imp_data_rom %>%
   # Full set of moderators: tree_type, crop_type, age_system, season, soil_texture, tree_height, alley_width, no_tree_per_m --- # organic, tillage 
   # Reduced set of moderators: tree_type, crop_type, age_system, season, soil_texture
-  select(yi, tree_type, crop_type, age_system, season, soil_texture, tree_height, alley_width, no_tree_per_m) |> 
+  select(yi, tree_type, crop_type, age_system, season, soil_texture, tree_height, alley_width, no_tree_per_m, organic, tillage) |> 
   # Make sure the response variable is numeric
   mutate(yi = as.numeric(yi)) |> 
   # Make sure predictors are factors
@@ -5044,7 +5020,7 @@ model_data <- imp_data_rom %>%
 # 2. Fit a linear model with moderators (removing intercept with '-1')
 # Full set of moderators: tree_type + crop_type + age_system + season + soil_texture + tree_height + alley_width + no_tree_per_m, --- # organic, tillage 
 # Reduced set of moderators: tree_type + crop_type + age_system + season + soil_texture,
-lm_model <- lm(yi ~ -1 + tree_type * crop_type * age_system * season * soil_texture * tree_height * alley_width * no_tree_per_m,
+lm_model <- lm(yi ~ -1 + tree_type * crop_type * age_system * season * soil_texture * tree_height * alley_width * no_tree_per_m, organic, tillage
                data = model_data)
 
 # 3. Run stepwise regression
@@ -5123,6 +5099,8 @@ cat("\nTotal time taken:", time.taken, units(time.taken), "\n")
 # Multiple R-squared:  0.254,	Adjusted R-squared:  0.2091 
 # F-statistic:  5.66 on 32 and 532 DF,  p-value: < 2.2e-16
 # Total time taken: 46.53044 mins 
+
+# Last go (01/01-2025)
 ```
 
 ```{r}
@@ -5138,7 +5116,7 @@ start.time <- Sys.time()
 
 # Step 1: Prepare data with only complete cases
 model_data <- imp_data_rom %>%
-  select(yi, tree_type, crop_type, age_system, season, soil_texture, tree_height, alley_width, no_tree_per_m) %>%
+  select(yi, tree_type, crop_type, age_system, season, soil_texture, tree_height, alley_width, no_tree_per_m, organic, tillage) %>%
   mutate(yi = as.numeric(yi)) %>%
   mutate(across(-yi, as.factor)) %>%
   drop_na()
@@ -5147,7 +5125,8 @@ model_data <- imp_data_rom %>%
 full_model <- lm(yi ~ tree_type * crop_type +
                     age_system * tree_height +
                     crop_type * no_tree_per_m +
-                    season + soil_texture + alley_width, 
+                    season + soil_texture + alley_width,
+                    # organic + tillage, # contrasts can be applied only to factors with 2 or more levels
                  data = model_data)
 
 # Step 3: All-subsets model selection using AICc (MuMIn)
@@ -5198,7 +5177,7 @@ time.taken <- end.time - start.time
 cat("\nTotal time taken:", time.taken, units(time.taken), "\n")
 ##############################################################
 # Last go (23/03-2025)
-# Total time taken: 3.867962 secs 
+# Total time taken: 2.366118 secs
 ```
 
 
@@ -5360,6 +5339,35 @@ print(results)
 # [1] "Performance on test data:"
 #       RMSE   Rsquared        MAE 
 # 0.19616264 0.04730264 0.12006283 
+
+# Last go (01/04-2025)
+# 'data.frame':	1095 obs. of  5 variables:
+#  $ tree_type   : num  2 2 2 2 2 2 2 1 1 1 ...
+#  $ crop_type   : num  1 1 1 1 1 1 1 1 1 1 ...
+#  $ age_system  : num  3 3 3 2 2 2 2 2 2 2 ...
+#  $ season      : num  1 1 1 1 1 1 1 2 2 2 ...
+#  $ soil_texture: num  1 1 1 1 1 1 1 3 3 3 ...
+#  - attr(*, "digits")= Named num [1:9] 4 4 4 4 4 4 4 4 4
+#   ..- attr(*, "names")= chr [1:9] "est" "se" "test" "pval" ...
+#  - attr(*, "yi.names")= chr "yi"
+#  - attr(*, "vi.names")= chr "vi"
+# Linear Regression 
+# 
+# 866 samples
+#   5 predictor
+# 
+# No pre-processing
+# Resampling: Cross-Validated (10 fold) 
+# Summary of sample sizes: 779, 780, 780, 779, 779, 781, ... 
+# Resampling results:
+# 
+#   RMSE       Rsquared    MAE     
+#   0.4830301  0.03055683  0.296807
+# 
+# Tuning parameter 'intercept' was held constant at a value of TRUE
+# [1] "Performance on test data:"
+#       RMSE   Rsquared        MAE 
+# 0.42708159 0.02477727 0.27596067
 ```
 
 
@@ -5371,15 +5379,10 @@ However, it is important to note that this analysis was conducted on the full da
 
 In summary, while the selected moderators contribute limited predictive insight into yi across the full dataset, the absence of response-specific analysis limits conclusions about their relative importance in explaining different outcomes. Expanding the model to include additional predictors, interaction effects, or more flexible modeling techniques may help capture the complexity of the system.
 
-experiment_site
 
 ```{r}
-# Define file paths
-# non_imp_data_rom <- readRDS(here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R", "non_imp_data_rom.rds"))
-# imp_data_rom <- readRDS(here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R", "imp_data_rom.rds"))
-
 # Define your moderators and target
-moderators <- c("tree_type", "crop_type", "age_system", "season", "soil_texture") # organic (1 = organic, 0 = conventional), tillage (1 = tillage, 0 = no tillage)
+moderators <- c("tree_type", "crop_type", "age_system", "season", "soil_texture", "organic", "tillage") 
 
 # Create a function to perform cross-validation for each response type
 run_cv_by_response <- function(data, response_type) {
@@ -5440,11 +5443,6 @@ results_by_response <- imp_data_rom %>%
 # View results
 print(results_by_response)
 ```
-```{r}
-imp_data_rom |> glimpse()
-```
-
-
 ```{r}
 ggplot(results_by_response, aes(x = response_variable, y = Rsquared)) +
   geom_col(fill = "steelblue") +
@@ -5509,23 +5507,4 @@ cat("Files saved successfully to:", output_dir, "\n")
 git fetch origin
 git pull origin main
 git push origin HEAD:refs/heads/main --force
-
-
-```{r}
-# Define the path
-file_path <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R", "imp_data_rom.rds")
-
-# Load the RDS file
-imp_data_rom <- readRDS(file_path)
-
-# View the first few rows of the dataset
-head(imp_data_rom)
-
-# Get a summary of the dataset
-summary(imp_data_rom)
-
-# Check the structure of the dataset
-str(imp_data_rom)
-
-```
 

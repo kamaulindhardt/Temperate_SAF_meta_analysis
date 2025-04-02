@@ -30020,3 +30020,8 @@ colnames(contrast_matrix) <- coef_names  # Align names!
 anova_results <- anova(soil_texture_model, X = contrast_matrix)
 print(anova_results)
 ```
+
+
+# Define file paths
+non_imp_data_rom <- readRDS(here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R", "non_imp_data_rom.rds"))
+imp_data_rom <- readRDS(here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R", "imp_data_rom.rds"))

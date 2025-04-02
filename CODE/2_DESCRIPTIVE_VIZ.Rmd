@@ -189,7 +189,8 @@ assess_missing_data <- function(dataset, moderators, dataset_name = "Dataset") {
 # Assessing Moderator missingness
 
 moderators <- c("tree_type", "crop_type", "age_system", "season", 
-                "soil_texture", "no_tree_per_m", "tree_height", "alley_width")
+                "soil_texture", "no_tree_per_m", "tree_height", "alley_width",
+                "organic", "tillage")
 # organic (1 = organic, 0 = conventional)
 # tillage (1 = tillage, 0 = no tillage)
 
