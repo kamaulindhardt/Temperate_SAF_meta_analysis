@@ -990,7 +990,7 @@ for (response in names(v_matrices)) {
   data_subset <- meta_data[meta_data$response_variable == response, ]
   v_matrix <- v_matrices[[response]]
   
-  random_effects <- list(~ 1 | id_article / experiment_site * experiment_year)
+  random_effects <- list(~ 1 | id_article / location * experiment_year)   # experiment_site
   # random_effects <- list(~ 1 | id_article / experiment_year)
   # random_effects <- list(~ 1 | id_article,
   #                        ~ 1 |experiment_site/experiment_year)

@@ -228,7 +228,7 @@ suppressWarnings({
   # control_sd_info (information on whether the control_var indicate _sd [TRUE] or [FALSE]),
 
   database <- readxl::read_excel(
-    here("DATA", "Meta_data_v78.xlsx"), 
+    here("DATA", "Meta_data_v9.xlsx"), 
     sheet = "Quantatitive data"
   )
   
@@ -3706,47 +3706,12 @@ if (ncol(imp_rf_best) > 0 && ncol(non_imp_dataset) > 0) {
 ```
 
 
-```{r}
-# SAVING TWO VERSIONS OF PREPROCESSED DATA AS RDS
-
-# Define the output directory
-output_dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
-# Ensure the output directory exists
-if (!dir.exists(output_dir)) {
-  dir.create(output_dir, recursive = TRUE)
-}
-
-# Save the non-imputed dataset as RDS
-saveRDS(non_imp_dataset,
-        file = file.path(output_dir, "non_imp_dataset.rds"))
-
-
-# Save the best-imputed dataset as RDS
-saveRDS(imp_rf_best,
-        file = file.path(output_dir, "imp_rf_best_dataset.rds"))
-
-# Print confirmation messages
-cat("Datasets saved successfully:\n")
-cat("- Non-imputed dataset: non_imp_dataset.rds\n")
-cat("- Best-imputed dataset: imp_rf_best_dataset.rds\n")
-```
 
 
 
 
 
 # STEP 7 CALCULATING EFFECT SIZES FOR IMPUTED AND NON-IMPUTED DATASETS
-
-
-Loading datasets
-```{r}
-# Load the non-imputed and imputed datasets
-non_imp_dataset <- readRDS(file.path(output_dir, "non_imp_dataset.rds"))
-
-# Load the imputed dataset
-imp_rf_best <- readRDS(file.path(output_dir, "imp_rf_best_dataset.rds"))
-```
-
 
 
 ```{r}
@@ -4100,9 +4065,7 @@ imp_data_rom <- calculate_effect_sizes(imp_data_prep,
 ```{r}
 imp_data_rom |> glimpse()
 ```
-```{r}
-skimr::skim(imp_data_rom)
-```
+
 ## Flipping direction of selected response variables
 
 ```{r}
@@ -4118,48 +4081,48 @@ imp_data_rom <- imp_data_rom %>%
   )
 ```
 
+```{r}
+skimr::skim(imp_data_rom)
+```
+
+
 ## Boxplot for the raw effect size (yi)
 
 ```{r}
 # Create the boxplot for the effect size (yi)
-# Order response variables by descending median effect size
-
-# Install the scales package if it is not already installed
-#install.packages("scales")
-
 
 # Reorder response variables by descending median effect size
 imp_data_rom_reorder <- imp_data_rom %>%
   mutate(response_variable = fct_reorder(response_variable, yi, .fun = median, .desc = FALSE))
 
-# Create the boxplot styled like a forest plot
+# Create boxplot styled like a forest plot with custom colors
 boxplot_raw_effect_size <- imp_data_rom_reorder |> 
   ggplot(aes(y = response_variable, x = yi, fill = response_variable)) +
-  geom_vline(xintercept = 0, linetype = "solid", color = "black", size = 0.8) + # Solid black line at x = 0 (center)
+  geom_vline(xintercept = 0, linetype = "solid", color = "black", size = 0.8) +
   geom_boxplot(alpha = 0.7, outlier.size = 1) +
   labs(
     title = "Raw Effect Sizes (yi) Across Response Variables",
-    x = "Raw Effect Size",  # Label x-axis
-    y = "Response Variable"      # Label y-axis
+    x = "Raw Effect Size",
+    y = "Response Variable"
   ) +
   scale_x_continuous(
-    limits = c(-1, 1),                # Set x-axis limits symmetrically around 0
-    breaks = seq(-1, 0.8, by = 0.2),    # Custom breaks for better granularity
-    labels = seq(-1, 0.8, by = 0.2)     # Corresponding labels
+    limits = c(-1, 1),
+    breaks = seq(-1, 0.8, by = 0.2),
+    labels = seq(-1, 0.8, by = 0.2)
   ) +
+  scale_fill_manual(values = custom_colors) +  # Apply custom colors here
   theme_minimal(base_size = 14) +
   theme(
-    panel.grid = element_blank(),           # Remove background grids
-    axis.line = element_line(color = "black"),  # Add axis lines
-    axis.text.y = element_text(size = 12),  # Adjust y-axis text size
-    axis.text.x = element_text(angle = 0, hjust = 0.5), # Keep x-axis labels horizontal
-    legend.position = "none"                # Remove legend
+    panel.grid = element_blank(),
+    axis.line = element_line(color = "black"),
+    axis.text.y = element_text(size = 12),
+    axis.text.x = element_text(angle = 0, hjust = 0.5),
+    legend.position = "none"
   )
 
 
-
 # Display the plot
-print(boxplot_raw_effect_size)
+boxplot_raw_effect_size
 ```
 
 
@@ -4170,7 +4133,7 @@ imp_data_rom_reorder <- imp_data_rom %>%
   mutate(response_variable = fct_reorder(response_variable, yi, .fun = median, .desc = FALSE))
 
 # Create the boxplot with ordered response variables
-boxplot_raw_effect_size <- imp_data_rom_reorder |> 
+boxplot_raw_effect_size_zoomed <- imp_data_rom_reorder |> 
   ggplot(aes(y = response_variable, x = yi, fill = response_variable)) +
   geom_vline(xintercept = 0, linetype = "dotted", color = "red", size = 0.8) +
   geom_boxplot(alpha = 0.7, outlier.size = 0.8, width = 0.6) +
@@ -4184,7 +4147,8 @@ boxplot_raw_effect_size <- imp_data_rom_reorder |>
     breaks = seq(-1.15, 1.15, by = 0.1),
     labels = scales::label_number(accuracy = 0.01)
   ) +
-  coord_cartesian(xlim = c(-1.15, 1.15)) +  # Zoom in tightly
+  scale_fill_manual(values = custom_colors) +  # Apply custom colors here
+  coord_cartesian(xlim = c(-1.15, 1.15)) +     # Zoom in tightly
   theme_minimal(base_size = 14) +
   theme(
     axis.text.y = element_text(size = 12),
@@ -4192,7 +4156,7 @@ boxplot_raw_effect_size <- imp_data_rom_reorder |>
     legend.position = "none"
   )
 
-boxplot_raw_effect_size
+boxplot_raw_effect_size_zoomed
 ```
 
 

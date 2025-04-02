@@ -30025,3 +30025,53 @@ print(anova_results)
 # Define file paths
 non_imp_data_rom <- readRDS(here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R", "non_imp_data_rom.rds"))
 imp_data_rom <- readRDS(here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R", "imp_data_rom.rds"))
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+# SAVING TWO VERSIONS OF PREPROCESSED DATA AS RDS
+
+# Define the output directory
+output_dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
+# Ensure the output directory exists
+if (!dir.exists(output_dir)) {
+  dir.create(output_dir, recursive = TRUE)
+}
+
+# Save the non-imputed dataset as RDS
+saveRDS(non_imp_dataset,
+        file = file.path(output_dir, "non_imp_dataset.rds"))
+
+
+# Save the best-imputed dataset as RDS
+saveRDS(imp_rf_best,
+        file = file.path(output_dir, "imp_rf_best_dataset.rds"))
+
+# Print confirmation messages
+cat("Datasets saved successfully:\n")
+cat("- Non-imputed dataset: non_imp_dataset.rds\n")
+cat("- Best-imputed dataset: imp_rf_best_dataset.rds\n")
+```
+
+
+
+
+
+Loading datasets
+```{r}
+# Load the non-imputed and imputed datasets
+# non_imp_dataset <- readRDS(file.path(output_dir, "non_imp_dataset.rds"))
+
+# Load the imputed dataset
+# imp_rf_best <- readRDS(file.path(output_dir, "imp_rf_best_dataset.rds"))
+```
+
+
