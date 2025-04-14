@@ -93,7 +93,7 @@ conflict_prefer("locale", "readr")
 ```
 
 
-Loading the two datasets (imputed and non-imputed)
+## Loading the two datasets (imputed and non-imputed)
 
 ```{r Loading database, warning=FALSE, message=FALSE}
 # Set the working directory automatically using 'here'
@@ -103,8 +103,8 @@ setwd(here::here())
 suppressWarnings({
 
 # Define file paths
-non_imp_data_rom <- readRDS(here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R", "non_imp_data_rom.rds"))
-imp_data_rom <- readRDS(here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R", "imp_data_rom.rds"))
+non_imp_data_rom <- readRDS(here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R", "non_imp_data_rom_tshering.rds"))
+imp_data_rom <- readRDS(here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R", "imp_data_rom_tshering.rds"))
 
 # Read in the non-imputed dataset
 non_imp_dataset <- non_imp_data_rom %>%
@@ -185,20 +185,55 @@ assess_missing_data <- function(dataset, moderators, dataset_name = "Dataset") {
 }
 ```
 
-```{r}
-# Assessing Moderator missingness
+## Assessing missingness in moderator-response variable combinations (Evidence Gap Map)
 
+```{r}
+# Define moderators
 moderators <- c("tree_type", "crop_type", "age_system", "season", 
                 "soil_texture", "no_tree_per_m", "tree_height", "alley_width",
                 "organic", "tillage")
-# organic (1 = organic, 0 = conventional)
-# tillage (1 = tillage, 0 = no tillage)
 
-# Assess missing data for non-imputed dataset
-# assess_missing_data(non_imp_dataset, moderators, "Non-Imputed Dataset")
+# Total counts per response variable (for completeness %)
+total_counts <- imp_dataset %>%
+  count(response_variable, name = "n_total")
 
-# Assess missing data for imputed dataset
-assess_missing_data(imp_dataset, moderators, "Imputed Dataset")
+# Count non-missing observations per (response_variable × moderator)
+completeness_matrix <- imp_dataset %>%
+  select(response_variable, all_of(moderators)) %>%
+  pivot_longer(cols = -response_variable, names_to = "Moderator", values_to = "Value") %>%
+  filter(!is.na(Value)) %>%
+  count(response_variable, Moderator, name = "n_present") %>%
+  complete(response_variable, Moderator = moderators, fill = list(n_present = 0)) %>%
+  left_join(total_counts, by = "response_variable") %>%
+  mutate(
+    percent_present = 100 * n_present / n_total,
+    label = paste0(n_present, "\n(", round(percent_present, 1), "%)")
+  )
+
+# Reorder factors
+completeness_matrix <- completeness_matrix %>%
+  mutate(
+    Moderator = factor(Moderator, levels = moderators),
+    response_variable = fct_reorder(response_variable, n_present, .fun = sum, .desc = TRUE)
+  )
+
+# Plot
+ggplot(completeness_matrix, aes(x = Moderator, y = response_variable, fill = n_present)) +
+  geom_tile(color = "white", linewidth = 0.5) +
+  geom_text(aes(label = label), size = 3.2, color = "black", lineheight = 0.9) +
+  scale_fill_gradient(low = "#F7FCFD", high = "#00441B", name = "n (non-missing)") +
+  labs(
+    title = "Moderator Data Coverage across Response Variables",
+    subtitle = "Non-Missing Observations (Count and Percent) in Imputed Dataset",
+    x = "Moderator",
+    y = "Response Variable"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    panel.grid = element_blank(),
+    legend.position = "right"
+  )
 ```
 
 

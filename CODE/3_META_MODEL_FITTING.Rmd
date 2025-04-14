@@ -161,8 +161,8 @@ setwd(here::here())
 suppressWarnings({
 
 # Define file paths
-non_imp_data_rom <- readRDS(here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R", "non_imp_data_rom.rds"))
-imp_data_rom <- readRDS(here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R", "imp_data_rom.rds"))
+non_imp_data_rom <- readRDS(here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R", "non_imp_data_rom_tshering.rds"))
+imp_data_rom <- readRDS(here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R", "imp_data_rom_tshering.rds"))
 
 # non_imp_data_rom_dummy <- readRDS(here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R", "non_imp_data_rom_dummy.rds"))
 
@@ -1700,8 +1700,6 @@ heterogeneity_base <- extract_heterogeneity_stats(model_results)
 heterogeneity_base
 ```
 ```{r}
-
-
 ##########################################################################################################################################
 # B: Extract heterogeneity statistics from interaction models
 ##########################################################################################################################################
@@ -1711,16 +1709,22 @@ extract_all_heterogeneity_stats <- function(model_results) {
 
   for (response in names(model_results)) {
     models <- model_results[[response]]
-    
+
     for (model_name in names(models)) {
       model <- models[[model_name]]
-      
+
       if (is.null(model)) next
-      
+
       QE <- model$QE
       df <- model$QEdf
-      I2 <- if (!is.null(QE) && QE > df) (QE - df) / QE * 100 else 0
-      
+
+      # Handle missing QE or df safely
+      if (!is.null(QE) && !is.na(QE) && !is.na(df) && QE > df) {
+        I2 <- (QE - df) / QE * 100
+      } else {
+        I2 <- 0
+      }
+
       heterogeneity_list[[paste(response, model_name, sep = "_")]] <- data.frame(
         Response = response,
         Model = model_name,
@@ -1732,7 +1736,6 @@ extract_all_heterogeneity_stats <- function(model_results) {
     }
   }
 
-  # Combine all results
   heterogeneity_df <- do.call(rbind, heterogeneity_list)
   rownames(heterogeneity_df) <- NULL
   return(heterogeneity_df)

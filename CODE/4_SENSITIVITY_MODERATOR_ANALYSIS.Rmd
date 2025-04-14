@@ -154,10 +154,10 @@ dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
 # Load datasets 
 
 ## NON-IMPUTED
-non_imp_dataset <- readRDS(here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R", "non_imp_data_rom.rds"))
+non_imp_dataset <- readRDS(here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R", "non_imp_data_rom_tshering.rds"))
 
 ## IMPUTED
-imp_dataset <- readRDS(here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R", "imp_data_rom.rds"))
+imp_dataset <- readRDS(here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R", "imp_data_rom_tshering.rds"))
 ```
 
 
@@ -374,7 +374,8 @@ response_variables <- c("Biodiversity", "Crop yield", "Water quality", "Pest and
                         "Soil quality", "Greenhouse gas emission", "Product quality")
 
 moderators <- c("tree_type", "crop_type", "age_system", "season", 
-                "soil_texture", "no_tree_per_m", "tree_height", "alley_width")
+                "soil_texture", "no_tree_per_m", "tree_height", "alley_width",
+                "organic", "tillage")
 ```
 
 ```{r}
@@ -410,7 +411,8 @@ count_unique_response_and_moderator <- function(data, response_col, moderators) 
 # Define your response column and list of moderators
 response_col <- "response_variable"
 moderators <- c("tree_type", "crop_type", "age_system", "season", 
-                "soil_texture", "no_tree_per_m", "tree_height", "alley_width")
+                "soil_texture", "no_tree_per_m", "tree_height", "alley_width",
+                 "organic", "tillage")
 
 # Apply the function to the non-imputed dataset
 non_imp_summary <- count_unique_response_and_moderator(non_imp_dataset, response_col, moderators)
@@ -435,7 +437,8 @@ Plot 1: Number of Unique Response Variables per Moderator
 # Define your response column and list of moderators
 response_col <- "response_variable"
 moderators <- c("tree_type", "crop_type", "age_system", "season", 
-                "soil_texture", "no_tree_per_m", "tree_height", "alley_width")
+                "soil_texture", "no_tree_per_m", "tree_height", "alley_width",
+                 "organic", "tillage")
 
 # Generate the summaries using the function
 results <- count_unique_response_and_moderator(non_imp_dataset, response_col, moderators)
@@ -465,7 +468,8 @@ Plot 2: Number of Unique Moderators per Response Variable
 # Define your response column and list of moderators
 response_col <- "response_variable"
 moderators <- c("tree_type", "crop_type", "age_system", "season", 
-                "soil_texture", "no_tree_per_m", "tree_height", "alley_width")
+                "soil_texture", "no_tree_per_m", "tree_height", "alley_width", 
+                "organic", "tillage")
 
 # Generate summaries
 results <- count_unique_response_and_moderator(non_imp_dataset, response_col, moderators)
@@ -535,6 +539,8 @@ Hat values measure leverage, meaning how much weight a study has in determining 
 
 Together, these diagnostics provide a comprehensive assessment of study influence in a meta-analysis. A study with a high Cook’s Distance is influential in shaping the overall effect size, while a high DFBETAS indicates that the study is affecting a specific regression coefficient. A high hat value signals that the study has a strong presence in the model due to its design or data characteristics but does not necessarily mean it is an outlier. If a study exhibits high values across all three measures, it is likely an influential outlier that could distort the meta-analysis results. Understanding these diagnostics allows researchers to identify and assess the robustness of their findings, ensuring that no single study unduly drives the conclusions.
 
+
+
 ```{r}
 ##########################################################################
 # Start time tracking
@@ -545,7 +551,7 @@ plan(multisession, workers = parallel::detectCores() - 1)
 ##########################################################################
 # Load input data and precomputed variance-covariance matrices
 meta_data <- imp_dataset
-v_matrices <- readRDS(here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R", "v_matrices_by_response_variable.rds"))
+# v_matrices <- readRDS(here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R", "v_matrices_by_response_variable.rds"))
 
 # Define model control parameters
 control_params <- list(
@@ -556,7 +562,8 @@ control_params <- list(
 )
 
 # Define random effects structure
-random_effects <- list(~ 1 | id_article / location * experiment_year)  # <------- ! Chosen Random Effects Structure !
+# random_effects <- list(~ 1 | id_article / experiment_site * experiment_year)  # <------- ! Chosen Random Effects Structure !
+random_effects <- list(~ 1 | id_article)                                        # <------- ! Simplified Random Effects Structure !
 
 
 # Function to fit rma.mv models using variance-covariance matrices
@@ -564,12 +571,12 @@ fit_minimal_model <- function(data, response, random_effects) {
   message("Fitting model for: ", response)
 
   data_subset <- filter(data, response_variable == response)
-  v_matrix <- v_matrices[[response]]
+  # v_matrix <- v_matrices[[response]]
 
   tryCatch({
     rma.mv(
       yi = yi,
-      V = v_matrix,
+      V = vi,
       mods = ~ 1,
       random = random_effects,
       data = data_subset,
@@ -625,18 +632,7 @@ cat("\nTotal time taken:", time.taken, units(time.taken), "\n")
 ```{r}
 model_results_mv
 ```
-```{r}
-for (response in response_variables) {
-  data_subset <- filter(meta_data, response_variable == response)
-  v_matrix <- v_matrices[[response]]
 
-  if (!is.null(v_matrix)) {
-    cat("✓", response, "→", nrow(data_subset), "rows; V-dim:", dim(v_matrix), "\n")
-  } else {
-    cat("⚠️", response, "has no V matrix.\n")
-  }
-}
-```
 
 ```{r eval=FALSE}
 ##########################################################################
@@ -697,8 +693,8 @@ mv_influence_diagnostics <- map2_dfr(
 )
 
 # Save influence diagnostics output
-output_dir <- here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
-saveRDS(mv_influence_diagnostics, file = file.path(output_dir, "mv_influence_diagnostics.rds"))
+# output_dir <- here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
+# saveRDS(mv_influence_diagnostics, file = file.path(output_dir, "mv_influence_diagnostics.rds"))
 
 
 # mv_influence_diagnostics |> glimpse()
@@ -720,9 +716,10 @@ cat("\nTotal time taken:", time.taken, units(time.taken), "\n")
 
 ```{r}
 # Load the saved Influence Diagnostics dataset
-dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
-mv_influence_diagnostics <- readRDS(file.path(dir, "mv_influence_diagnostics.rds"))
+# dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
+# mv_influence_diagnostics <- readRDS(file.path(dir, "mv_influence_diagnostics.rds"))
 ```
+
 
 ```{r}
 ##########################################################################
@@ -1062,7 +1059,7 @@ time.taken
 
 ## Load the influence diagnostics results from the saved RDS file and display a preview of the data
 
-```{r}
+```{r eval=FALSE}
 # Define the directory where results are stored
 dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
 # Define the file path for loading the influence results
@@ -1085,7 +1082,7 @@ influence_results |> glimpse()
 
 ## Influence Diagnostics plots: Cook’s Distance, DFBETAS, and Hat Values
 
-```{r}
+```{r eval=FALSE}
 # Plot Cook’s Distance
 
 ggplot(influence_results, aes(x = reorder(Study, -Cooks_Distance), y = Cooks_Distance)) +

@@ -30075,3 +30075,161 @@ Loading datasets
 ```
 
 
+
+
+```{r}
+meta_data <- imp_dataset
+
+for (response in response_variables) {
+  data_subset <- filter(meta_data, response_variable == response)
+  v_matrix <- v_matrices[[response]]
+  
+  if (!is.null(v_matrix)) {
+    cat("✓", response, "→", nrow(data_subset), "rows; V-dim:", dim(v_matrix), "\n")
+  } else {
+    cat("⚠️", response, "has no V matrix.\n")
+  }
+}
+```
+
+
+# STEP 6 PROPORTION OF EFFECT SIZE DIRECTION AS NUMBER OF POSITIVE, NEUTRAL, AND NEGATIVE
+
+
+Based on the minimal_random_effects model
+
+Change everything!
+  
+  ```{r}
+imp_data_rom <- readRDS(here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R", "imp_data_rom_tshering.rds"))
+```
+
+```{r}
+# Step 1: Calculate Z-score, p-value, and categorize effect sizes
+imp_data_rom_calc <- imp_data_rom %>%
+  mutate(
+    Z = yi / sqrt(vi),  # Calculate Z-score
+    Pval = 2 * (1 - pnorm(abs(Z))),  # Two-tailed p-value
+    category = case_when(
+      Pval < 0.05 & yi > 0 ~ "Positive",  # Significant positive effect
+      Pval < 0.05 & yi < 0 ~ "Negative",  # Significant negative effect
+      TRUE ~ "Neutral"  # Non-significant or neutral effect
+    )
+  )
+
+# Step 2: Count effect sizes per category for each response variable
+summary_data_for_eff_calc <- imp_data_rom_calc %>%
+  count(response_variable, category, name = "count") %>%  # More efficient than group_by() + summarise(n())
+  group_by(response_variable) %>%
+  mutate(
+    total_count = sum(count),  # Total effect sizes per response variable
+    percentage = (count / total_count) * 100  # Compute proportion
+  ) %>%
+  ungroup()  # Remove grouping after calculation
+
+# Step 3: Ensure response variables are ordered by total effect sizes
+summary_data_for_eff_calc <- summary_data_for_eff_calc %>%
+  mutate(response_variable = fct_reorder(response_variable, total_count, .fun = sum))
+
+# Step 4: Create stacked bar plot for effect size proportions
+stacked_barplot <- ggplot(summary_data_for_eff_calc, aes(x = response_variable, y = percentage, fill = category)) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(values = c("Positive" = "#1b9e77", "Negative" = "#d95f02", "Neutral" = "#757575")) +
+  labs(
+    title = "Percentage of Effect Sizes by Response Variable",
+    x = "Response Variable",
+    y = "Percentage of Effect Sizes", # %
+    fill = "Effect Size Category"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 12),
+    axis.text.y = element_text(size = 12),
+    legend.title = element_text(size = 14),
+    legend.text = element_text(size = 12),
+    panel.grid.major.y = element_line(color = "gray", linewidth = 0.5),  # Keep only y-axis grid lines
+    panel.grid.major.x = element_blank(),  # Remove x-axis grid lines
+    panel.grid.minor = element_blank(),  # Remove minor grid lines
+    axis.line = element_line(linewidth = 0.5)  # Keep axis lines visible
+  ) +
+  scale_y_continuous(
+    limits = c(0, 100),  # Y-axis fixed between 0 and 100%
+    breaks = seq(0, 100, by = 20)  # Set breaks at 20% intervals
+  )
+
+# Step 5: Display the plot
+print(stacked_barplot)
+```
+
+
+
+## Violin forest plot - violin plot with jitter and summary effects
+
+```{r}
+# Step 1: Back-transform individual observations and remove outliers
+violin_data <- imp_dataset %>%
+  filter(response_variable %in% response_levels) %>%
+  mutate(
+    response_variable = factor(response_variable, levels = rev(response_levels)),
+    yi_back = (exp(yi) - 1) * 100
+  ) %>%
+  filter(abs(yi_back) <= 1000)  # Remove extreme outliers
+
+# Step 2: Extract model summary for each response
+summary_data <- map_dfr(response_levels, function(resp) {
+  mod <- model_results[[resp]]$base_model
+  if (is.null(mod)) return(NULL)
+  estimate <- mod$b[1]
+  ci_lb <- mod$ci.lb[1]
+  ci_ub <- mod$ci.ub[1]
+  
+  tibble(
+    response_variable = resp,
+    summary_mean = (exp(estimate) - 1) * 100,
+    summary_lower = (exp(ci_lb) - 1) * 100,
+    summary_upper = (exp(ci_ub) - 1) * 100
+  )
+}) %>%
+  mutate(response_variable = factor(response_variable, levels = rev(response_levels)))
+
+# Step 3: Plot Violin + Jitter + Summary Effects
+ggplot() +
+  geom_violin(
+    data = violin_data,
+    aes(y = response_variable, x = yi_back, fill = response_variable),
+    color = NA, alpha = 0.4, trim = FALSE
+  ) +
+  geom_jitter(
+    data = violin_data,
+    aes(y = response_variable, x = yi_back),
+    width = 0.1, height = 0.1, alpha = 0.12, size = 0.9, color = "black"
+  ) +
+  geom_pointrange(
+    data = summary_data,
+    aes(y = response_variable, x = summary_mean,
+        xmin = summary_lower, xmax = summary_upper),
+    shape = 21, fill = "white", color = "black", stroke = 1.8, size = 0.5
+  ) +
+  scale_fill_manual(values = custom_colors) +
+  scale_x_continuous(
+    trans = pseudo_log_trans(base = 10),
+    breaks = c(-100, -50, -10, 0, 10, 50, 100, 300, 500, 1000),
+    labels = label_number(accuracy = 1)
+  ) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "red", linewidth = 1) +
+  labs(
+    x = "Effect Size (%)", y = NULL
+  ) +
+  theme_minimal(base_size = 15) +
+  theme(
+    axis.text.y = element_text(size = 14, face = "bold"),
+    axis.text.x = element_text(size = 12),
+    plot.title = element_text(face = "bold", size = 15),
+    legend.position = "none"
+  )
+
+```
+
+
+
+
