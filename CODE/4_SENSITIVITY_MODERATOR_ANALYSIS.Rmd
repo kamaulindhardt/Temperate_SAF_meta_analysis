@@ -165,7 +165,7 @@ loading fitted models
 
 ```{r}
 # Save all models in a combined file
-# model_results <- readRDS(here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R", "fitted_models_all_new.rds"))
+model_results <- readRDS(here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R", "fitted_models_all_new.rds"))
 ```
 
 
@@ -712,12 +712,14 @@ cat("\nTotal time taken:", time.taken, units(time.taken), "\n")
 # Total time taken: 11.01093 mins 
 # Last go (01/04-2025)
 # Total time taken: 6.433458 mins 
+# Last go (10/05-2025)
+# Total time taken: 10.05286 mins  
 ```
 
 ```{r}
 # Load the saved Influence Diagnostics dataset
-# dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
-# mv_influence_diagnostics <- readRDS(file.path(dir, "mv_influence_diagnostics.rds"))
+dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
+mv_influence_diagnostics <- readRDS(file.path(dir, "mv_influence_diagnostics.rds"))
 ```
 
 
@@ -791,32 +793,37 @@ mv_influence_diagnostics_summary
 ##########################################################################
 
 # Thresholds are already included in mv_influence_diagnostics_summary
-# Rename to match ggplot usage
-dfbetas_plot_data <- mv_influence_diagnostics_summary %>%
-  mutate(Is_Influential = abs(Mean_DFBeta) > DFBeta_Threshold)
+# Step 1: Compute mean DFBETA threshold per response variable
+mv_mean_dfbeta_threshold <- mv_influence_diagnostics_summary %>%
+  group_by(Response_Variable) %>%
+  summarise(Mean_DFBeta_Threshold = mean(DFBeta_Threshold, na.rm = TRUE), .groups = "drop")
+
+# Step 2: Merge computed thresholds back
+mv_influence_diagnostics_summary_dfbetas <- mv_influence_diagnostics_summary %>%
+  left_join(mv_mean_dfbeta_threshold, by = "Response_Variable")
+
+# Step 3: Filter and mark influential studies (only those with valid DFBETA values)
+dfbetas_plot_data <- mv_influence_diagnostics_summary_dfbetas %>%
+  filter(!is.na(Mean_DFBeta)) %>%
+  mutate(Is_Influential = abs(Mean_DFBeta) > Mean_DFBeta_Threshold)
 
 # Create DFBETAS Influence Plot
-dfbetas_plot_data %>%
-  ggplot(aes(x = reorder(Study_Clean, Mean_DFBeta), y = Mean_DFBeta)) +
-  
+dfbetas_plot_version1 <-
+  dfbetas_plot_data %>%
+  ggplot(aes(x = reorder(Study_Clean, -Mean_DFBeta), y = Mean_DFBeta)) +
   # Add 95% confidence intervals
   geom_pointrange(aes(ymin = Lower_CI_DFBeta, ymax = Upper_CI_DFBeta), 
                   size = 0.4, color = "black") +
-  
   # Highlight influential studies
   geom_point(aes(color = Is_Influential), size = 2) +
   scale_color_manual(values = c("FALSE" = "black", "TRUE" = "red")) +
-  
   # Add horizontal reference line at 0
   geom_hline(yintercept = 0, linetype = "dashed", color = "gray50") +
-
   # Add positive and negative threshold lines
   geom_hline(aes(yintercept = DFBeta_Threshold), linetype = "dotted", color = "blue") +
   geom_hline(aes(yintercept = -DFBeta_Threshold), linetype = "dotted", color = "blue") +
-
   # Facet by response variable
-  facet_wrap(~Response_Variable, scales = "free_y", nrow = 1) +
-  
+  facet_wrap(~Response_Variable, scales = "free", nrow = 1) +
   # Labels and theme
   labs(
     title = "DFBETAS Influence Diagnostics with 95% CI",
@@ -830,6 +837,8 @@ dfbetas_plot_data %>%
     axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1, size = 8),
     legend.position = "none"
   )
+
+dfbetas_plot_version1
 ```
 
 ### Cook's Distance Plot
@@ -853,7 +862,8 @@ cooks_plot_data <- mv_influence_diagnostics_summary_cooks %>%
   mutate(Is_Influential = Mean_Cooks_Distance > Mean_Cooks_Threshold)
 
 # Create Cook's Distance Plot 
-cooks_plot_data |> 
+cooks_plot_version1 <- 
+  cooks_plot_data |> 
   ggplot(aes(x = reorder(Study_Clean, -Mean_Cooks_Distance), y = Mean_Cooks_Distance)) +
   geom_pointrange(aes(ymin = Lower_CI_Cooks, ymax = Upper_CI_Cooks), 
                   color = "black", size = 0.5) +  # Confidence intervals
@@ -862,6 +872,9 @@ cooks_plot_data |>
   #geom_hline(aes(yintercept = Mean_Cooks_Threshold), linetype = "dotted", color = "blue") +  # Mean threshold per response
   geom_point(data = cooks_plot_data %>% filter(Is_Influential), 
              aes(y = Mean_Cooks_Distance), color = "red", size = 2) +  # Highlight influential studies
+  # Add positive and negative threshold lines
+  geom_hline(aes(yintercept = Cooks_Threshold), linetype = "dotted", color = "blue") +
+  geom_hline(aes(yintercept = -Cooks_Threshold), linetype = "dotted", color = "blue") +
   facet_wrap(~Response_Variable, scales = "free", nrow = 1) +  # Facet per response variable
   labs(
     title = "Cook’s Distance Influence Diagnostics (with Confidence Intervals)",
@@ -875,6 +888,8 @@ cooks_plot_data |>
     axis.text.x = element_text(angle = 90, hjust = 1, size = 8),  # Rotate x-axis labels
     panel.grid.minor = element_blank()  # Clean up grid
   )
+
+cooks_plot_version1
 ```
 
 ### Hat Values Plot
@@ -898,7 +913,8 @@ hat_plot_data <- mv_influence_diagnostics_summary_hat %>%
   mutate(Is_Influential = Mean_Hat > Mean_Hat_Threshold)
 
 # Create Hat Values Plot
-hat_plot_data |> 
+hat_plot_version1 <- 
+  hat_plot_data |> 
   ggplot(aes(x = reorder(Study_Clean, -Mean_Hat), y = Mean_Hat)) +
   geom_pointrange(aes(ymin = Lower_CI_Hat, ymax = Upper_CI_Hat), 
                   color = "black", size = 0.5) +  # Confidence intervals
@@ -920,214 +936,17 @@ hat_plot_data |>
     axis.text.x = element_text(angle = 90, hjust = 1, size = 8),  # Rotate x-axis labels
     panel.grid.minor = element_blank()  # Clean up grid
   )
+
+hat_plot_version1
 ```
 
-
-I really doubt the outputs of the Influence Diagnostics above. 
-To verify the results, I want to perform a "quick and dirty" parallel/comparable but new metafor-based Infuence Diagnostics test, using this approach:
-
-OBS: Very time consuming code below! 
-(see the pre-run of the influence diagnostics loaded subsequently)
-
-```{r eval=FALSE}
-##########################################################################
-
-##########################################################################
-# Set up the parallel processing plan
-plan(multisession, workers = parallel::detectCores() - 1)
-##################################################
-# Start time tracking
-start.time <- Sys.time()
-##################################################
-##################################################
-
-
-# Define the directory where results will be saved
-output_dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
-
-# Create the directory if it doesn't exist
-if (!dir.exists(output_dir)) {
-  dir.create(output_dir, recursive = TRUE)
-}
-
-# Try fitting the multilevel random-effects model
-res_meta <- tryCatch({
-  rma.mv(
-    yi = yi,
-    V = vi,
-    random = ~ 1 | id_article/exp_id,  # Nested random effects
-    slab = meta_data$id_study,         # Assigned study names for easier interpretation
-    data = meta_data,
-    method = "REML"
-  )
-}, error = function(e) {
-  cat("Error in fitting multilevel random-effects model:", e$message, "\n")
-  return(NULL)
-})
-
-# If model fitting failed, stop further execution
-if (is.null(res_meta)) {
-  stop("Model fitting failed! Influence diagnostics will not be computed.")
-}
-
-# Print model summary
-print(res_meta, digits = 3)
-
-# Compute Influence Diagnostics using metafor functions for rma.mv
-cooks_values <- tryCatch({
-  cooks.distance(res_meta, progbar = TRUE)
-}, error = function(e) {
-  cat("⚠ Warning: Cook's Distance computation failed:", e$message, "\n")
-  return(rep(NA, length(res_meta$yi)))
-})
-
-dfbetas_values <- tryCatch({
-  dfbetas(res_meta, progbar = TRUE)
-}, error = function(e) {
-  cat("⚠ Warning: DFBETAS computation failed:", e$message, "\n")
-  return(matrix(NA, nrow = length(res_meta$yi), ncol = 1))
-})
-
-hat_values <- tryCatch({
-  hatvalues(res_meta, type = "diagonal")
-}, error = function(e) {
-  cat("⚠ Warning: Hat values computation failed:", e$message, "\n")
-  return(rep(NA, length(res_meta$yi)))
-})
-
-# Convert DFBETAS matrix to a data frame (only if it has valid values)
-dfbetas_df <- tryCatch({
-  dfbetas_df <- as.data.frame(dfbetas_values)
-  dfbetas_df$Study <- meta_data$id_article  # Add study identifiers
-  dfbetas_df
-}, error = function(e) {
-  cat("⚠ Warning: DFBETAS conversion failed:", e$message, "\n")
-  return(NULL)
-})
-
-# Ensure influence results are only computed if diagnostics succeeded
-if (!is.null(dfbetas_df)) {
-  influence_results <- tryCatch({
-    data.frame(
-      Study = meta_data$id_article,
-      Cooks_Distance = cooks_values,
-      Max_DFBeta = apply(dfbetas_df[, -ncol(dfbetas_df)], 1, max, na.rm = TRUE),
-      dfbetas_full <- dfbetas_values, # Store full DFBETAs separately
-      Hat_Values = hat_values
-    )
-  }, error = function(e) {
-    cat("⚠ Warning: Influence results computation failed:", e$message, "\n")
-    return(NULL)
-  })
-} else {
-  influence_results <- NULL
-}
-
-# If influence results are valid, print a summary
-if (!is.null(influence_results)) {
-  summary(influence_results)
-
-  # Define the file path for saving the influence results
-  influence_results_path <- file.path(output_dir, "meta_influence_results_quick_n_dirty.rds")
-
-  # Save the influence results as an RDS file
-  saveRDS(influence_results, file = influence_results_path)
-
-  # Confirm that the results have been saved
-  cat("Influence results saved to:", influence_results_path, "\n")
-} else {
-  cat("Influence results were not generated due to errors. Nothing was saved.\n")
-}
-
-##################################################
-# End time tracking
-end.time <- Sys.time()
-# Calculate time taken
-time.taken <- end.time - start.time
-time.taken
-##############################################################
-# Last go (02/03-2025)
-# Time difference: 
-# cooks_values
-# |==================================================| 100% elapsed=06h 57m 22s
-# dfbetas_values
-# |==================================================| 100% elapsed=07h 18m 18s
-# Hat_Values
-```
-
-
-
-## Load the influence diagnostics results from the saved RDS file and display a preview of the data
-
-```{r eval=FALSE}
-# Define the directory where results are stored
-dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
-# Define the file path for loading the influence results
-influence_results_path <- file.path(dir, "meta_influence_results_quick_n_dirty.rds")
-
-# Check if the file exists before loading
-if (file.exists(influence_results_path)) {
-  
-  influence_results <- readRDS(influence_results_path)
-  
-  cat("Influence results successfully loaded from:", influence_results_path, "\n")
-} else {
-  cat("⚠ Warning: Influence results file not found at:", influence_results_path, "\n")
-}
-
-# Display a preview of the loaded data
-influence_results |> glimpse()  
-```
-
-
-## Influence Diagnostics plots: Cook’s Distance, DFBETAS, and Hat Values
-
-```{r eval=FALSE}
-# Plot Cook’s Distance
-
-ggplot(influence_results, aes(x = reorder(Study, -Cooks_Distance), y = Cooks_Distance)) +
-  geom_point(color = "red", size = 1) +
-  geom_hline(yintercept = 4 / nrow(influence_results), linetype = "dashed", color = "blue") +
-  coord_flip() +
-  labs(
-    title = "Cook’s Distance for Influence Diagnostics",
-    x = "Study",
-    y = "Cook’s Distance",
-    caption = "Dashed line = 4/n threshold"
-  ) +
-  theme_bw()
-
-# Plot DFBETAS
-ggplot(influence_results, aes(x = reorder(Study, -Max_DFBeta), y = Max_DFBeta)) +
-  geom_point(color = "black", size = 1) +
-  geom_hline(yintercept = 2 / sqrt(nrow(influence_results)), linetype = "dotted", color = "blue") +
-  coord_flip() +
-  labs(
-    title = "DFBETAS Influence Diagnostics",
-    x = "Study",
-    y = "Max DFBETAS",
-    caption = "Dotted line = ± 2/sqrt(n) threshold"
-  ) +
-  theme_bw()
-
-# Plot Hat Values
-ggplot(influence_results, aes(x = reorder(Study, -Hat_Values), y = Hat_Values)) +
-  geom_point(color = "black", size = 1) +
-  geom_hline(yintercept = 3 * mean(hat_values, na.rm = TRUE), linetype = "dotted", color = "blue") +
-  coord_flip() +
-  labs(
-    title = "Hat Values for Influence Diagnostics",
-    x = "Study",
-    y = "Hat Values",
-    caption = "Dotted line = 3 * mean(Hat)"
-  ) +
-  theme_bw()
-```
+Influence diagnostics revealed that a small number of studies had a disproportionate impact on model estimates across response variables. Notably, *Gibbs et al. (2016)* and *Cardinael et al. (2017)* consistently exceeded thresholds across all three metrics—DFBETAS, Cook’s Distance, and Hat values—for biodiversity and carbon sequestration, respectively, indicating both high leverage and strong influence on model coefficients. *Shen et al. (2023)* was also identified as influential for product quality, while *Lacombe et al. (2009)* showed high leverage for soil quality without substantially affecting model estimates. These findings underscore the importance of conducting sensitivity analyses to assess the robustness of conclusions in the presence of influential data points, particularly when certain responses are dominated by single or few studies.
 
 
 
 # STEP 3 SENSITIVITY ANALYSIS (LEAVE-ONE-OUT SENSTIVITY ANALYSIS)
 
+### Loading meta_data and structured_results
 
 ```{r}
 #########################################################################
@@ -1140,356 +959,186 @@ ggplot(influence_results, aes(x = reorder(Study, -Hat_Values), y = Hat_Values)) 
 # WORING ON THE IMPUTED DATASET
 meta_data <- imp_dataset
 
+# Structured results with full model effects
+structured_results <- readRDS(here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R", "structured_results_all_effect_sizes.rds"))
+
 ####################################################################################################
 #############################################################################################
 ########################################################################################
 ###################################################################################
 ###############################################################################
 #########################################################################
-
-```
-
-```{r}
-# Load effect sizes from the structured_results data
-
-structured_results <- readRDS(here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R", "structured_results_all_effect_sizes.rds"))
 ```
 
 
+```{r}
+# Lookup for full model estimates
+structured_lookup <- structured_results %>%
+  filter(Model == "base_model") %>%
+  distinct(ResponseVariable, Estimate) %>%
+  rename(response_variable = ResponseVariable)
+```
+
 
 ```{r}
-##########################################################################################################################################
-# DYNAMIC LEAVE-ONE-OUT SENSITIVITY ANALYSIS ON STUDY EFFECTS - USING A SIMPLER rma MODEL
-##########################################################################################################################################
+control_params <- list(optimizer = "optim", method = "BFGS", iter.max = 10000, rel.tol = 1e-12)
 
-##########################################################################
-# Set up the parallel processing plan
-plan(multisession, workers = parallel::detectCores() - 1)
-##########################################################################
-# Start time tracking
-start.time <- Sys.time()
-##########################################################################
+base_model <- function(data, random_effects_formula) {
+  rma.mv(
+    yi = yi,
+    V = vi,
+    mods = ~ tree_type + crop_type + age_system + season + soil_texture,
+    random = random_effects_formula,
+    data = data,
+    method = "REML",
+    control = control_params
+  )
+}
 
-# Global control parameters for optimization
-control_params <- list(
-  # Specifies the optimization function to use, "optim" is the base R optimizer, allowing for flexible tuning
-  optimizer = "optim",
-  # Defines the specific optimization algorithm. "BFGS" (Broyden–Fletcher–Goldfarb–Shanno) is a quasi-Newton method
-  # This optimization algorithm is often used for unconstrained optimization problems and works well in meta-analytic models with moderate to large datasets
-  method = "BFGS",
-  # Maximum number of iterations for the optimization routine. If the models does not converge, increasing this value can help.
-  # However, very high values may lead to excessive computation time.
-  iter.max = 10000,
-  # Relative tolerance level for convergence. Determines when the optimization process should stop.
-  # Lower values (e.g., 1e-15) enforce stricter convergence, ensuring more precise results but requiring longer run times.
-  # Higher values (e.g., 1e-4) allow faster convergence but may reduce accuracy (default in metafor is 1e-10).
-  rel.tol = 1e-12
-  # Uncomment this line if you want to track optimizer progress for each individual model
-  # This will print detailed iteration steps, useful for debugging non-convergence issues.
-  # verbose = TRUE   
-)
-
-##########################################################################
-# Define the function for Leave-One-Out (LOO) sensitivity analysis
 conduct_loo_analysis <- function(meta_data, model_formula_function, random_effects_formula) {
-  
-  # Extract unique studies
   unique_studies <- unique(meta_data$id_article)
-  
-  # Initialize an empty list to store LOO results
   loo_results <- list()
-  
-  # Iterate through each study
+
   for (study in unique_studies) {
     cat("Excluding study:", study, "\n")
-    
-    # Subset the data excluding the current study
-    data_excluded <- meta_data[meta_data$id_article != study, ]
-    
-    # Refit the model without the excluded study using the provided model formula function
-    loo_model <- tryCatch({
-      model_formula_function(
-        data = data_excluded,
-        random_effects_formula = random_effects_formula
-      )
-    }, error = function(e) {
-      cat("Error in fitting model for study:", study, "-", e$message, "\n")
-      return(NULL)
-    })
-    
-    # Store the results
-    loo_results[[as.character(study)]] <- loo_model
+    data_excluded <- meta_data %>% filter(id_article != study)
+    model <- tryCatch(
+      model_formula_function(data_excluded, random_effects_formula),
+      error = function(e) NULL
+    )
+    loo_results[[study]] <- model
   }
-  
+
   return(loo_results)
 }
 
-# Define model formula functions
-minimal_random_effects_model <- function(data, random_effects_formula) {
-  rma.mv(
-    yi = yi,
-    V = vi,
-    mods = ~ 1,  # Intercept-only model
-    random = random_effects_formula,
-    data = data,
-    method = "REML",
-    control = control_params
-  )
-}
-
-interaction_model <- function(data, random_effects_formula) {
-  rma.mv(
-    yi = yi,
-    V = vi,
-    mods = as.formula("~ tree_type * crop_type * age_system * season * soil_texture"),
-    random = random_effects_formula,
-    data = data,
-    method = "REML",
-    control = control_params
-  )
-}
-
-full_model <- function(data, random_effects_formula) {
-  rma.mv(
-    yi = yi,
-    V = vi,
-    mods = as.formula("~ tree_type + crop_type + age_system + season + soil_texture"),
-    random = random_effects_formula,
-    data = data,
-    method = "REML",
-    control = control_params
-  )
-}
-
-##########################################################################################################################################
-# RUN DYNAMIC LEAVE-ONE-OUT ANALYSIS PER RESPONSE VARIABLE
-##########################################################################################################################################
-
-# Set the model formula function to use for LOO analysis (e.g., minimal_random_effects_model, interaction_model or full_model)
-model_to_use <- interaction_model  # Change this to minimal_random_effects_model if needed
-
-# Define random effects structure 
-random_effects <- list(~ 1 | id_article / location * experiment_year)  # <------- ! Chosen Random Effects Structure !
-
-# Initialize a list to store results for each response variable
+random_effects <- list(~ 1 | id_article / location * experiment_year)
 response_specific_results <- list()
 
-# Loop through each response variable and conduct LOO analysis
 for (response in unique(meta_data$response_variable)) {
-  cat("Processing response variable:", response, "\n")
-  
-  # Subset the data for the current response variable
-  data_subset <- meta_data[meta_data$response_variable == response, ]
-  
-  # Conduct Leave-One-Out (LOO) sensitivity analysis for the current response variable
-  response_specific_results[[response]] <- conduct_loo_analysis(
-    meta_data = data_subset,
-    model_formula_function = model_to_use,
-    random_effects_formula = random_effects_formula
+  cat("Running LOO for:", response, "\n")
+  data_subset <- meta_data %>% filter(response_variable == response)
+  response_specific_results[[response]] <- conduct_loo_analysis(data_subset, base_model, random_effects)
+}
+
+response_specific_results$Biodiversity |> str()
+```
+
+
+```{r}
+summarize_loo_results <- function(loo_results, full_effect_size) {
+  # Ensure names exist
+  study_names <- names(loo_results)
+  if (is.null(study_names) || any(study_names == "")) {
+    study_names <- as.character(seq_along(loo_results))
+  }
+
+  purrr::map2_dfr(
+    .x = loo_results,
+    .y = study_names,
+    .f = function(model, study) {
+      if (is.null(model)) {
+        return(tibble(
+          Study = study,
+          Excluded_Effect_Size = NA_real_,
+          Excluded_SE = NA_real_,
+          Change_in_Effect_Size = NA_real_,
+          QE = NA_real_,
+          QE_pval = NA_real_,
+          I2 = NA_real_,
+          Tau2 = NA_real_
+        ))
+      }
+
+      excluded_effect_size <- if (!is.null(model$b)) model$b[1] else NA_real_
+      excluded_se <- if (!is.null(model$se)) model$se[1] else NA_real_
+      change <- if (!is.na(excluded_effect_size) && !is.na(full_effect_size) && abs(full_effect_size) > 1e-6) {
+        ((excluded_effect_size - full_effect_size) / full_effect_size) * 100
+      } else {
+        NA_real_
+      }
+
+      tibble(
+        Study = study,
+        Excluded_Effect_Size = excluded_effect_size,
+        Excluded_SE = excluded_se,
+        Change_in_Effect_Size = change,
+        QE = model$QE %||% NA_real_,
+        QE_pval = model$QEp %||% NA_real_,
+        I2 = model$I2 %||% NA_real_,
+        Tau2 = model$tau2 %||% NA_real_
+      )
+    }
   )
 }
-##########################################################################
-# End time tracking
-end.time <- Sys.time()
-time.taken <- end.time - start.time
-cat("\nTotal time taken:", time.taken, units(time.taken), "\n")
-##########################################################################
-# Last go (26/01-2025)
-# Total time taken: 13.77877 secs 
 
-# Processing response variable: Biodiversity 
-# Excluding study: 1 
-# Excluding study: 4 
-# Excluding study: 7 
-# Excluding study: 9 
-# Excluding study: 15 
-# Excluding study: 18 
-# Excluding study: 25 
-# Excluding study: 29 
-# Excluding study: 35 
-# Processing response variable: Crop yield 
-# Excluding study: 2 
-# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Excluding study: 3 
-# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Excluding study: 10 
-# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Excluding study: 11 
-# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Excluding study: 12 
-# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Excluding study: 13 
-# Excluding study: 14 
-# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Excluding study: 16 
-# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Excluding study: 20 
-# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Excluding study: 25 
-# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Excluding study: 26 
-# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Excluding study: 30 
-# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Excluding study: 31 
-# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Excluding study: 33 
-# Excluding study: 34 
-# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Excluding study: 36 
-# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Excluding study: 37 
-# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Processing response variable: Water quality 
-# Excluding study: 5 
-# Error in fitting model for study: 5 - Processing terminated since k <= 1. 
-# Processing response variable: Pest and Disease 
-# Excluding study: 6 
-# Excluding study: 17 
-# Excluding study: 29 
-# Processing response variable: Soil quality 
-# Excluding study: 8 
-# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Excluding study: 14 
-# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Excluding study: 19 
-# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Excluding study: 21 
-# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Excluding study: 23 
-# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Excluding study: 24 
-# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Excluding study: 25 
-# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Excluding study: 27 
-# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Excluding study: 28 
-# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Excluding study: 32 
-# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Excluding study: 33 
-# Advarsel: Ratio of largest to smallest sampling variance extremely large. May not be able to obtain stable results.Processing response variable: Greenhouse gas emission 
-# Excluding study: 11 
-# Advarsel: Single-level factor(s) found in 'random' argument. Corresponding 'sigma2' value(s) fixed to 0.Excluding study: 22 
-# Advarsel: Single-level factor(s) found in 'random' argument. Corresponding 'sigma2' value(s) fixed to 0.Processing response variable: Product quality 
-# Excluding study: 12 
-# Excluding study: 20 
-# Excluding study: 25 
-# Excluding study: 26 
-# Excluding study: 34 
-# 
-# Total time taken: 11.29175 secs 
 
-# Last go (01/03-2025)
+loo_summary_combined <- purrr::map_dfr(
+  names(response_specific_results),
+  function(response) {
+    full_effect <- structured_lookup %>%
+      filter(response_variable == response) %>%
+      pull(Estimate) %>%
+      first()
 
-```
-
-```{r}
-# response_specific_results$`Crop yield` |> str()
-```
-
-```{r}
-##########################################################################################################################################
-# INSPECT RESULTS
-##########################################################################################################################################
-
-# Summarize LOO results with detailed comparison to the full model
-summarize_loo_results <- function(loo_results, full_effect_size) {
-  summary_df <- do.call(rbind, lapply(names(loo_results), function(study) {
-    model <- loo_results[[study]]
-    if (is.null(model) || is.null(model$b)) {
-      return(data.frame(
-        Study = study,
-        Excluded_Effect_Size = NA,
-        Excluded_SE = NA,
-        Full_Effect_Size = full_effect_size,
-        Change_in_Effect_Size = NA,
-        QE = NA,
-        QE_pval = NA,
-        I2 = NA,
-        Tau2 = NA
+    if (is.null(full_effect) || is.na(full_effect)) {
+      return(tibble(
+        Study = NA_character_,
+        Excluded_Effect_Size = NA_real_,
+        Excluded_SE = NA_real_,
+        Full_Effect_Size = NA_real_,
+        Change_in_Effect_Size = NA_real_,
+        QE = NA_real_, QE_pval = NA_real_,
+        I2 = NA_real_, Tau2 = NA_real_,
+        response_variable = response
       ))
     }
-    
-    # Extract effect size and standard error for the excluded study
-    excluded_effect_size <- ifelse(length(model$b) > 0, model$b[1], NA)
-    excluded_se <- ifelse(length(model$se) > 0, model$se[1], NA)
-    
-    # Calculate change in effect size with proper handling of zero or near-zero full effect size
-    if (!is.na(full_effect_size) && abs(full_effect_size) > 1e-6) {
-      change_in_effect_size <- ((excluded_effect_size - full_effect_size) / full_effect_size) * 100
-    } else {
-      change_in_effect_size <- NA
-    }
-    
-    data.frame(
-      Study = study,
-      Excluded_Effect_Size = excluded_effect_size,
-      Excluded_SE = excluded_se,
-      Full_Effect_Size = full_effect_size,
-      Change_in_Effect_Size = change_in_effect_size,
-      QE = ifelse(!is.null(model$QE), model$QE, NA),
-      QE_pval = ifelse(!is.null(model$QEp), model$QEp, NA),
-      I2 = ifelse(!is.null(model$I2), model$I2, NA),
-      Tau2 = ifelse(!is.null(model$tau2), model$tau2, NA)
-    )
-  }))
-  
-  return(summary_df)
-}
 
-
-# Generate the summary table for each response variable
-response_summary <- lapply(names(response_specific_results), function(response) {
-  cat("Summarizing LOO results for response variable:", response, "\n")
-  
-  loo_results <- response_specific_results[[response]]
-  if (is.null(loo_results) || length(loo_results) == 0) {
-    cat("No valid LOO results for response variable:", response, "\n")
-    return(data.frame(
-      Study = NA,
-      Excluded_Effect_Size = NA,
-      Excluded_SE = NA,
-      Full_Effect_Size = NA,
-      Change_in_Effect_Size = NA,
-      QE = NA,
-      QE_pval = NA,
-      I2 = NA,
-      Tau2 = NA,
-      response_variable = response
-    ))
+    loo_results <- response_specific_results[[response]]
+    df <- summarize_loo_results(loo_results, full_effect)
+    df$Full_Effect_Size <- full_effect
+    df$response_variable <- response
+    return(df)
   }
-  
-  # Extract the full effect size from structured_results
-  full_effect_size <- structured_results %>%
-    filter(ResponseVariable == response, 
-           # Extracting from the interaction_model model in the previously fitted model objects (structured_results_all_effect_sizes.rds)
-           # This is used to compare with the LOO analysis per response variable and study
-           # Change this to minimal_random_effects_model or full_model if needed
-           Model == "interaction_model") %>%
-    pull(Estimate)
-  
-  if (length(full_effect_size) == 0) {
-    cat("No valid full model result for response variable:", response, "\n")
-    return(data.frame(
-      Study = NA,
-      Excluded_Effect_Size = NA,
-      Excluded_SE = NA,
-      Full_Effect_Size = NA,
-      Change_in_Effect_Size = NA,
-      QE = NA,
-      QE_pval = NA,
-      I2 = NA,
-      Tau2 = NA,
-      response_variable = response
-    ))
-  }
-  
-  # Use the first valid full effect size
-  full_effect_size <- full_effect_size[1]
-  summary_df <- summarize_loo_results(loo_results, full_effect_size)
-  summary_df$response_variable <- response
-  return(summary_df)
-})
+)
 
-# Combine results into a single data frame
-response_summary_combined <- do.call(rbind, response_summary) |> 
-  relocate(Study, response_variable, Full_Effect_Size, Excluded_Effect_Size, Change_in_Effect_Size) |> 
-  # Water quality only derives from 1 study, hence given NA in the LOO (study 5 "Bergeron et al., 2011")
-  mutate(Study = case_when(
-    is.na(Study) ~ "5",
-    TRUE ~ as.character(Study)
-  ))
-  
-
-# Inspect the combined summary
-print(response_summary_combined)
+loo_summary_combined |> glimpse()
 ```
 
 ```{r}
-##########################################################################################################################################
+loo_summary_plot_data <- loo_summary_combined %>%
+  filter(!is.na(Excluded_Effect_Size)) %>%  # remove NULL models
+  mutate(
+    Study = fct_reorder(Study, Change_in_Effect_Size, .na_rm = TRUE),
+    response_variable = factor(response_variable)
+  )
+
+loo_summary_plot_data
+```
+
+```{r}
+# Define a custom color palette for response_variable
+custom_colors <- c(
+  "Biodiversity"             = "#FF9999",
+  "Carbon sequestration"     = "#66C266",
+  "Product quality"          = "#FFC000",
+  "Crop yield"               = "#FF9933",
+  "Pest and disease control" = "#33CCCC",
+  "Soil quality"             = "#9966CC",
+  "Water quality"            = "#9999FF"
+)
+```
+
+### Combined facet plot 
+
+```{r}
+####################################################################
 # SUMMARIZE CONTRIBUTION OF STUDIES TO RESPONSE VARIABLES
-##########################################################################################################################################
+####################################################################
 
 # Step 1: Create a Lookup Table for Study Names
 study_lookup <- tibble(
-  Study = as.character(1:37),  # Convert numeric IDs to character for consistency
+  Study = as.character(1:37),
   id_study = c(
     "Varah et al., 2020", "Swieter et al., 2022", "Swieter et al., 2019",
     "Bainard et al., 2011", "Bergeron et al., 2011", "Beule et al., 2019",
@@ -1507,211 +1156,171 @@ study_lookup <- tibble(
   )
 )
 
-# Step 2: Summarize the Overall Contribution of Each Study
-study_contribution_summary <- response_summary_combined %>%
-  group_by(Study, response_variable) %>%
-  summarise(
-    Mean_Change_in_Effect_Size = mean(abs(Change_in_Effect_Size), na.rm = TRUE),
-    Total_Change_in_Effect_Size = sum(abs(Change_in_Effect_Size), na.rm = TRUE),
-    Mean_Excluded_Effect_Size = mean(Excluded_Effect_Size, na.rm = TRUE),
-    Mean_Excluded_SE = mean(Excluded_SE, na.rm = TRUE),
-    .groups = "drop"
-  ) %>%
+# Step 2: Compute CI and back-transform values
+loo_summary_plot_data <- loo_summary_plot_data %>%
   mutate(
-    Study = as.character(Study)  # Convert Study to character for joining
-  ) %>%
-  arrange(as.numeric(Study))  # Ensure numeric sorting (ascending)
+    ci_lower = Excluded_Effect_Size - 1.96 * Excluded_SE,
+    ci_upper = Excluded_Effect_Size + 1.96 * Excluded_SE,
+    Effect_ROM   = (exp(Excluded_Effect_Size) - 1) * 100,
+    CI_lower_ROM = (exp(ci_lower) - 1) * 100,
+    CI_upper_ROM = (exp(ci_upper) - 1) * 100
+  )
 
-# Step 3: Assign `id_study` Using `left_join()` (More Scalable)
-study_contribution_summary <- study_contribution_summary |> 
-  left_join(study_lookup, by = "Study") |> 
-  relocate(id_study, Study, response_variable, .before = Mean_Change_in_Effect_Size)  # Correct order
-
-# Step 4: Inspect the Final Output
-print(study_contribution_summary)
-
-# Optional: Save the summary to a CSV file for further analysis
-# write.csv(study_contribution_summary, "study_contribution_summary.csv", row.names = FALSE)
-
-study_contribution_summary |> glimpse()
-```
-
-```{r}
-# Scatter plot of Excluded Effect Size vs. Mean Change
-ggplot(study_contribution_summary, aes(x = Mean_Excluded_Effect_Size, 
-                                       y = Mean_Change_in_Effect_Size, 
-                                       color = response_variable)) +
-  geom_point(size = 3) +
-  geom_smooth(method = "lm", se = FALSE, linetype = "dashed") +
-  labs(
-    title = "Excluded Effect Size vs. Mean Change in Effect Size",
-    x = "Mean Excluded Effect Size",
-    y = "Mean Change in Effect Size (%)",
-    color = "Response Variable"
-  ) +
-  theme_minimal()
-```
-```{r}
-# Selecting response variables with enough studies
-response_variables_to_plot <- response_summary_combined %>%
+# Step 3: Join study names and reorder by effect
+loo_summary_plot_data <- loo_summary_plot_data %>%
+  mutate(Study = as.character(Study)) %>%
+  left_join(study_lookup, by = "Study") %>%
+  filter(!is.na(Effect_ROM)) %>%
   group_by(response_variable) %>%
-  summarise(num_studies = n_distinct(Study)) %>%
-  filter(num_studies >= 8) 
-# pull(response_variable)
-# [1] "Biodiversity" "Crop yield"   "Soil quality"
-  
+  mutate(Study_Label = fct_reorder(id_study, Effect_ROM)) %>%
+  ungroup()
 
-
-# Faceted bar plot
-study_contribution_summary %>%
-  # Selecting response variables with enough studies: ("Biodiversity" "Crop yield"   "Soil quality")
-  filter(response_variable %in% response_variables_to_plot$response_variable) %>%
-  ggplot(aes(x = reorder(as.factor(id_study), -Mean_Change_in_Effect_Size), y = Mean_Change_in_Effect_Size)) +
-  geom_bar(stat = "identity", fill = "steelblue") +
-  labs(
-    title = "Study Contributions by Response Variable",
-    x = "Study",
-    y = "Mean Change in Effect Size (%)"
+# Step 4: Plot
+loo_summary_plot <- ggplot(
+  loo_summary_plot_data,
+  aes(x = Effect_ROM, y = Study_Label, color = response_variable)
+) +
+  geom_errorbarh(
+    aes(xmin = CI_lower_ROM, xmax = CI_upper_ROM),
+    height = 0.3, linewidth = 0.8, alpha = 0.6
   ) +
-  coord_flip() +
-  facet_wrap(~response_variable, scales = "free_x") +
-  theme_minimal()
-```
-
-```{r}
-# Heatmap of Total Change in Effect Size
-ggplot(study_contribution_summary, aes(x = as.factor(id_study), 
-                                       y = response_variable, 
-                                       fill = Total_Change_in_Effect_Size)) +
-  geom_tile(color = "white") +
-  scale_fill_viridis_c(option = "C") +
+  geom_point(size = 3) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "gray30") +
+  facet_wrap(~ response_variable, scales = "free") +
+  scale_color_manual(values = custom_colors) +
   labs(
-    title = "Heatmap of Total Change in Effect Size",
-    x = "Study",
-    y = "Response Variable",
-    fill = "Total Change (%)"
+    title = "Leave-One-Out Sensitivity: Excluded Effect Sizes (Percent Change)",
+    x = "Excluded Effect Size (% Change)",
+    y = "Excluded Study"
   ) +
-  theme_minimal() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-```
-
-
-
-
-```{r}
-# Bar plot of Mean Change in Effect Size with x-axis break at 300
-ggplot(study_contribution_summary, aes(
-  x = reorder(as.factor(id_study), -Mean_Change_in_Effect_Size), 
-  y = Mean_Change_in_Effect_Size, 
-  fill = response_variable
-)) +
-  geom_bar(stat = "identity", position = "dodge") +
-  # Labels
-  labs(
-    title = "Mean Change in Effect Size by Study",
-    x = "Study",
-    y = "Mean Change in Effect Size (%)",
-    fill = "Response Variable"
-  ) +
-  # Flip coordinates for better readability
-  coord_flip() +
-  # Adjust y-axis scale to have breaks every 10
-  scale_y_continuous(breaks = seq(0, max(study_contribution_summary$Mean_Change_in_Effect_Size, na.rm = TRUE), by = 100)) +
-  # Use `scale_y_break` to add a break at 300
-  scale_y_break(c(200, 250), 
-                scales = "free",
-                ) +
   theme_minimal(base_size = 14) +
   theme(
-    axis.text.x = element_text(angle = 45, hjust = 1),  # Rotate labels
-    axis.text.x.top = element_blank(),
-        axis.ticks.x.top = element_blank(),
-        axis.line.x.top = element_blank()
+    axis.text.y = element_text(size = 11),
+    plot.title = element_text(face = "bold"),
+    strip.text = element_text(face = "bold"),
+    legend.position = "none"
   )
+
+# Display
+loo_summary_plot
 ```
 
-```{r}
-glimpse(study_contribution_summary)
 
-# Check for missing or invalid values
-summary(study_contribution_summary$Mean_Change_in_Effect_Size)
-```
+### Seperate plots for each response variable
 
 ```{r}
-# Caterpillar plot for LOO sensitivity analysis
-study_contribution_summary %>%
-  # Selecting response variables with enough studies: ("Biodiversity" "Crop yield"   "Soil quality")
-  filter(response_variable %in% response_variables_to_plot$response_variable) %>%
-  ggplot(aes(
-  x = Mean_Change_in_Effect_Size,
-  y = reorder(id_study, Mean_Change_in_Effect_Size),
-  fill = response_variable
-)) +
-  geom_bar(stat = "identity") +
-  labs(
-    title = "Caterpillar Plot: Study Influence on Effect Size",
-    x = "Mean Change in Effect Size (%)",
-    y = "Study",
-    fill = "Response Variable"
-  ) +
-  facet_wrap(~ response_variable, scales = "free_x", nrow = 1) + # Facet by response_variable with free y-axis scale
-  theme_minimal() +
-  theme(
-    axis.text.y = element_text(size = 10),
-    legend.position = "bottom",
-    strip.text = element_text(size = 12, face = "bold") # Customize facet labels
-  )
-```
+loo_summary_plot_data |> glimpse()
 
-```{r}
-# Ensure the Full_Effect_Size column exists
-if (!"Full_Effect_Size" %in% colnames(study_contribution_summary)) {
-  study_contribution_summary <- study_contribution_summary %>%
-    mutate(Full_Effect_Size = mean(Mean_Excluded_Effect_Size, na.rm = TRUE))
+# List unique response variables
+responses <- unique(loo_summary_plot_data$response_variable)
+
+# Create a named list of filtered data
+loo_data_split <- purrr::set_names(responses) |>
+  purrr::map(~ loo_summary_plot_data %>% filter(response_variable == .x))
+
+# Step 2: Define the plotting function
+
+plot_loo_response <- function(df, color) {
+  ggplot(df, aes(
+    x = Effect_ROM, 
+    y = fct_reorder(Study_Label, Effect_ROM)
+  )) +
+    geom_point(size = 3, color = color) +
+    geom_errorbarh(
+      aes(xmin = CI_lower_ROM, xmax = CI_upper_ROM),
+      height = 0.25,
+      color = color,
+      linewidth = 0.8
+    ) +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "gray40") +
+    labs(
+      title = unique(df$response_variable),
+      x = "Change in Effect Size (%)",
+      y = "Excluded Study"
+    ) +
+    theme_minimal(base_size = 14) +
+    theme(
+      axis.text.y = element_text(size = 11),
+      plot.title = element_text(face = "bold")
+    )
 }
 
-# Enhanced Forest Plot with Free Scales for Both Axes
-study_contribution_summary %>%
-  # Selecting response variables with enough studies: ("Biodiversity" "Crop yield"   "Soil quality")
-  filter(response_variable %in% response_variables_to_plot$response_variable) %>%
-  ggplot(aes(
-  x = Mean_Excluded_Effect_Size,
-  y = reorder(id_study, Mean_Change_in_Effect_Size),
-  xmin = Mean_Excluded_Effect_Size - Mean_Excluded_SE,
-  xmax = Mean_Excluded_Effect_Size + Mean_Excluded_SE,
-  color = response_variable
-)) +
-  geom_point(size = 3) +
-  geom_errorbarh(height = 0.2) +
-  geom_vline(
-    xintercept = mean(study_contribution_summary$Full_Effect_Size, na.rm = TRUE),
-    linetype = "dashed",
-    color = "red"
-  ) +
-  facet_wrap(~response_variable, scales = "free_x", ncol = 3) +
-  labs(
-    title = "Forest Plot: LOO Sensitivity Analysis by Response Variable",
-    x = "Effect Size (with the respective study excluded)",
-    y = "Studies",
-    color = "Response Variable"
-  ) +
-  theme_minimal() +
-  theme(
-    axis.text.y = element_text(size = 8),
-    axis.text.x = element_text(size = 10),
-    legend.position = "bottom",
-    strip.text = element_text(size = 10, face = "bold")
-  )
-```
-```{r}
-study_contribution_summary <- study_contribution_summary %>%
-  mutate(High_Influence = ifelse(Mean_Change_in_Effect_Size > 50, "Yes", "No"))
-```
-```{r}
-study_contribution_summary <- study_contribution_summary %>%
-  arrange(desc(Mean_Change_in_Effect_Size))
 
-study_contribution_summary
+# Create plots per response
+loo_response_plots <- purrr::map2(
+  loo_data_split,
+  names(loo_data_split),
+  ~ plot_loo_response(.x, color = custom_colors[.y])
+)
+
+loo_biodiversity_plot <- loo_response_plots$`Biodiversity`
+loo_crop_yield_plot <- loo_response_plots$`Crop yield`
+loo_soil_quality_plot <- loo_response_plots$`Soil quality`
+
+# loo_biodiversity_plot
+loo_crop_yield_plot
+loo_soil_quality_plot
+```
+
+```{r}
+# Filter only Biodiversity data
+biodiv_data <- loo_summary_plot_data %>%
+  filter(response_variable == "Biodiversity")
+
+# Plot for Biodiversity only, with axis break
+plot_loo_biodiversity <- ggplot(biodiv_data, aes(
+  x = Effect_ROM, 
+  y = fct_reorder(Study_Label, Effect_ROM)
+)) +
+  geom_point(size = 3, color = "#FF9999") +
+  geom_errorbarh(
+    aes(xmin = CI_lower_ROM, xmax = CI_upper_ROM),
+    height = 0.25,
+    color = "#FF9999",
+    linewidth = 0.8
+  ) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "gray40") +
+  scale_x_break(c(200, 800), scales = 0.5, ticklabels = c(200, 800)) +
+  labs(
+    title = "Biodiversity — Leave-One-Out Sensitivity",
+    x = "Change in Effect Size (%)",
+    y = "Excluded Study"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    axis.text.y = element_text(size = 11),
+    plot.title = element_text(face = "bold")
+  )
+
+plot_loo_biodiversity
+```
+
+
+
+```{r}
+ggplot(loo_summary_plot_data, aes(x = reorder(Study_Label, Effect_ROM), y = Effect_ROM, fill = Effect_ROM > 0)) +
+  geom_col() +
+  scale_fill_manual(values = c("TRUE" = "#66C2A5", "FALSE" = "#FC8D62")) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  coord_flip() +
+  labs(x = "Excluded Study", y = "Effect Size Change (%)", title = "Waterfall Plot of Study Influence") +
+  theme_minimal()
+```
+```{r}
+ggplot(loo_summary_plot_data, aes(x = Study_Label, y = response_variable, fill = Effect_ROM)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient2(low = "#B2182B", mid = "white", high = "#2166AC", midpoint = 0) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "LOO Heatmap of Influence", x = "Study", y = "Response", fill = "% Change")
+```
+```{r}
+ggplot(loo_summary_plot_data, aes(x = 1/Excluded_SE, y = Effect_ROM)) +
+  geom_point(aes(color = response_variable), size = 3) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  labs(x = "Study Precision (1/SE)", y = "Effect Size Change (%)", title = "LOO Funnel Plot") +
+  scale_color_manual(values = custom_colors) +
+  theme_minimal()
 ```
 
 
@@ -1824,6 +1433,7 @@ bias_results
 
 # bias_results |> str()
 ```
+To evaluate potential publication bias, we applied Egger’s regression test and the Trim-and-Fill method to univariate meta-analysis models for each response variable. Egger’s test indicated significant funnel plot asymmetry for Crop yield, Pest and disease control, Soil quality, and Water quality, suggesting possible small-study effects. Consistent with this, the Trim-and-Fill analysis estimated a substantial number of missing studies for Crop yield (n = 63), Soil quality (n = 81), and Water quality (n = 28), while Biodiversity showed 23 potentially missing studies. For these outcomes, the adjusted overall effect sizes were either strengthened (e.g., Biodiversity) or attenuated (e.g., Crop yield, Water quality), highlighting the influence of publication bias. In contrast, Carbon sequestration and Product quality showed no evidence of asymmetry or missing studies, reinforcing confidence in their reported effects. While high heterogeneity and variance ratios in several datasets warrant caution, the consistent detection of asymmetry and missing studies in select responses underscores the need to interpret these aggregated effects in light of potential reporting biases.
 
 ```{r}
 ##########################################################################################################################################
@@ -2069,6 +1679,10 @@ This analysis demonstrates the importance of adjusting for publication bias, rev
 
 ## Publication Bias Assessment - Funnel Plots
 
+```{r}
+model_results$`Crop yield`$base_model
+```
+
 
 ```{r}
 ##########################################################################################################################################
@@ -2082,9 +1696,9 @@ create_contour_funnel_plots <- function(model_results) {
   # Loop through each response variable and generate a funnel plot
   for (response in names(model_results)) {
     
-    # Set the model formula function to use for LOO analysis (e.g., minimal_random_effects_model, interaction_model or full_model)
+    # Set the model formula function to use for LOO analysis (e.g., base_model, minimal_random_effects_model, interaction_model or full_model)
     # Change this to minimal_random_effects_model if needed
-    model <- model_results[[response]]$interaction_model
+    model <- model_results[[response]]$base_model
 
     # Skip if the model is NULL
     if (is.null(model)) {
@@ -2274,6 +1888,8 @@ Summary of Egger’s Test for Publication Bias
 
 # model_results$`Crop yield`$moderator_model$tau2
 ```
+
+### Loading v_matrices
 
 ```{r}
 # Load the saved v_matrices
@@ -2737,7 +2353,8 @@ summary_peh_by_group |> glimpse()
 ```
 
 ```{r}
-ggplot(summary_peh_by_group, aes(x = Avg_PE_Heterogeneity, y = ModeratorGroup, fill = ResponseVariable)) +
+summary_plot_proportion_explained_heterogeneity_by_group <-
+  ggplot(summary_peh_by_group, aes(x = Avg_PE_Heterogeneity, y = ModeratorGroup, fill = ResponseVariable)) +
   geom_bar(stat = "identity", position = "dodge") +
   facet_wrap(~ ResponseVariable, scales = "free_x", nrow = 1) +  # Facet in one row
   scale_fill_manual(values = custom_colors) +
@@ -2752,6 +2369,8 @@ ggplot(summary_peh_by_group, aes(x = Avg_PE_Heterogeneity, y = ModeratorGroup, f
     strip.text = element_text(face = "bold"),
     legend.position = "none"  # Adjust legend position for clarity
   )
+
+summary_plot_proportion_explained_heterogeneity_by_group
 ```
 
 
@@ -2809,7 +2428,7 @@ control_params <- list(
 # Bootstrapping is a resampling-based statistical method used to estimate the uncertainty and stability of a statistic by repeatedly sampling from the original dataset with replacement. In the context of Proportion of Explained Heterogeneity (PEH) analysis, bootstrapping provides confidence intervals (CIs) for the estimated PEH values and helps determine whether observed moderator effects are statistically robust or due to random noise.
 
 # Set number of bootstrap iterations
-n_boot <- 1000  
+n_boot <- 100  # was set to 1000 before, but reduced for testing purposes
 
 # Initialize an empty list to store bootstrap results
 bootstrap_results <- list()
@@ -2921,6 +2540,18 @@ cat("\nTotal time taken:", time.taken, units(time.taken), "\n")
 ##########################################################################
 # Last go (04/02-2025) 
 # Total time taken: 1.006638 hours 
+# Last go (12/05-2025) 
+# Total time taken: 52.94761 secs 
+```
+
+### Load the bootstrapped results
+
+```{r}
+# Load the bootstrapped results
+
+output_dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
+
+bootstrap_results_df <- readRDS(file.path(output_dir, "bootstrapped_PEH_results.rds"))
 ```
 
 ```{r}
@@ -2954,7 +2585,8 @@ bootstrap_results_df$ResponseVariable <- factor(bootstrap_results_df$ResponseVar
 bootstrap_results_df$Moderator <- factor(bootstrap_results_df$Moderator, levels = unique(bootstrap_results_df$Moderator))
 
 # Create the bar plot with flipped axes
-ggplot(bootstrap_results_df, aes(x = ResponseVariable, y = MeanPEH, fill = Moderator)) +
+proportion_of_explained_heterogenity_per_response_plot <-
+  ggplot(bootstrap_results_df, aes(x = ResponseVariable, y = MeanPEH, fill = Moderator)) +
   geom_bar(stat = "identity", position = position_dodge(width = 0.7), color = "black") +
   geom_errorbar(aes(ymin = LowerCI, ymax = UpperCI), position = position_dodge(width = 0.7), width = 0.2) +
   coord_flip() +  # Flip the axes
@@ -2963,7 +2595,10 @@ ggplot(bootstrap_results_df, aes(x = ResponseVariable, y = MeanPEH, fill = Moder
        y = "Proportion Explained (%)",
        fill = "Moderator") +
   theme_minimal() +
-  theme(axis.text.y = element_text(angle = 0, hjust = 1))  # Ensure readability for y-axis labels
+  theme(axis.text.y = element_text(angle = 0, hjust = 1), # Ensure readability for y-axis labels
+        legend.position = "none")  
+
+proportion_of_explained_heterogenity_per_response_plot
 ```
 
 ```{r}
@@ -2976,7 +2611,7 @@ ggplot(filtered_data, aes(x = Moderator, y = MeanPEH, fill = Moderator)) +
   geom_bar(stat = "identity", position = position_dodge(width = 0.7), color = "black") +
   geom_errorbar(aes(ymin = LowerCI, ymax = UpperCI), position = position_dodge(width = 0.7), width = 0.2) +
   coord_flip() +  # Flip axes
-  facet_wrap(~ResponseVariable, scales = "fixed") +  # Facet by response variable with fixed x-axis
+  facet_wrap(~ResponseVariable, scales = "free_x") +  # Facet by response variable with fixed x-axis
   labs(title = "Bootstrapped Proportion of Explained Heterogeneity (PEH)",
        x = "Moderator",
        y = "Proportion Explained (%)",
@@ -3040,12 +2675,14 @@ filtered_data <- bootstrap_results_df %>%
   filter(ResponseVariable %in% selected_vars)
 
 # Faceted PEH Bar Plot
+
+proportion_of_explained_heterogenity_plot <- 
 ggplot(filtered_data, aes(x = Moderator, y = MeanPEH, fill = Moderator)) +
   geom_bar(stat = "identity", position = position_dodge(width = 0.7), color = "black") +
   geom_errorbar(aes(ymin = LowerCI, ymax = UpperCI), 
                 position = position_dodge(width = 0.7), width = 0.2) +
   coord_flip() +
-  facet_wrap(~ResponseVariable, scales = "fixed") +
+  facet_wrap(~ResponseVariable, scales = "free_x") +
   labs(title = "Proportion of Explained Heterogeneity (PEH) by Moderator",
        x = "Moderator",
        y = "Proportion Explained (%)",
@@ -3055,6 +2692,7 @@ ggplot(filtered_data, aes(x = Moderator, y = MeanPEH, fill = Moderator)) +
         axis.text.y = element_text(size = 12),
         plot.title = element_text(size = 14, face = "bold"))
 
+proportion_of_explained_heterogenity_plot
 ```
 
 
@@ -3377,7 +3015,7 @@ extract_forest_plot_data <- function(model_results) {
 
   for (response in names(model_results)) {
     # Selecting model
-    model <- model_results[[response]]$full_model
+    model <- model_results[[response]]$base_model
 
     if (is.null(model)) {
       message(paste("No model found for", response))

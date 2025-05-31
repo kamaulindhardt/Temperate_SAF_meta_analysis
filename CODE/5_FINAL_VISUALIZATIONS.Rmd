@@ -345,6 +345,11 @@ library(ggforce)  # For drawing pie charts
 ```
 
 ```{r}
+imp_dataset |> glimpse()
+```
+
+
+```{r}
 # Step 2: Aggregate Data at Country Level
 country_study_counts <- imp_dataset %>%
   group_by(location) %>%
@@ -789,10 +794,96 @@ final_combined_map_of_study_geodistribution
 
 
 
+## Geographical point locations of studies 
 
 
+```{r}
+# Step 1: Extract one location per unique id_article
 
+# Load world map
+world <- ne_countries(scale = "medium", returnclass = "sf")
 
+# Prepare unique study points
+study_points <- imp_dataset %>%
+  distinct(id_article, final_lat, final_lon) %>%
+  drop_na(final_lat, final_lon) %>%
+  st_as_sf(coords = c("final_lon", "final_lat"), crs = 4326)
+
+# Plot with ggplot
+ggplot() +
+  geom_sf(data = world, fill = "gray95", color = "gray80") +
+  geom_sf(data = study_points, color = "black", size = 1, shape = 19) +
+  theme_minimal() +
+  labs(title = "Global Distribution of Studies",
+       x = "Longitude", y = "Latitude")
+
+```
+
+```{r}
+# Step 1: Extract unique study locations
+study_points <- imp_dataset %>%
+  distinct(id_article, final_lat, final_lon) %>%
+  drop_na(final_lat, final_lon)
+
+# Convert to spatial points (sf object)
+study_points_sf <- st_as_sf(study_points, coords = c("final_lon", "final_lat"), crs = 4326)
+
+# Step 2: Add to your global map
+global_map_north_with_points <- global_map_north +
+  geom_sf(
+    data = study_points_sf,
+    color = "black",
+    fill = "black",
+    shape = 21,         # Circle
+    size = 1.8,         # Adjust dot size as needed
+    stroke = 0.1
+  )
+
+# Display the updated map
+# global_map_north_with_points
+
+# Add black points to the Europe inset map
+europe_map_with_points <- ggplot() +
+  geom_sf(data = europe_all_countries, aes(fill = as.numeric(n_studies)), color = "black", size = 0.3) +
+  scale_fill_distiller(
+    palette = "Greens",
+    direction = 1,
+    na.value = "gray95",
+    limits = c(1, 8)
+  ) + 
+  new_scale_fill() +
+  scale_fill_manual(values = response_colors) +
+  
+  # Add black study location points
+  geom_point(
+    data = imp_dataset %>%
+      distinct(id_article, final_lon, final_lat) %>%
+      drop_na(final_lon, final_lat),
+    aes(x = final_lon, y = final_lat),
+    color = "black", size = 1.5, inherit.aes = FALSE
+  ) +
+
+  coord_sf(xlim = c(europe_bbox["xmin"], europe_bbox["xmax"]),
+           ylim = c(europe_bbox["ymin"], europe_bbox["ymax"])) +  
+  theme_void() +
+  theme(
+    legend.position = "none",
+    panel.background = element_rect(fill = "white"),
+    panel.border = element_rect(color = "black", size = 3, fill = NA)
+  )
+
+final_combined_map_of_study_geodistribution <- global_map_north_with_points +
+  inset_element(
+    europe_map_with_points,
+    left = 0.00,
+    bottom = 0.28,
+    right = 1.00,
+    top = 0.92,
+    align_to = "panel"
+  )
+
+final_combined_map_of_study_geodistribution
+```
 
 
 
@@ -902,7 +993,7 @@ print(chart_studies)
 print(chart_observations)
 ```
 
-## Cumulative Distribution of Studies Over Time
+## Figure 2b - Cumulative Distribution of Studies Over Time
 
 ```{r}
 # -------------------------
@@ -1253,7 +1344,7 @@ stacked_barplot <- ggplot(summary_data_for_eff_calc, aes(x = response_variable, 
 stacked_barplot
 ```
 
-## Proportion of effect sizes with three bars
+## Figure 5 - Proportion of effect sizes with three bars
 
 ```{r}
 # Step 1: Calculate Z-score, p-value, and categorize effect sizes
@@ -2409,7 +2500,10 @@ structured_summary
 ```{r}
 # Load and assess the model results from the saved file
 # Load the combined model results
-model_result <- readRDS(file = here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R", "fitted_models_all_new.rds"))
+model_results <- readRDS(file = here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R", "fitted_models_all_new_2.rds"))
+
+# Load the saved evaluation results (evaluation_results_combined.rds)
+evaluation_results <- readRDS(here::here("DATA", "OUTPUT_FROM_R", "MULTI_MODEL_EVALUATION_RESULTS", "evaluation_results_combined.rds"))
 ```
 
 ```{r}
@@ -2471,8 +2565,7 @@ forest_plot_backtransformed <- forest_data |>
 forest_plot_backtransformed
 ```
 
-
-## Final overall forest plot
+## Figure 6 - Final Forest Plot with Annotations
 
 ```{r}
 forest_data
@@ -2534,66 +2627,97 @@ forest_data_clean <- forest_data %>%
   filter(response_variable %in% custom_order) %>%
   left_join(summary_counts, by = "response_variable") %>%
   mutate(annotation_text = paste0(
-    "(", n_study, " studies, ", k, " obs)\n",
-    "Mean ES: ", round(ROM_percent, 1), "% ", significant)
+    "(",n_study, "/", k,")"
+    # "Mean ES: ", round(ROM_percent, 1), "% ", significant
+    # "(", n_study, " studies, ", k, " obs)\n",
+    # "Mean ES: ", round(ROM_percent, 1), "% ", significant
+    )
   ) %>%
   mutate(response_variable = factor(response_variable, levels = rev(custom_order)))
 
 
-# --- Step 5: Plot with annotations
-forest_plot_annotated <- ggplot(forest_data_clean, aes(
+# Step 5: Plot – styled like new forest plot
+fig6_forest_plot_annotated <- ggplot(forest_data_clean, aes(
   y = response_variable,
-  x = ROM_percent,
   color = response_variable
 )) +
-  geom_point(size = 3) +
-  geom_errorbarh(aes(xmin = ROM_lower, xmax = ROM_upper), height = 0.3, linewidth = 1) +
-  geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
-  geom_text(
-    aes(label = annotation_text),
-    hjust = 0,
-    size = 4.2,
-    color = "black",
-    x = 52  # <- move labels to a fixed X on the far right
-  ) +
+  # Middle segment of CI
+  geom_segment(aes(
+    x = ROM_lower + 3, 
+    xend = ROM_upper - 3, 
+    yend = response_variable
+  ), size = 2) +
+
+  # Left CI tail
+  geom_segment(aes(
+    x = ROM_lower, 
+    xend = ROM_lower + 3, 
+    yend = response_variable
+  ), size = 0.8) +
+
+  # Right CI tail
+  geom_segment(aes(
+    x = ROM_upper - 3, 
+    xend = ROM_upper, 
+    yend = response_variable
+  ), size = 0.8) +
+
+  # Central point
+  geom_point(aes(x = ROM_percent, fill = response_variable), 
+             shape = 21, size = 5, stroke = 1.2, color = "white") +
+
+  # Dashed reference line
+  geom_vline(xintercept = 0, linetype = "dashed", color = "gray50") +
+
+  # Annotation: (n/k)
+  geom_text(aes(x = 52, label = annotation_text), 
+            color = "black", size = 4.2, hjust = 0) +
+
+  # Custom colors
   scale_color_manual(values = custom_colors) +
+  scale_fill_manual(values = custom_colors) +
+
+  # Axis + theme
   scale_x_continuous(
-    limits = c(-50, 60),  # add more space on the right
+    limits = c(-50, 60),
     breaks = seq(-50, 50, by = 10)
   ) +
   labs(
-    x = "Effect size (lnRR)",
+    x = "Effect Size (% Change)",
     y = NULL
   ) +
-  theme_bw(base_size = 15) +
+  theme_minimal(base_size = 14) +
   theme(
     axis.text.y = element_text(size = 13, face = "bold"),
     axis.title.x = element_text(size = 13),
     plot.title = element_text(size = 15, face = "bold"),
-    legend.position = "none"
+    legend.position = "none",
+    panel.grid = element_blank(),
+    panel.border = element_rect(color = "black", fill = NA, size = 1),
+    plot.margin = margin(10, 10, 10, 10)
   )
 
-# --- Step 6: Display the plot
-forest_plot_annotated
+# Step 6: Display the plot
+fig6_forest_plot_annotated
 ```
 
-
-## Tree type and Crop type - Detailed Forest Plot - Moderator-specific 
 
 ```{r}
 # Crop yield
-model_result$`Crop yield`$tree_type
-model_result$`Crop yield`$crop_type
+model_results$`Crop yield`$tree_type
+model_results$`Crop yield`$crop_type
 # Biodiversity
-model_result$`Biodiversity`$tree_type
-model_result$`Biodiversity`$crop_type
+model_results$`Biodiversity`$tree_type
+model_results$`Biodiversity`$crop_type
 # Product quality
-model_result$`Product quality`$tree_type
-model_result$`Product quality`$crop_type
+model_results$`Product quality`$tree_type
+model_results$`Product quality`$crop_type
 # Soil quality
-model_result$`Soil quality`$tree_type
-model_result$`Soil quality`$crop_type
+model_results$`Soil quality`$tree_type
+model_results$`Soil quality`$crop_type
 ```
+
+## Figure 7a and 7b - Tree type and crop type on response variables (biodiversity, crop yield, product quality and soil quality)
 
 ```{r}
 # --- Step 1: Define inputs ---
@@ -2661,35 +2785,55 @@ mod_forest_data_fig7 <- purrr::map_dfr(responses_fig7, function(resp) {
 mod_forest_data_fig7 |> glimpse()
 ```
 
+
+
 ```{r}
-# --- Step 1: Subset data ---
+# --- Step 1: Subset moderator-specific data ---
 mod_forest_tree <- mod_forest_data_fig7 %>%
-  filter(moderator_variable == "tree_type")
+  filter(moderator_variable == "tree_type", response_variable != "Soil quality")
 
 mod_forest_crop <- mod_forest_data_fig7 %>%
   filter(moderator_variable == "crop_type")
 
-# Optional: clean labels
-mod_forest_tree <- mod_forest_data_fig7 %>%
-  filter(moderator_variable == "tree_type", response_variable != "Soil quality") %>%
+
+# --- Step 2: Get study/observation counts ---
+get_summary_counts <- function(df, moderator_var, moderator_prefix) {
+  df %>%
+    filter(response_variable %in% c("Crop yield", "Biodiversity", "Product quality", "Soil quality")) %>%
+    group_by(response_variable, !!sym(moderator_var)) %>%
+    summarise(
+      n_study = n_distinct(id_article),
+      k = n_distinct(id_obs),
+      .groups = "drop"
+    ) %>%
+    mutate(moderator_level = paste0(moderator_prefix, !!sym(moderator_var)))
+}
+
+summary_tree <- get_summary_counts(imp_data_rom, "tree_type", "tree_type")
+summary_crop <- get_summary_counts(imp_data_rom, "crop_type", "crop_type")
+
+
+# --- Step 3: Join counts BEFORE cleaning moderator_level ---
+mod_forest_tree <- mod_forest_tree %>%
+  left_join(summary_tree, by = c("response_variable", "moderator_level")) %>%
   mutate(
-    # Clean up moderator_level
+    annotation_text = paste0("(", n_study, "/", k, ")"),
     moderator_level = gsub("tree_type", "", moderator_level),
-    # Rename levels
     moderator_level = case_when(
       moderator_level == "Biomass" ~ "Biomass",
       moderator_level == "Fruit,nut & other" ~ "Fruit, nut and other",
       moderator_level == "Timber" ~ "Timber",
       TRUE ~ moderator_level
     ),
-    # Set response order for plotting
     response_variable = factor(response_variable, levels = c(
       "Crop yield", "Biodiversity", "Product quality"
     ))
   )
 
 mod_forest_crop <- mod_forest_crop %>%
+  left_join(summary_crop, by = c("response_variable", "moderator_level")) %>%
   mutate(
+    annotation_text = paste0("(", n_study, "/", k, ")"),
     moderator_level = gsub("crop_type", "", moderator_level),
     moderator_level = case_when(
       moderator_level == "Cereal" ~ "Cereals", 
@@ -2703,34 +2847,70 @@ mod_forest_crop <- mod_forest_crop %>%
   )
 
 
-# --- Step 2: Plot function ---
-plot_moderator_forest <- function(data, moderator_label) {
+# --- Step 4: Updated forest plot function (new style) ---
+plot_moderator_forest <- function(data, moderator_label, xlim_range = c(-50, 80)) {
   ggplot(data, aes(
     x = ROM_percent,
     y = moderator_level,
     color = response_variable
   )) +
-    geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
-    geom_point(size = 3) +
-    geom_errorbarh(
-      aes(xmin = ROM_lower, xmax = ROM_upper),
-      height = 0.25,
-      linewidth = 0.8
-    ) +
+    # Dashed zero reference line
+    geom_vline(xintercept = 0, linetype = "dashed", color = "gray50") +
+
+    # Thick middle bar
+    geom_segment(aes(
+      x = ROM_lower + 3, 
+      xend = ROM_upper - 3, 
+      yend = moderator_level
+    ), size = 2) +
+
+    # Left CI tail
+    geom_segment(aes(
+      x = ROM_lower, 
+      xend = ROM_lower + 3, 
+      yend = moderator_level
+    ), size = 0.8) +
+
+    # Right CI tail
+    geom_segment(aes(
+      x = ROM_upper - 3, 
+      xend = ROM_upper, 
+      yend = moderator_level
+    ), size = 0.8) +
+
+    # Central point with fill
+    geom_point(aes(fill = response_variable),
+               shape = 21, size = 5, stroke = 1.2, color = "white") +
+
+    # Significance label (e.g. *, **)
     geom_text(
       aes(label = significant),
-      hjust = -0.5,
+      hjust = -0.7,
       size = 5,
       color = "black"
     ) +
-    scale_color_manual(values = custom_colors) +
-    facet_wrap(~response_variable, scales = "free_y", ncol = 1) +
-    # Change x-axis limits according to the data (for tree type its -50 to 80, for crop type its -40 to 110)
-    scale_x_continuous(
-      name = "Effect size (lnRR)",
-      limits = c(-40, 110),
-      breaks = seq(-40, 110, by = 10)
+
+    # Study count label: "(n/k)"
+    geom_text(
+      aes(label = annotation_text),
+      hjust = -5.5,
+      size = 4.2,
+      color = "black"
     ) +
+
+    # Manual color fills
+    scale_color_manual(values = custom_colors) +
+    scale_fill_manual(values = custom_colors) +
+
+    # Axis settings
+    scale_x_continuous(
+      name = "Effect Size (% Change)",
+      limits = xlim_range,
+      breaks = seq(xlim_range[1], xlim_range[2], by = 10)
+    ) +
+
+    # Layout & aesthetics
+    facet_wrap(~response_variable, scales = "free_y", ncol = 1) +
     labs(
       y = moderator_label,
       color = "Response Variable"
@@ -2742,39 +2922,47 @@ plot_moderator_forest <- function(data, moderator_label) {
       axis.title = element_text(size = 13),
       strip.text = element_text(size = 13, face = "bold"),
       panel.spacing = unit(1, "lines"),
-      legend.position = "none"
+      legend.position = "none",
+      panel.border = element_rect(color = "black", fill = NA, size = 1),
+      panel.grid = element_blank(),
+      plot.margin = margin(10, 10, 10, 10)
     )
 }
 
-# --- Step 3: Generate plots ---
-fig7a_tree_type <- plot_moderator_forest(mod_forest_tree, moderator_label = "Tree Type")
-fig7b_crop_type <- plot_moderator_forest(mod_forest_crop, moderator_label = "Crop Type")
 
-# --- Step 4: Show plots ---
+
+# --- Step 5: Generate plots ---
+fig7a_tree_type <- plot_moderator_forest(mod_forest_tree, "Tree Type", xlim_range = c(-50, 80))
+fig7b_crop_type <- plot_moderator_forest(mod_forest_crop, "Crop Type", xlim_range = c(-40, 110))
+
+
+# --- Step 6: Display plots ---
 fig7a_tree_type
 fig7b_crop_type
 ```
 
-## Soil texture and Crop alley width - Detailed Forest Plot - Moderator-specific 
+## Figure 8a and 8b - Soil texture and crop alley width on response variables (biodiversity, crop yield, product quality and soil quality)
 
 ```{r}
 # Crop yield
-model_result$`Crop yield`$soil_texture
-model_result$`Crop yield`$alley_width
+model_results$`Crop yield`$soil_texture
+model_results$`Crop yield`$alley_width
 # Biodiversity
-model_result$`Biodiversity`$soil_texture
-model_result$`Biodiversity`$alley_width
+model_results$`Biodiversity`$soil_texture
+model_results$`Biodiversity`$alley_width
 # Product quality
-model_result$`Product quality`$soil_texture
-model_result$`Product quality`$alley_width
+model_results$`Product quality`$soil_texture
+model_results$`Product quality`$alley_width
 # Soil quality
-model_result$`Soil quality`$soil_texture
-model_result$`Soil quality`$alley_width
+model_results$`Soil quality`$soil_texture
+model_results$`Soil quality`$alley_width
+
+
+# model_results$`Carbon sequestration`$alley_width
 ```
 
 ```{r}
-# Step 1: Define the new extraction function (for this structure)
-
+# --- Step 1: Extract model results for Fig 8 ---
 extract_mod_effects_v2 <- function(model_list, response, moderator) {
   if (!is.list(model_list) || is.null(model_list$b)) return(NULL)
 
@@ -2805,57 +2993,463 @@ extract_mod_effects_v2 <- function(model_list, response, moderator) {
   )
 }
 
-# Step 2: Define responses and moderators for Figure 8
-
 responses_fig8 <- c("Crop yield", "Biodiversity", "Product quality", "Soil quality")
 moderators_fig8 <- c("soil_texture", "alley_width")
 
-# Step 3: Loop through and extract
-
 mod_forest_data_fig8 <- purrr::map_dfr(responses_fig8, function(resp) {
   purrr::map_dfr(moderators_fig8, function(mod) {
-    model_obj <- model_result[[resp]][[mod]]
+    model_obj <- model_results[[resp]][[mod]]
     extract_mod_effects_v2(model_obj, response = resp, moderator = mod)
   })
 })
 
 
-mod_forest_data_fig8 |> glimpse()
+# --- Step 2: Count studies/observations per level before cleaning moderator names ---
+get_summary_counts <- function(df, moderator_var, prefix) {
+  df %>%
+    filter(response_variable %in% responses_fig8) %>%
+    group_by(response_variable, !!sym(moderator_var)) %>%
+    summarise(
+      n_study = n_distinct(id_article),
+      k = n_distinct(id_obs),
+      .groups = "drop"
+    ) %>%
+    mutate(moderator_level = paste0(prefix, !!sym(moderator_var)))
+}
+
+summary_soil <- get_summary_counts(imp_data_rom, "soil_texture", "soil_texture")
+summary_alley <- get_summary_counts(imp_data_rom, "alley_width", "alley_width")
+# Omit summary_alley NAs in the summary_alley data 
+summary_alley <- summary_alley %>%
+  filter(!is.na(alley_width))
+
+summary_soil |> glimpse()
+summary_alley |> glimpse()
 ```
+
 ```{r}
-# Split by moderator variable
+# --- Step 3: Join counts, clean labels, and add annotation text ---
 
 mod_forest_soil <- mod_forest_data_fig8 %>%
   filter(moderator_variable == "soil_texture") %>%
+  left_join(summary_soil, by = c("response_variable", "moderator_level")) %>%
   mutate(
+    annotation_text = paste0("(", n_study, "/", k, ")"),
     moderator_level = gsub("soil_texture", "", moderator_level),
-    response_variable = factor(response_variable, levels = c(
-      "Crop yield", "Biodiversity", "Product quality", "Soil quality"
-    )),
     moderator_level = case_when(
-      moderator_level == "Clay" ~ "Clay soils",
-      moderator_level == "Sand" ~ "Sandy soils",
-      moderator_level == "Silt" ~ "Silty soils",
+      moderator_level == "Clay" ~ "Clay",
+      moderator_level == "Sand" ~ "Sandy",
+      moderator_level == "Silt" ~ "Silty",
       TRUE ~ moderator_level
-    )
+    ),
+    response_variable = factor(response_variable, levels = responses_fig8)
   )
 
 mod_forest_alley <- mod_forest_data_fig8 %>%
   filter(moderator_variable == "alley_width") %>%
+  left_join(summary_alley, by = c("response_variable", "moderator_level")) %>%
   mutate(
+    annotation_text = paste0("(", n_study, "/", k, ")"),
     moderator_level = gsub("alley_width", "", moderator_level),
-    response_variable = factor(response_variable, levels = c(
-      "Crop yield", "Biodiversity", "Product quality", "Soil quality"
-    )),
     moderator_level = case_when(
-      moderator_level == "Narrow" ~ "Narrow alleys",
-      moderator_level == "Wide" ~ "Wide alleys",
+      moderator_level == "Narrow" ~ "Narrow",
+      moderator_level == "Wide" ~ "Wide",
       TRUE ~ moderator_level
-    )
+    ),
+    response_variable = factor(response_variable, levels = responses_fig8)
   )
 
-# Step 2: Plot function for each moderator (facet by response_variable)
 
+# --- Step 4: Plot function with annotations ---
+plot_forest_mod <- function(df, title_text) {
+  ggplot(df, aes(y = moderator_level, x = ROM_percent)) +
+
+    # Reference line
+    geom_vline(xintercept = 0, linetype = "dashed", color = "gray50") +
+
+    # Thick middle segment of CI
+    geom_segment(aes(
+      x = ROM_lower + 3,
+      xend = ROM_upper - 3,
+      yend = moderator_level,
+      color = response_variable
+    ), size = 2) +
+
+    # Left CI tail
+    geom_segment(aes(
+      x = ROM_lower,
+      xend = ROM_lower + 3,
+      yend = moderator_level,
+      color = response_variable
+    ), size = 0.8) +
+
+    # Right CI tail
+    geom_segment(aes(
+      x = ROM_upper - 3,
+      xend = ROM_upper,
+      yend = moderator_level,
+      color = response_variable
+    ), size = 0.8) +
+
+    # Central filled point
+    geom_point(aes(fill = response_variable),
+               shape = 21, size = 5, stroke = 1.2, color = "white") +
+
+    # Significance stars
+    geom_text(
+      aes(label = significant),
+      hjust = -0.7, vjust = 0.5, size = 5
+    ) +
+
+    # Study count annotation
+    geom_text(
+      aes(label = annotation_text),
+      hjust = -5, size = 4.2, color = "black"
+    ) +
+
+    # Facet per response variable
+    facet_wrap(~ response_variable, scales = "free_x", drop = FALSE) +
+
+    # Color and fill scales
+    scale_color_manual(values = custom_colors) +
+    scale_fill_manual(values = custom_colors) +
+
+    # Axis and label formatting
+    labs(
+      title = title_text,
+      x = "Effect Size (% Change)",
+      y = NULL
+    ) +
+
+    # Theme styling
+    theme_minimal(base_size = 15) +
+    theme(
+      axis.text.y = element_text(size = 13, face = "bold"),
+      axis.text.x = element_text(size = 12),
+      strip.text = element_text(size = 14, face = "bold"),
+      plot.title = element_text(size = 15, face = "bold", hjust = 0),
+      legend.position = "none",
+      panel.border = element_rect(color = "black", fill = NA, size = 1),
+      panel.grid = element_blank()
+    ) +
+
+    # X-axis limits
+    scale_x_continuous(
+      limits = c(-40, 100),
+      breaks = seq(-40, 100, by = 10)
+    )
+}
+
+
+# --- Step 5: Generate and show plots ---
+fig_8a_forest_plot_soil <- plot_forest_mod(mod_forest_soil, "Soil Texture")
+fig_8b_forest_plot_alley <- plot_forest_mod(mod_forest_alley, "Crop Alley Width")
+
+fig_8a_forest_plot_soil
+fig_8b_forest_plot_alley
+```
+
+
+## Figure 9a and 9b - Cropping season and age system on response variables (biodiversity, crop yield, product quality and soil quality)
+
+
+```{r}
+# Crop yield
+model_results$`Crop yield`$season
+model_results$`Crop yield`$age_system
+# Biodiversity
+model_results$`Biodiversity`$season
+model_results$`Biodiversity`$age_system
+# Product quality
+model_results$`Product quality`$season
+model_results$`Product quality`$age_system
+# Soil quality
+model_results$`Soil quality`$season
+model_results$`Soil quality`$age_system
+```
+```{r}
+# Step 1: Define the new extraction function (for this structure)
+
+extract_mod_effects_v3 <- function(model_list, response, moderator) {
+  if (!is.list(model_list) || is.null(model_list$b)) return(NULL)
+
+  levels <- rownames(model_list$b)
+  estimates <- as.numeric(model_list$b[, 1])
+  ci.lb <- as.numeric(model_list$ci.lb)
+  ci.ub <- as.numeric(model_list$ci.ub)
+  pval <- as.numeric(model_list$pval)
+
+  tibble(
+    response_variable = response,
+    moderator_variable = moderator,
+    moderator_level = levels,
+    Estimate_logRR = estimates,
+    CI_Lower_logRR = ci.lb,
+    CI_Upper_logRR = ci.ub,
+    ROM_percent = (exp(estimates) - 1) * 100,
+    ROM_lower = ifelse(abs(ci.lb) > 50, NA, (exp(ci.lb) - 1) * 100),
+    ROM_upper = ifelse(abs(ci.ub) > 50, NA, (exp(ci.ub) - 1) * 100),
+    p_value = pval,
+    significant = case_when(
+      pval < 0.001 ~ "***",
+      pval < 0.01  ~ "**",
+      pval < 0.05  ~ "*",
+      pval < 0.1   ~ ".",
+      TRUE         ~ " "
+    )
+  )
+}
+```
+
+```{r}
+# Step 2: Define the responses and moderators
+responses_fig9 <- c("Crop yield", "Biodiversity", "Product quality", "Soil quality")
+moderators_fig9 <- c("season", "age_system")
+# Step 3: Extract the data for the specified responses and moderators
+mod_forest_data_fig9 <- purrr::map_dfr(responses_fig9, function(resp) {
+  purrr::map_dfr(moderators_fig9, function(mod) {
+    model_obj <- model_results[[resp]][[mod]]
+    extract_mod_effects_v3(model_obj, response = resp, moderator = mod)
+  })
+})
+
+
+# Step 4: Get study/observation counts
+get_summary_counts <- function(df, moderator_var, prefix) {
+  df %>%
+    filter(response_variable %in% responses_fig9) %>%
+    group_by(response_variable, !!sym(moderator_var)) %>%
+    summarise(
+      n_study = n_distinct(id_article),
+      k = n_distinct(id_obs),
+      .groups = "drop"
+    ) %>%
+    mutate(moderator_level = paste0(prefix, !!sym(moderator_var)))
+}
+summary_season <- get_summary_counts(imp_data_rom, "season", "season")
+summary_age <- get_summary_counts(imp_data_rom, "age_system", "age_system")
+
+
+# Step 5: Join counts, clean labels, and add annotation text
+mod_forest_season <- mod_forest_data_fig9 %>%
+  filter(moderator_variable == "season") %>%
+  left_join(summary_season, by = c("response_variable", "moderator_level")) %>%
+  mutate(
+    annotation_text = paste0("(", n_study, "/", k, ")"),
+    moderator_level = gsub("season", "", moderator_level),
+    moderator_level = case_when(
+      moderator_level == "Summer" ~ "Summer",
+      moderator_level == "Winter" ~ "Winter",
+      TRUE ~ moderator_level
+    ),
+    response_variable = factor(response_variable, levels = responses_fig9)
+  )
+
+# Note: The age_system moderator levels are already cleaned in the extraction function
+mod_forest_age <- mod_forest_data_fig9 %>%
+  filter(moderator_variable == "age_system") %>%
+  left_join(summary_age, by = c("response_variable", "moderator_level")) %>%
+  mutate(
+    annotation_text = paste0("(", n_study, "/", k, ")"),
+    moderator_level = gsub("age_system", "", moderator_level),
+    moderator_level = case_when(
+      moderator_level == "Young systems" ~ "Young",
+      moderator_level == "Medium" ~ "Medium",
+      moderator_level == "Mature systems" ~ "Mature",
+      TRUE ~ moderator_level
+    ),
+    response_variable = factor(response_variable, levels = responses_fig9)
+  )
+
+
+# Step 6: Plot function with annotations
+plot_forest_mod <- function(df, title_text) {
+  ggplot(df, aes(y = moderator_level, x = ROM_percent)) +
+    # Dashed zero line
+    geom_vline(xintercept = 0, linetype = "dashed", color = "gray50") +
+    # Main CI segment (middle)
+    geom_segment(aes(
+      x = ROM_lower + 3,
+      xend = ROM_upper - 3,
+      y = moderator_level,
+      yend = moderator_level,
+      color = response_variable
+    ), size = 2) +
+    # Left CI tail
+    geom_segment(aes(
+      x = ROM_lower,
+      xend = ROM_lower + 3,
+      y = moderator_level,
+      yend = moderator_level,
+      color = response_variable
+    ), size = 0.8) +
+    # Right CI tail
+    geom_segment(aes(
+      x = ROM_upper - 3,
+      xend = ROM_upper,
+      y = moderator_level,
+      yend = moderator_level,
+      color = response_variable
+    ), size = 0.8) +
+    # Central effect point
+    geom_point(aes(fill = response_variable), 
+               shape = 21, size = 5, stroke = 1.2, color = "white") +
+    # Significance label (e.g. *, **)
+    geom_text(
+      aes(label = significant),
+      hjust = -0.8, vjust = 0.5, size = 5, fontface = "bold"
+    ) +
+    # Study count annotation
+    geom_text(
+      aes(label = annotation_text),
+      hjust = -5, size = 4.2, color = "black"
+    ) +
+    # Facet by response
+    facet_wrap(~ response_variable, scales = "free_x", drop = FALSE) +
+    # Color/fill
+    scale_color_manual(values = custom_colors) +
+    scale_fill_manual(values = custom_colors) +
+    # Axis and labels
+    scale_x_continuous(
+      limits = c(-40, 130),
+      breaks = seq(-40, 130, by = 20),
+      name = "Effect Size (% Change)"
+    ) +
+    labs(
+      title = title_text,
+      y = NULL
+    ) +
+    # Theme
+    theme_minimal(base_size = 15) +
+    theme(
+      axis.text.y = element_text(size = 13, face = "bold"),
+      axis.text.x = element_text(size = 12),
+      strip.text = element_text(size = 14, face = "bold"),
+      plot.title = element_text(size = 15, face = "bold", hjust = 0),
+      legend.position = "none",
+      panel.border = element_rect(color = "black", fill = NA, size = 1),
+      panel.grid = element_blank()
+    )
+}
+
+
+
+# Step 7: Generate and show plots
+fig9a_forest_plot_season <- plot_forest_mod(mod_forest_season, "Cropping Season")
+fig9b_forest_plot_age <- plot_forest_mod(mod_forest_age, "Age System")
+
+fig9a_forest_plot_season
+fig9b_forest_plot_age
+```
+
+
+
+## Figure 10a and 10b - Tree height and a tree density on response variables (biodiversity, crop yield, product quality and soil quality)
+
+```{r}
+# Tree height
+model_results$`Biodiversity`$tree_height
+model_results$`Crop yield`$tree_height
+model_results$`Soil quality`$tree_height
+# Tree density
+model_results$`Biodiversity`$no_tree_per_m
+model_results$`Crop yield`$no_tree_per_m
+model_results$`Soil quality`$no_tree_per_m
+```
+
+```{r}
+# Step 1: Define the new extraction function (for this structure)
+extract_mod_effects_v4 <- function(model_list, response, moderator) {
+  if (!is.list(model_list) || is.null(model_list$b)) return(NULL)
+
+  levels <- rownames(model_list$b)
+  estimates <- as.numeric(model_list$b[, 1])
+  ci.lb <- as.numeric(model_list$ci.lb)
+  ci.ub <- as.numeric(model_list$ci.ub)
+  pval <- as.numeric(model_list$pval)
+
+  tibble(
+    response_variable = response,
+    moderator_variable = moderator,
+    moderator_level = levels,
+    Estimate_logRR = estimates,
+    CI_Lower_logRR = ci.lb,
+    CI_Upper_logRR = ci.ub,
+    ROM_percent = (exp(estimates) - 1) * 100,
+    ROM_lower = ifelse(abs(ci.lb) > 50, NA, (exp(ci.lb) - 1) * 100),
+    ROM_upper = ifelse(abs(ci.ub) > 50, NA, (exp(ci.ub) - 1) * 100),
+    p_value = pval,
+    significant = case_when(
+      pval < 0.001 ~ "***",
+      pval < 0.01  ~ "**",
+      pval < 0.05  ~ "*",
+      pval < 0.1   ~ ".",
+      TRUE         ~ " "
+    )
+  )
+}
+```
+
+```{r}
+# Step 2: Define the responses and moderators
+responses_fig10 <- c("Biodiversity", "Crop yield", "Product quality", "Soil quality")
+moderators_fig10 <- c("tree_height", "no_tree_per_m")
+# Step 3: Extract the data for the specified responses and moderators
+mod_forest_data_fig10 <- purrr::map_dfr(responses_fig10, function(resp) {
+  purrr::map_dfr(moderators_fig10, function(mod) {
+    model_obj <- model_results[[resp]][[mod]]
+    extract_mod_effects_v4(model_obj, response = resp, moderator = mod)
+  })
+})
+
+# Step 4: Get study/observation counts
+get_summary_counts <- function(df, moderator_var, prefix) {
+  df %>%
+    filter(response_variable %in% responses_fig10) %>%
+    group_by(response_variable, !!sym(moderator_var)) %>%
+    summarise(
+      n_study = n_distinct(id_article),
+      k = n_distinct(id_obs),
+      .groups = "drop"
+    ) %>%
+    mutate(moderator_level = paste0(prefix, !!sym(moderator_var)))
+}
+
+summary_height <- get_summary_counts(imp_data_rom, "tree_height", "tree_height")
+summary_density <- get_summary_counts(imp_data_rom, "no_tree_per_m", "no_tree_per_m")
+
+# Step 5: Join counts, clean labels, and add annotation text
+mod_forest_height <- mod_forest_data_fig10 %>%
+  filter(moderator_variable == "tree_height") %>%
+  left_join(summary_height, by = c("response_variable", "moderator_level")) %>%
+  mutate(
+    annotation_text = paste0("(", n_study, "/", k, ")"),
+    moderator_level = gsub("tree_height", "", moderator_level),
+    moderator_level = case_when(
+      moderator_level == "Short" ~ "Short trees",
+      moderator_level == "Tall" ~ "Tall trees",
+      TRUE ~ moderator_level
+    ),
+    response_variable = factor(response_variable, levels = responses_fig10)
+  )
+
+
+mod_forest_density <- mod_forest_data_fig10 %>%
+  filter(moderator_variable == "no_tree_per_m") %>%
+  left_join(summary_density, by = c("response_variable", "moderator_level")) %>%
+  mutate(
+    annotation_text = paste0("(", n_study, "/", k, ")"),
+    moderator_level = gsub("no_tree_per_m", "", moderator_level),
+    moderator_level = case_when(
+      moderator_level == "High" ~ "High tree density",
+      moderator_level == "Low" ~ "Low tree density",
+      TRUE ~ moderator_level
+    ),
+    response_variable = factor(response_variable, levels = responses_fig10)
+  )
+
+
+# Step 6: Plot function with annotations
 plot_forest_mod <- function(df, title_text) {
   ggplot(df, aes(y = moderator_level, x = ROM_percent)) +
     geom_point(aes(color = response_variable), size = 3) +
@@ -2863,19 +3457,27 @@ plot_forest_mod <- function(df, title_text) {
       aes(xmin = ROM_lower, xmax = ROM_upper, color = response_variable),
       height = 0.3, linewidth = 1
     ) +
-    geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
     geom_text(
       aes(label = significant),
       hjust = -0.8, vjust = 0.5, size = 5, fontface = "bold"
     ) +
-    facet_wrap(~response_variable, scales = "free_x") +
+    geom_text(
+      aes(label = annotation_text),
+      hjust = -1, size = 4.2, color = "black" # <------------- move the n_studies/n_obs labels to the right
+    ) +
+    facet_wrap(~ response_variable, scales = "free_x", drop = FALSE) +
     scale_color_manual(values = custom_colors) +
     labs(
       title = title_text,
-      x = "Effect Size (ROM % Change from Control)",
+      x = "Effect Size (lnRR)",
       y = NULL
     ) +
-    theme_minimal(base_size = 15) +
+    theme_test(base_size = 15) +
+    scale_x_continuous(
+      limits = c(-40, 160),  # add more space on the right
+      breaks = seq(-40, 160, by = 20)
+    ) +
     theme(
       axis.text.y = element_text(size = 13, face = "bold"),
       axis.text.x = element_text(size = 12),
@@ -2885,38 +3487,345 @@ plot_forest_mod <- function(df, title_text) {
     )
 }
 
-# Step 3: Generate plots for soil texture and crop alley width
-
-forest_plot_soil <- plot_forest_mod(mod_forest_soil, "Soil Texture")
-forest_plot_alley <- plot_forest_mod(mod_forest_alley, "Crop Alley Width")
-
-forest_plot_soil
-forest_plot_alley
-
+# Step 7: Generate and show plots
+fig10a_forest_plot_height <- plot_forest_mod(mod_forest_height, "Tree Height")
+fig10b_forest_plot_density <- plot_forest_mod(mod_forest_density, "Tree Density")
+fig10a_forest_plot_height
+fig10b_forest_plot_density
 ```
 
-## Cropping season and Age system - Detailed Forest Plot - Moderator-specific
+
+
+
+## Figure 11 - Management (organic and tillage) on response variables (biodiversity, crop yield, product quality, and soil quality.
 
 ```{r}
 # Crop yield
-model_result$`Crop yield`$season
-model_result$`Crop yield`$age_system
+model_results$`Crop yield`$organic
+model_results$`Crop yield`$tillage
 # Biodiversity
-model_result$`Biodiversity`$season
-model_result$`Biodiversity`$age_system
+model_results$`Biodiversity`$organic
+model_results$`Biodiversity`$tillage
 # Product quality
-model_result$`Product quality`$season
-model_result$`Product quality`$age_system
+model_results$`Product quality`$organic
+model_results$`Product quality`$tillage
 # Soil quality
-model_result$`Soil quality`$season
-model_result$`Soil quality`$age_system
+model_results$`Soil quality`$organic
+model_results$`Soil quality`$tillage
 ```
 ```{r}
 # Step 1: Define the new extraction function (for this structure)
+extract_mod_effects_v5 <- function(model_list, response, moderator) {
+  if (!is.list(model_list) || is.null(model_list$b)) return(NULL)
+
+  levels <- rownames(model_list$b)
+  estimates <- as.numeric(model_list$b[, 1])
+  ci.lb <- as.numeric(model_list$ci.lb)
+  ci.ub <- as.numeric(model_list$ci.ub)
+  pval <- as.numeric(model_list$pval)
+
+  tibble(
+    response_variable = response,
+    moderator_variable = moderator,
+    moderator_level = levels,
+    Estimate_logRR = estimates,
+    CI_Lower_logRR = ci.lb,
+    CI_Upper_logRR = ci.ub,
+    ROM_percent = (exp(estimates) - 1) * 100,
+    ROM_lower = ifelse(abs(ci.lb) > 50, NA, (exp(ci.lb) - 1) * 100),
+    ROM_upper = ifelse(abs(ci.ub) > 50, NA, (exp(ci.ub) - 1) * 100),
+    p_value = pval,
+    significant = case_when(
+      pval < 0.001 ~ "***",
+      pval < 0.01  ~ "**",
+      pval < 0.05  ~ "*",
+      pval < 0.1   ~ ".",
+      TRUE         ~ " "
+    )
+  )
+}
+
+# Step 2: Define the responses and moderators
+responses_fig11 <- c("Crop yield", "Biodiversity", "Soil quality") # "Product quality", 
+moderators_fig11 <- c("organic", "tillage")
+
+# Step 3: Extract the data for the specified responses and moderators
+mod_forest_data_fig11 <- purrr::map_dfr(responses_fig11, function(resp) {
+  purrr::map_dfr(moderators_fig11, function(mod) {
+    model_obj <- model_results[[resp]][[mod]]
+    extract_mod_effects_v5(model_obj, response = resp, moderator = mod)
+  })
+})
+
+# Step 4: Get study/observation counts
+get_summary_counts <- function(df, moderator_var, prefix) {
+  df %>%
+    filter(response_variable %in% responses_fig11) %>%
+    group_by(response_variable, !!sym(moderator_var)) %>%
+    summarise(
+      n_study = n_distinct(id_article),
+      k = n_distinct(id_obs),
+      .groups = "drop"
+    ) %>%
+    mutate(moderator_level = paste0(prefix, !!sym(moderator_var)))
+}
+
+summary_organic <- get_summary_counts(imp_data_rom, "organic", "organic")
+summary_tillage <- get_summary_counts(imp_data_rom, "tillage", "tillage")
 
 
+# Step 5: Join counts, clean labels, and add annotation text
+mod_forest_organic <- mod_forest_data_fig11 %>%
+  filter(moderator_variable == "organic") %>%
+  left_join(summary_organic, by = c("response_variable", "moderator_level")) %>%
+  mutate(
+    annotation_text = paste0("(", n_study, "/", k, ")"),
+    moderator_level = gsub("organic", "", moderator_level),
+    moderator_level = case_when(
+      moderator_level == "Yes" ~ "Organic",
+      moderator_level == "No" ~ "Conventional",
+      TRUE ~ moderator_level
+    ),
+    response_variable = factor(response_variable, levels = responses_fig11)
+  )
+
+mod_forest_tillage <- mod_forest_data_fig11 %>%
+  filter(moderator_variable == "tillage") %>%
+  left_join(summary_tillage, by = c("response_variable", "moderator_level")) %>%
+  mutate(
+    annotation_text = paste0("(", n_study, "/", k, ")"),
+    moderator_level = gsub("tillage", "", moderator_level),
+    moderator_level = case_when(
+      moderator_level == "Yes" ~ "Conventional",
+      moderator_level == "No" ~ "No/Reduced",
+      TRUE ~ moderator_level
+    ),
+    response_variable = factor(response_variable, levels = responses_fig11)
+  )
+
+# Step 6: Plot function with annotations
+plot_forest_mod <- function(df, title_text) {
+  ggplot(df, aes(y = moderator_level, x = ROM_percent)) +
+    geom_point(aes(color = response_variable), size = 3) +
+    geom_errorbarh(
+      aes(xmin = ROM_lower, xmax = ROM_upper, color = response_variable),
+      height = 0.3, linewidth = 1
+    ) +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
+    geom_text(
+      aes(label = significant),
+      hjust = -0.8, vjust = 0.5, size = 5, fontface = "bold"
+    ) +
+    geom_text(
+      aes(label = annotation_text),
+      hjust = 0.5, size = 4.2, color = "black" # <------------- move the n_studies/n_obs labels to the right
+    ) +
+    facet_wrap(~ response_variable, scales = "free_x", drop = FALSE) +
+    scale_color_manual(values = custom_colors) +
+    labs(
+      title = title_text,
+      x = "Effect Size (lnRR)",
+      y = NULL
+    ) +
+    theme_test(base_size = 15) +
+    scale_x_continuous(
+      limits = c(-30, 80),              # -30 -- 80 / -30 -- 650 (soil quality - organic)
+      breaks = seq(-30, 80, 
+                   by = 10)    # 10 / 50 (soil quality - organic)
+    ) +
+    theme(
+      axis.text.y = element_text(size = 13, face = "bold"),
+      axis.text.x = element_text(size = 12),
+      strip.text = element_text(size = 14, face = "bold"),
+      legend.position = "none",
+      plot.title = element_text(size = 15, face = "bold", hjust = 0)
+    )
+}
+
+
+# Step 7: Generate and show plots
+fig11a_forest_plot_organic <- plot_forest_mod(mod_forest_organic, "Organic vs Conventional")
+fig11b_forest_plot_tillage <- plot_forest_mod(mod_forest_tillage, "Tillage Type")
+
+# 3:10
+fig11a_forest_plot_organic
+fig11b_forest_plot_tillage
 ```
 
+## Figure 12 - Interactions of (1) timber trees with legume crops (2) fruit, nut, and other trees with legume crops on response variables crop yield and soil quality
+
+```{r}
+# Crop yield - interaction: tree type x crop type
+model_results$`Crop yield`$tree_type_x_crop_type 
+
+# Soil quality - interaction: tree type x crop type
+model_results$`Soil quality`$tree_type_x_crop_type 
+
+# model_results$`Crop yield`$tree_type_x_crop_type |> str()
+```
+### Crop yield - interaction: tree type x crop type 
+
+```{r}
+# Extract interaction effects for Crop yield
+mod_tree_crop_interaction <- extract_mod_effects_v5(
+  model_list = model_results$`Crop yield`$tree_type_x_crop_type,
+  response = "Crop yield",
+  moderator = "tree_type_x_crop_type"
+)
+
+# Create join-ready labels in your summary
+summary_tree_crop <- imp_data_rom %>%
+  filter(response_variable == "Crop yield") %>%
+  mutate(
+    interaction_label = paste(tree_type, crop_type, sep = " × ")
+  ) %>%
+  group_by(interaction_label) %>%
+  summarise(
+    n_study = n_distinct(id_article),
+    k = n_distinct(id_obs),
+    .groups = "drop"
+  )
+
+# Join the summary data with the extracted interaction effects
+mod_tree_crop_interaction_fixed <- extract_mod_effects_v5(
+  model_list = model_results$`Crop yield`$tree_type_x_crop_type,
+  response = "Crop yield",
+  moderator = "tree_type_x_crop_type"
+) %>%
+  # KEEP ONLY TRUE INTERACTIONS
+  filter(str_detect(moderator_level, "tree_type.*:crop_type")) %>%
+  
+  # Extract tree and crop types from interaction terms
+  mutate(
+    tree_type = case_when(
+      str_detect(moderator_level, "tree_typeBiomass") ~ "Biomass",
+      str_detect(moderator_level, "tree_typeFruit,nut & other") ~ "Fruit,nut & other",
+      str_detect(moderator_level, "tree_typeTimber") ~ "Timber",
+      TRUE ~ NA_character_
+    ),
+    crop_type = case_when(
+      str_detect(moderator_level, "crop_typeLegume") ~ "Legume",
+      str_detect(moderator_level, "crop_typeTuber,root and other") ~ "Tuber,root and other",
+      str_detect(moderator_level, "crop_typeCereal") ~ "Cereal",
+      TRUE ~ NA_character_
+    ),
+    interaction_label = paste(tree_type, crop_type, sep = " × ")
+  ) %>%
+  
+  # Join with counts
+  left_join(summary_tree_crop, by = "interaction_label") %>%
+  
+  # Clean for plotting
+  mutate(
+    moderator_level_clean = interaction_label,
+    annotation_text = paste0(significant, " (", n_study, "/", k, ")")
+  )
+
+mod_tree_crop_interaction_fixed
+```
+
+```{r}
+plot_forest_tree_crop_intaraction_crop_yield <- ggplot(mod_tree_crop_interaction_fixed,
+  aes(x = ROM_percent, y = fct_rev(moderator_level_clean))) +
+  geom_point(size = 3, color = "#FF9933") +
+  geom_errorbarh(
+    aes(xmin = ROM_lower, xmax = ROM_upper),
+    height = 0.3, linewidth = 0.8, color = "#FF9933"
+  ) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "gray40") +
+  geom_text(
+    aes(label = annotation_text),
+    hjust = -0.3, size = 4, color = "black", fontface = "italic"
+  ) +
+  labs(
+    title = "Interaction Effects: Tree Type × Crop Type (Crop Yield)",
+    x = "Effect Size (Response Ratio %)",
+    y = NULL
+  ) +
+  scale_x_continuous(limits = c(-70, 50), breaks = seq(-70, 50, 10)) +
+  theme_minimal(base_size = 14) +
+  theme(
+    axis.text.y = element_text(face = "bold"),
+    plot.title = element_text(face = "bold")
+  )
+
+plot_forest_tree_crop_intaraction_crop_yield
+```
+
+### Soil quality - interaction: tree type x crop type
+
+```{r}
+# Extract interaction effects for Soil quality
+mod_tree_crop_interaction_soil <- extract_mod_effects_v5(
+  model_list = model_results$`Soil quality`$tree_type_x_crop_type,
+  response = "Soil quality",
+  moderator = "tree_type_x_crop_type"
+)
+
+summary_tree_crop_soil <- imp_data_rom %>%
+  filter(response_variable == "Soil quality") %>%
+  mutate(interaction_label = paste(tree_type, crop_type, sep = " × ")) %>%
+  group_by(interaction_label) %>%
+  summarise(
+    n_study = n_distinct(id_article),
+    k = n_distinct(id_obs),
+    .groups = "drop"
+  )
+
+# Join the summary data with the extracted interaction effects
+mod_tree_crop_interaction_fixed_soil <- mod_tree_crop_interaction_soil %>%
+  filter(str_detect(moderator_level, "tree_type.*:crop_type")) %>%
+  mutate(
+    tree_type = case_when(
+      str_detect(moderator_level, "tree_typeBiomass") ~ "Biomass",
+      str_detect(moderator_level, "tree_typeFruit,nut & other") ~ "Fruit,nut & other",
+      str_detect(moderator_level, "tree_typeTimber") ~ "Timber",
+      TRUE ~ NA_character_
+    ),
+    crop_type = case_when(
+      str_detect(moderator_level, "crop_typeLegume") ~ "Legume",
+      str_detect(moderator_level, "crop_typeTuber,root and other") ~ "Tuber,root and other",
+      str_detect(moderator_level, "crop_typeCereal") ~ "Cereal",
+      TRUE ~ NA_character_
+    ),
+    interaction_label = paste(tree_type, crop_type, sep = " × ")
+  ) %>%
+  left_join(summary_tree_crop_soil, by = "interaction_label") %>%
+  mutate(
+    moderator_level_clean = interaction_label,
+    annotation_text = paste0(significant, " (", n_study, "/", k, ")")
+  )
+
+mod_tree_crop_interaction_fixed_soil
+```
+
+```{r}
+plot_forest_tree_crop_interaction_soil_quality <- ggplot(mod_tree_crop_interaction_fixed_soil,
+  aes(x = ROM_percent, y = fct_rev(moderator_level_clean))) +
+  geom_point(size = 3, color = custom_colors[["Soil quality"]]) +
+  geom_errorbarh(
+    aes(xmin = ROM_lower, xmax = ROM_upper),
+    height = 0.3, linewidth = 0.8, color = custom_colors[["Soil quality"]]
+  ) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "gray40") +
+  geom_text(
+    aes(label = annotation_text),
+    hjust = -0.3, size = 4, color = "black", fontface = "italic"
+  ) +
+  labs(
+    title = "Interaction Effects: Tree Type × Crop Type (Soil Quality)",
+    x = "Effect Size (Response Ratio %)",
+    y = NULL
+  ) +
+  scale_x_continuous(limits = c(-70, 50), breaks = seq(-70, 50, 10)) +
+  theme_minimal(base_size = 14) +
+  theme(
+    axis.text.y = element_text(face = "bold"),
+    plot.title = element_text(face = "bold")
+  )
+
+plot_forest_tree_crop_interaction_soil_quality
+```
 
 
 
@@ -2944,7 +3853,8 @@ custom_colors <- c(
 )
 ```
 
-## Evidence and Gap Map (EGM): Response Variables x Crop Types
+
+## Figure 3a - Crop Types x Response Variables
 
 ```{r}
 # Evidence and Gap Map (EGM): Response Variables x Crop Types
@@ -3018,7 +3928,7 @@ egm_plot_crop_vs_agroecosystem_service <- ggplot(
 egm_plot_crop_vs_agroecosystem_service
 ```
 
-## Evidence and Gap Map (EGM): Response Variables x Tree Types
+## Figure 3b - Tree Types x Response Variables
 
 ```{r}
 # Evidence and Gap Map (EGM): Response Variables x Tree Types
@@ -3081,7 +3991,7 @@ egm_plot_tree_vs_agroecosystem_service <- ggplot(egm_matrix_tree, aes(x = factor
 egm_plot_tree_vs_agroecosystem_service
 ```
 
-## Evidence and Gap Map (EGM): Response Variables x Tree Types - Facetted for Crop Types
+## Figure 4 - Tree Types x Response Variables - Facetted for Crop Types
 
 ```{r}
 # EGM: Response Variables x Tree Types, Facetted by Crop Type
@@ -3111,7 +4021,7 @@ crop_levels <- egm_matrix_tree_crop %>%
 
 
 # Step 3: Plot facetted EGM (Tree Genus × Agroecosystem Services, Facetted by Crop Type)
-egm_plot_tree_vs_agroecosystem_service_faceted_by_crop <- ggplot(
+fig4_egm_plot_tree_vs_agroecosystem_service_faceted_by_crop <- ggplot(
   egm_matrix_tree_crop %>%
     mutate(crop_type = as.factor(crop_type)),
   aes(
@@ -3156,12 +4066,12 @@ egm_plot_tree_vs_agroecosystem_service_faceted_by_crop <- ggplot(
     plot.margin = margin(10, 20, 10, 20)
   ) +
   labs(
-    x = "Tree Genus",
+    x = "Tree species",
     y = "Agroecosystem Service",
     size = "No. of Observations"
   )
 
 # Step 4: Show Plot
-egm_plot_tree_vs_agroecosystem_service_faceted_by_crop
+fig4_egm_plot_tree_vs_agroecosystem_service_faceted_by_crop
 ```
 

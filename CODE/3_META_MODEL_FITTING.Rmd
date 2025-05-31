@@ -1012,12 +1012,12 @@ for (response in names(v_matrices)) {
 output_dir <- here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R")
 
 # Save all models in a single RDS file
-saveRDS(model_results, file = file.path(output_dir, "fitted_models_all_new.rds"))
+saveRDS(model_results, file = file.path(output_dir, "fitted_models_all_new_2.rds"))
 
 # Save individual model results per response variable
 for (response in names(model_results)) {
   saveRDS(model_results[[response]],
-          file = file.path(output_dir, paste0("fitted_models_", response, "_new.rds")))
+          file = file.path(output_dir, paste0("fitted_models_", response, "_new_2.rds")))
 }
 
 cat("\nAll models have been saved successfully!\n")
@@ -1047,7 +1047,7 @@ Explanations of the above Multi-Model Fitting
 ```{r}
 # Load and assess the model results from the saved file
 # Load the combined model results
-model_results <- readRDS(file = here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R", "fitted_models_all_new.rds"))
+model_results <- readRDS(file = here::here("DATA", "OUTPUT_FROM_R", "SAVED_OBJECTS_FROM_R", "fitted_models_all_new_2.rds"))
 
 # Evaluation function for updated cabbage-style model set
 evaluate_model <- function(models, response_variable) {
@@ -1119,16 +1119,17 @@ cat("\nModel evaluation completed.\n")
 # Save all evaluation results
 eval_output_dir <- here::here("DATA", "OUTPUT_FROM_R", "MULTI_MODEL_EVALUATION_RESULTS")
 
-saveRDS(evaluation_results, file = file.path(eval_output_dir, "evaluation_results_combined.rds"))
+saveRDS(evaluation_results, file = file.path(eval_output_dir, "evaluation_results_combined_2.rds"))
 
 for (response in names(evaluation_results)) {
   saveRDS(evaluation_results[[response]],
-          file = file.path(eval_output_dir, paste0("evaluation_results_", response, ".rds")))
+          file = file.path(eval_output_dir, paste0("evaluation_results_2_", response, ".rds")))
 }
 
 cat("\nEvaluation results of the multi-model fitting have been saved successfully!\n")
 
 evaluation_results$`Crop yield`$interactions$soil_texture_x_age_system
+evaluation_results$`Crop yield`$moderators$alley_width
 ```
 
 
