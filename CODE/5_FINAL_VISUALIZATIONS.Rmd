@@ -2535,9 +2535,14 @@ forest_data <- lapply(names(model_results), function(response) {
 }) |> bind_rows()
 
 # Order response variables by effect size or custom color order
+# forest_data <- forest_data %>%
+#   mutate(response_variable = factor(response_variable, levels = names(custom_colors))) %>%
+#   arrange(desc(ROM_percent))
+
+# Order response variables by alphabetical order
 forest_data <- forest_data %>%
-  mutate(response_variable = factor(response_variable, levels = names(custom_colors))) %>%
-  arrange(desc(ROM_percent))
+  mutate(response_variable = factor(response_variable, levels = sort(unique(response_variable)))) %>%
+  arrange(response_variable)
 
 # Forest plot (Back-transformed % Change from Control)
 forest_plot_backtransformed <- forest_data |> 
@@ -2701,6 +2706,77 @@ fig6_forest_plot_annotated <- ggplot(forest_data_clean, aes(
 fig6_forest_plot_annotated
 ```
 
+### New version of the forest plot with annotations and significans
+
+```{r}
+# --- Step 4: Join counts and filter, and sort alphabetically
+forest_data_clean <- forest_data %>%
+  # Omit "Water quality" response variable
+  filter(response_variable != "Water quality") %>% 
+  left_join(summary_counts, by = "response_variable") %>%
+  mutate(
+    annotation_text = paste0("(", n_study, "/", k, ")"),
+    response_variable = factor(response_variable, levels = rev(sort(unique(response_variable))))
+  )
+
+
+# --- Step 5: Plot – styled like new forest plot (no CI tails, alphabetical order)
+fig6_forest_plot_annotated_v2 <- ggplot(forest_data_clean, aes(
+  y = response_variable,
+  color = response_variable
+)) +
+  # Middle segment of CI only (no tails)
+  geom_segment(aes(
+    x = ROM_lower + 3, 
+    xend = ROM_upper - 3, 
+    yend = response_variable
+  ), size = 2) +
+
+  # Central point
+  geom_point(aes(x = ROM_percent, fill = response_variable), 
+             shape = 21, size = 5, stroke = 1.2, color = "white") +
+
+  # Dashed reference line
+  geom_vline(xintercept = 0, linetype = "dashed", color = "gray50") +
+
+  # Study count annotation
+  geom_text(aes(x = 52, label = annotation_text), 
+            color = "black", size = 4.2, hjust = 0) +
+
+  # Significance stars (e.g., *, **, ***)
+  geom_text(
+    aes(x = ROM_upper + 2, label = significant),
+    hjust = 0, size = 5, color = "black"
+  ) +
+
+  # Custom colors
+  scale_color_manual(values = custom_colors) +
+  scale_fill_manual(values = custom_colors) +
+
+  # Axis and theme
+  scale_x_continuous(
+    limits = c(-50, 60),
+    breaks = seq(-50, 50, by = 10)
+  ) +
+  labs(
+    x = "Effect Size (%)",
+    y = NULL
+  ) +
+  theme_minimal(base_size = 18) +
+  theme(
+    axis.text.y = element_text(size = 14, face = "bold"),
+    axis.title.x = element_text(size = 14),
+    plot.title = element_text(size = 14, face = "bold"),
+    legend.position = "none",
+    panel.grid = element_blank(),
+    panel.border = element_rect(color = "black", fill = NA, size = 1),
+    plot.margin = margin(10, 10, 10, 10)
+  )
+
+# Display plot
+fig6_forest_plot_annotated_v2
+```
+
 
 ```{r}
 # Crop yield
@@ -2821,7 +2897,7 @@ mod_forest_tree <- mod_forest_tree %>%
     moderator_level = gsub("tree_type", "", moderator_level),
     moderator_level = case_when(
       moderator_level == "Biomass" ~ "Biomass",
-      moderator_level == "Fruit,nut & other" ~ "Fruit, nut and other",
+      moderator_level == "Fruit,nut & other" ~ "Other (including fruits and nuts)",
       moderator_level == "Timber" ~ "Timber",
       TRUE ~ moderator_level
     ),
@@ -2838,7 +2914,7 @@ mod_forest_crop <- mod_forest_crop %>%
     moderator_level = case_when(
       moderator_level == "Cereal" ~ "Cereals", 
       moderator_level == "Legume" ~ "Legumes",
-      moderator_level == "Tuber,root and other" ~ "Tubers, roots and other",
+      moderator_level == "Tuber,root and other" ~ "Other (including roots and tubers)",
       TRUE ~ moderator_level
     ),
     response_variable = factor(response_variable, levels = c(
@@ -2864,19 +2940,19 @@ plot_moderator_forest <- function(data, moderator_label, xlim_range = c(-50, 80)
       yend = moderator_level
     ), size = 2) +
 
-    # Left CI tail
-    geom_segment(aes(
-      x = ROM_lower, 
-      xend = ROM_lower + 3, 
-      yend = moderator_level
-    ), size = 0.8) +
-
-    # Right CI tail
-    geom_segment(aes(
-      x = ROM_upper - 3, 
-      xend = ROM_upper, 
-      yend = moderator_level
-    ), size = 0.8) +
+    # # Left CI tail
+    # geom_segment(aes(
+    #   x = ROM_lower, 
+    #   xend = ROM_lower + 3, 
+    #   yend = moderator_level
+    # ), size = 0.8) +
+    # 
+    # # Right CI tail
+    # geom_segment(aes(
+    #   x = ROM_upper - 3, 
+    #   xend = ROM_upper, 
+    #   yend = moderator_level
+    # ), size = 0.8) +
 
     # Central point with fill
     geom_point(aes(fill = response_variable),
@@ -2904,7 +2980,7 @@ plot_moderator_forest <- function(data, moderator_label, xlim_range = c(-50, 80)
 
     # Axis settings
     scale_x_continuous(
-      name = "Effect Size (% Change)",
+      name = "Effect Size (%)",
       limits = xlim_range,
       breaks = seq(xlim_range[1], xlim_range[2], by = 10)
     ) +
@@ -2916,11 +2992,11 @@ plot_moderator_forest <- function(data, moderator_label, xlim_range = c(-50, 80)
       color = "Response Variable"
     ) +
     theme_minimal(base_size = 14) +
-    theme(
-      axis.text.y = element_text(size = 12),
-      axis.text.x = element_text(size = 12),
-      axis.title = element_text(size = 13),
-      strip.text = element_text(size = 13, face = "bold"),
+  theme(
+    axis.text.y = element_text(size = 13, face = "bold"),
+    axis.title.x = element_text(size = 13),
+    plot.title = element_text(size = 15, face = "bold"),
+      strip.text = element_text(size = 15, face = "bold"),
       panel.spacing = unit(1, "lines"),
       legend.position = "none",
       panel.border = element_rect(color = "black", fill = NA, size = 1),
@@ -2936,7 +3012,7 @@ fig7a_tree_type <- plot_moderator_forest(mod_forest_tree, "Tree Type", xlim_rang
 fig7b_crop_type <- plot_moderator_forest(mod_forest_crop, "Crop Type", xlim_range = c(-40, 110))
 
 
-# --- Step 6: Display plots ---
+# 7:10
 fig7a_tree_type
 fig7b_crop_type
 ```
@@ -3052,8 +3128,8 @@ mod_forest_alley <- mod_forest_data_fig8 %>%
     annotation_text = paste0("(", n_study, "/", k, ")"),
     moderator_level = gsub("alley_width", "", moderator_level),
     moderator_level = case_when(
-      moderator_level == "Narrow" ~ "Narrow",
-      moderator_level == "Wide" ~ "Wide",
+      moderator_level == "Narrow" ~ "Narrow (<=48 m)",
+      moderator_level == "Wide" ~ "Wide (>48 m)",
       TRUE ~ moderator_level
     ),
     response_variable = factor(response_variable, levels = responses_fig8)
@@ -3075,21 +3151,21 @@ plot_forest_mod <- function(df, title_text) {
       color = response_variable
     ), size = 2) +
 
-    # Left CI tail
-    geom_segment(aes(
-      x = ROM_lower,
-      xend = ROM_lower + 3,
-      yend = moderator_level,
-      color = response_variable
-    ), size = 0.8) +
-
-    # Right CI tail
-    geom_segment(aes(
-      x = ROM_upper - 3,
-      xend = ROM_upper,
-      yend = moderator_level,
-      color = response_variable
-    ), size = 0.8) +
+    # # Left CI tail
+    # geom_segment(aes(
+    #   x = ROM_lower,
+    #   xend = ROM_lower + 3,
+    #   yend = moderator_level,
+    #   color = response_variable
+    # ), size = 0.8) +
+    # 
+    # # Right CI tail
+    # geom_segment(aes(
+    #   x = ROM_upper - 3,
+    #   xend = ROM_upper,
+    #   yend = moderator_level,
+    #   color = response_variable
+    # ), size = 0.8) +
 
     # Central filled point
     geom_point(aes(fill = response_variable),
@@ -3117,17 +3193,17 @@ plot_forest_mod <- function(df, title_text) {
     # Axis and label formatting
     labs(
       title = title_text,
-      x = "Effect Size (% Change)",
+      x = "Effect Size (%)",
       y = NULL
     ) +
 
     # Theme styling
-    theme_minimal(base_size = 15) +
+    theme_minimal(base_size = 14) +
     theme(
-      axis.text.y = element_text(size = 13, face = "bold"),
-      axis.text.x = element_text(size = 12),
-      strip.text = element_text(size = 14, face = "bold"),
-      plot.title = element_text(size = 15, face = "bold", hjust = 0),
+    axis.text.y = element_text(size = 13, face = "bold"),
+    axis.title.x = element_text(size = 13),
+    plot.title = element_text(size = 15, face = "bold"),
+      strip.text = element_text(size = 16, face = "bold"),
       legend.position = "none",
       panel.border = element_rect(color = "black", fill = NA, size = 1),
       panel.grid = element_blank()
@@ -3145,6 +3221,7 @@ plot_forest_mod <- function(df, title_text) {
 fig_8a_forest_plot_soil <- plot_forest_mod(mod_forest_soil, "Soil Texture")
 fig_8b_forest_plot_alley <- plot_forest_mod(mod_forest_alley, "Crop Alley Width")
 
+# 6:10
 fig_8a_forest_plot_soil
 fig_8b_forest_plot_alley
 ```
@@ -3238,7 +3315,7 @@ mod_forest_season <- mod_forest_data_fig9 %>%
     annotation_text = paste0("(", n_study, "/", k, ")"),
     moderator_level = gsub("season", "", moderator_level),
     moderator_level = case_when(
-      moderator_level == "Summer" ~ "Summer",
+      moderator_level == "Summer" ~ "Spring",
       moderator_level == "Winter" ~ "Winter",
       TRUE ~ moderator_level
     ),
@@ -3253,9 +3330,9 @@ mod_forest_age <- mod_forest_data_fig9 %>%
     annotation_text = paste0("(", n_study, "/", k, ")"),
     moderator_level = gsub("age_system", "", moderator_level),
     moderator_level = case_when(
-      moderator_level == "Young systems" ~ "Young",
-      moderator_level == "Medium" ~ "Medium",
-      moderator_level == "Mature systems" ~ "Mature",
+      moderator_level == "Young" ~ "Young (<=5 yrs)", 
+      moderator_level == "Medium" ~ "Medium (6-10 yrs)",
+      moderator_level == "Mature" ~ "Mature (>10 yrs)",
       TRUE ~ moderator_level
     ),
     response_variable = factor(response_variable, levels = responses_fig9)
@@ -3275,22 +3352,22 @@ plot_forest_mod <- function(df, title_text) {
       yend = moderator_level,
       color = response_variable
     ), size = 2) +
-    # Left CI tail
-    geom_segment(aes(
-      x = ROM_lower,
-      xend = ROM_lower + 3,
-      y = moderator_level,
-      yend = moderator_level,
-      color = response_variable
-    ), size = 0.8) +
-    # Right CI tail
-    geom_segment(aes(
-      x = ROM_upper - 3,
-      xend = ROM_upper,
-      y = moderator_level,
-      yend = moderator_level,
-      color = response_variable
-    ), size = 0.8) +
+    # # Left CI tail
+    # geom_segment(aes(
+    #   x = ROM_lower,
+    #   xend = ROM_lower + 3,
+    #   y = moderator_level,
+    #   yend = moderator_level,
+    #   color = response_variable
+    # ), size = 0.8) +
+    # # Right CI tail
+    # geom_segment(aes(
+    #   x = ROM_upper - 3,
+    #   xend = ROM_upper,
+    #   y = moderator_level,
+    #   yend = moderator_level,
+    #   color = response_variable
+    # ), size = 0.8) +
     # Central effect point
     geom_point(aes(fill = response_variable), 
                shape = 21, size = 5, stroke = 1.2, color = "white") +
@@ -3313,19 +3390,20 @@ plot_forest_mod <- function(df, title_text) {
     scale_x_continuous(
       limits = c(-40, 130),
       breaks = seq(-40, 130, by = 20),
-      name = "Effect Size (% Change)"
+      name = "Effect Size (%)"
     ) +
     labs(
       title = title_text,
       y = NULL
     ) +
     # Theme
-    theme_minimal(base_size = 15) +
+    # Theme styling
+    theme_minimal(base_size = 14) +
     theme(
-      axis.text.y = element_text(size = 13, face = "bold"),
-      axis.text.x = element_text(size = 12),
-      strip.text = element_text(size = 14, face = "bold"),
-      plot.title = element_text(size = 15, face = "bold", hjust = 0),
+    axis.text.y = element_text(size = 13, face = "bold"),
+    axis.title.x = element_text(size = 13),
+    plot.title = element_text(size = 15, face = "bold"),
+      strip.text = element_text(size = 16, face = "bold"),
       legend.position = "none",
       panel.border = element_rect(color = "black", fill = NA, size = 1),
       panel.grid = element_blank()
@@ -3338,6 +3416,7 @@ plot_forest_mod <- function(df, title_text) {
 fig9a_forest_plot_season <- plot_forest_mod(mod_forest_season, "Cropping Season")
 fig9b_forest_plot_age <- plot_forest_mod(mod_forest_age, "Age System")
 
+# 6:8
 fig9a_forest_plot_season
 fig9b_forest_plot_age
 ```
@@ -3426,8 +3505,8 @@ mod_forest_height <- mod_forest_data_fig10 %>%
     annotation_text = paste0("(", n_study, "/", k, ")"),
     moderator_level = gsub("tree_height", "", moderator_level),
     moderator_level = case_when(
-      moderator_level == "Short" ~ "Short trees",
-      moderator_level == "Tall" ~ "Tall trees",
+      moderator_level == "Short" ~ "Short (<=10 m)",  
+      moderator_level == "Tall" ~ "Tall (>10 m)",
       TRUE ~ moderator_level
     ),
     response_variable = factor(response_variable, levels = responses_fig10)
@@ -3441,8 +3520,8 @@ mod_forest_density <- mod_forest_data_fig10 %>%
     annotation_text = paste0("(", n_study, "/", k, ")"),
     moderator_level = gsub("no_tree_per_m", "", moderator_level),
     moderator_level = case_when(
-      moderator_level == "High" ~ "High tree density",
-      moderator_level == "Low" ~ "Low tree density",
+      moderator_level == "High" ~ "High density",
+      moderator_level == "Low" ~ "Low density",
       TRUE ~ moderator_level
     ),
     response_variable = factor(response_variable, levels = responses_fig10)
@@ -3470,30 +3549,113 @@ plot_forest_mod <- function(df, title_text) {
     scale_color_manual(values = custom_colors) +
     labs(
       title = title_text,
-      x = "Effect Size (lnRR)",
+      x = "Effect Size (%)",
       y = NULL
     ) +
-    theme_test(base_size = 15) +
+    # Theme styling
+    theme_test(base_size = 14) +
     scale_x_continuous(
       limits = c(-40, 160),  # add more space on the right
       breaks = seq(-40, 160, by = 20)
     ) +
     theme(
       axis.text.y = element_text(size = 13, face = "bold"),
-      axis.text.x = element_text(size = 12),
-      strip.text = element_text(size = 14, face = "bold"),
+      axis.text.x = element_text(size = 14),
+      strip.text = element_text(size = 16, face = "bold"),
       legend.position = "none",
       plot.title = element_text(size = 15, face = "bold", hjust = 0)
-    )
+    ) 
 }
 
 # Step 7: Generate and show plots
 fig10a_forest_plot_height <- plot_forest_mod(mod_forest_height, "Tree Height")
 fig10b_forest_plot_density <- plot_forest_mod(mod_forest_density, "Tree Density")
+
+# 6:10
 fig10a_forest_plot_height
 fig10b_forest_plot_density
 ```
 
+```{r}
+plot_forest_mod_2 <- function(df, title_text) {
+  ggplot(df, aes(y = moderator_level, x = ROM_percent)) +
+    # Dashed zero reference line
+    geom_vline(xintercept = 0, linetype = "dashed", color = "gray50") +
+    
+    # Main CI segment (middle, no tails)
+    geom_segment(aes(
+      x = ROM_lower + 3,
+      xend = ROM_upper - 3,
+      y = moderator_level,
+      yend = moderator_level,
+      color = response_variable
+    ), size = 2) +
+    
+    # Central effect point with white stroke
+    geom_point(aes(fill = response_variable), 
+               shape = 21, size = 5, stroke = 1.2, color = "white") +
+    
+    # Significance label (e.g. *, **)
+    geom_text(
+      aes(label = significant),
+      hjust = -0.8,
+      vjust = 0.5,
+      size = 5,
+      fontface = "bold",
+      color = "black"
+    ) +
+    
+    # Study count annotation: "(n/k)"
+    geom_text(
+      aes(label = annotation_text),
+      hjust = -5,
+      size = 4.2,
+      color = "black"
+    ) +
+    
+    # Facet by response variable
+    facet_wrap(~ response_variable, scales = "free_x", drop = FALSE) +
+    
+    # Colors and fill
+    scale_color_manual(values = custom_colors) +
+    scale_fill_manual(values = custom_colors) +
+    
+    # X-axis settings
+    scale_x_continuous(
+      limits = c(-40, 140),
+      breaks = seq(-40, 140, by = 20),
+      name = "Effect Size (%)"
+    ) +
+    
+    # Labels
+    labs(
+      title = title_text,
+      y = NULL
+    ) +
+    
+    # Theme
+    # Theme styling
+    theme_minimal(base_size = 14) +
+    theme(
+    axis.text.y = element_text(size = 13, face = "bold"),
+    axis.title.x = element_text(size = 13),
+    plot.title = element_text(size = 15, face = "bold"),
+      strip.text = element_text(size = 16, face = "bold"),
+      legend.position = "none",
+      panel.border = element_rect(color = "black", fill = NA, size = 1),
+      panel.grid = element_blank(),
+      plot.margin = margin(10, 10, 10, 10)
+    )
+}
+
+fig10a_forest_plot_height <- plot_forest_mod_2(mod_forest_height, "Tree Height")
+fig10b_forest_plot_density <- plot_forest_mod_2(mod_forest_density, "Tree Density")
+
+
+# 6:10
+fig10a_forest_plot_height  # margin -60 - 140
+fig10b_forest_plot_density # margin -40 - 140
+```
 
 
 
@@ -3627,18 +3789,23 @@ plot_forest_mod <- function(df, title_text) {
       x = "Effect Size (lnRR)",
       y = NULL
     ) +
-    theme_test(base_size = 15) +
+    # theme_test(base_size = 15) +
     scale_x_continuous(
       limits = c(-30, 80),              # -30 -- 80 / -30 -- 650 (soil quality - organic)
       breaks = seq(-30, 80, 
                    by = 10)    # 10 / 50 (soil quality - organic)
-    ) +
+    ) # Theme
+    # Theme styling
+    theme_minimal(base_size = 14) +
     theme(
-      axis.text.y = element_text(size = 13, face = "bold"),
-      axis.text.x = element_text(size = 12),
-      strip.text = element_text(size = 14, face = "bold"),
+    axis.text.y = element_text(size = 13, face = "bold"),
+    axis.title.x = element_text(size = 13),
+    plot.title = element_text(size = 15, face = "bold"),
+      strip.text = element_text(size = 16, face = "bold"),
       legend.position = "none",
-      plot.title = element_text(size = 15, face = "bold", hjust = 0)
+      panel.border = element_rect(color = "black", fill = NA, size = 1),
+      panel.grid = element_blank(),
+      plot.margin = margin(10, 10, 10, 10)
     )
 }
 
@@ -3651,6 +3818,83 @@ fig11b_forest_plot_tillage <- plot_forest_mod(mod_forest_tillage, "Tillage Type"
 fig11a_forest_plot_organic
 fig11b_forest_plot_tillage
 ```
+
+```{r}
+plot_forest_mod <- function(df, title_text) {
+  ggplot(df, aes(y = moderator_level, x = ROM_percent)) +
+    # Dashed reference line at 0
+    geom_vline(xintercept = 0, linetype = "dashed", color = "gray50") +
+
+    # Middle CI segment (thick)
+    geom_segment(aes(
+      x = ROM_lower + 3,
+      xend = ROM_upper - 3,
+      y = moderator_level,
+      yend = moderator_level,
+      color = response_variable
+    ), size = 2) +
+
+    # Central effect size point
+    geom_point(aes(fill = response_variable),
+               shape = 21, size = 5, stroke = 1.2, color = "white") +
+
+    # Significance label (e.g., "*", "**")
+    geom_text(
+      aes(label = significant),
+      hjust = -0.8,
+      vjust = 0.5,
+      size = 5,
+      fontface = "bold",
+      color = "black"
+    ) +
+
+    # Annotation label (n/k)
+    geom_text(
+      aes(label = annotation_text),
+      hjust = -5,
+      size = 4.2,
+      color = "black"
+    ) +
+
+    # Facet by response variable
+    facet_wrap(~ response_variable, scales = "free_x", drop = FALSE, ncol = 2) +
+
+    # Color and fill
+    scale_color_manual(values = custom_colors) +
+    scale_fill_manual(values = custom_colors) +
+
+    # Axis
+    scale_x_continuous(
+      limits = c(-30, 80),  # adjust as needed
+      breaks = seq(-30, 80, by = 10),
+      name = "Effect Size (%)"
+    ) +
+
+    # Theme and styling
+    labs(title = title_text, y = NULL) +
+    theme_minimal(base_size = 18) +
+    theme(
+      axis.text.y = element_text(size = 16, face = "bold"),
+      axis.text.x = element_text(size = 14),
+      strip.text = element_text(size = 16, face = "bold"),
+      plot.title = element_text(size = 16, face = "bold", hjust = 0),
+      legend.position = "none",
+      panel.border = element_rect(color = "black", fill = NA, size = 1),
+      panel.grid = element_blank(),
+      plot.margin = margin(10, 10, 10, 10)
+    )
+}
+
+# Step 8: Generate and show plots
+fig11a_forest_plot_organic <- plot_forest_mod(mod_forest_organic, "Organic vs Conventional")
+fig11b_forest_plot_tillage <- plot_forest_mod(mod_forest_tillage, "Tillage Type")
+
+# 6:9
+fig11a_forest_plot_organic
+fig11b_forest_plot_tillage
+```
+
+
 
 ## Figure 12 - Interactions of (1) timber trees with legume crops (2) fruit, nut, and other trees with legume crops on response variables crop yield and soil quality
 
@@ -3868,6 +4112,12 @@ egm_matrix <- imp_data_rom %>%
   mutate(
     crop_genus = as.factor(crop_genus),
     response_variable = as.factor(response_variable)
+  ) |> 
+  # Rename  crop_genus == "Mazie" ~ "Maize", and crop_genus == "Peas" ~ "Pea"
+  mutate(
+    crop_genus = recode(crop_genus,
+                        "Mazie" = "Maize",
+                        "Peas" = "Pea")
   )
 
 # Step 2: Order crop and response levels
@@ -3907,10 +4157,10 @@ egm_plot_crop_vs_agroecosystem_service <- ggplot(
       override.aes = list(shape = 21, fill = "white", color = "black")
     )
   ) +
-  theme_bw(base_size = 14) +
+  theme_bw(base_size = 18) +
   theme(
-    axis.text.x = element_text(angle = 45, hjust = 1, size = 10),
-    axis.text.y = element_text(size = 12),
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 14),
+    axis.text.y = element_text(size = 14),
     legend.position = "bottom",
     legend.box = "vertical",
     legend.title = element_text(size = 12),
@@ -3924,7 +4174,7 @@ egm_plot_crop_vs_agroecosystem_service <- ggplot(
     size = "No. of Observations"
   )
 
-# Show plot
+# 6:8
 egm_plot_crop_vs_agroecosystem_service
 ```
 
@@ -3970,15 +4220,15 @@ egm_plot_tree_vs_agroecosystem_service <- ggplot(egm_matrix_tree, aes(x = factor
     override.aes = list(shape = 21, fill = "white", color = "black")
   )
 ) +
-  theme_bw(base_size = 14) +
+  theme_bw(base_size = 18) +
   theme(
     axis.text.x = element_text(angle = 45, hjust = 1),
-    axis.text.y = element_text(size = 12),
+    axis.text.y = element_text(size = 14),
     legend.position = "bottom",
     panel.grid = element_blank(),
     legend.box = "vertical",
-  legend.title = element_text(size = 12),
-  legend.text = element_text(size = 10)
+  legend.title = element_text(size = 14),
+  legend.text = element_text(size = 14)
   ) +
   labs(
     #title = "Evidence and Gap Map: Ecosystem Services vs Tree Types",
@@ -3987,7 +4237,7 @@ egm_plot_tree_vs_agroecosystem_service <- ggplot(egm_matrix_tree, aes(x = factor
     size = "No. of Observations"
   )
 
-# Step 4: Display the plot
+# 6:8
 egm_plot_tree_vs_agroecosystem_service
 ```
 
@@ -4052,15 +4302,15 @@ fig4_egm_plot_tree_vs_agroecosystem_service_faceted_by_crop <- ggplot(
     space = "free",
     scales = "free_x"
   ) +
-  theme_bw(base_size = 14) +
+  theme_bw(base_size = 18) +
   theme(
-    strip.text = element_text(size = 13, face = "bold"),
-    axis.text.x = element_text(angle = 45, hjust = 1, size = 10),
-    axis.text.y = element_text(size = 12),
+    strip.text = element_text(size = 14, face = "bold"),
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 14),
+    axis.text.y = element_text(size = 14),
     legend.position = "bottom",
     legend.box = "vertical",
-    legend.title = element_text(size = 12),
-    legend.text = element_text(size = 10),
+    legend.title = element_text(size = 14),
+    legend.text = element_text(size = 14),
     panel.grid = element_blank(),
     panel.spacing = unit(1.5, "lines"),
     plot.margin = margin(10, 20, 10, 20)
@@ -4071,7 +4321,7 @@ fig4_egm_plot_tree_vs_agroecosystem_service_faceted_by_crop <- ggplot(
     size = "No. of Observations"
   )
 
-# Step 4: Show Plot
+# 6:14
 fig4_egm_plot_tree_vs_agroecosystem_service_faceted_by_crop
 ```
 

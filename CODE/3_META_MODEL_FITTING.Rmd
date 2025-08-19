@@ -1133,10 +1133,207 @@ evaluation_results$`Crop yield`$moderators$alley_width
 ```
 
 
+# STEP 6 SENSITIVITY ANALYSIS OF THE MULTI-MODEL FITTING (IMPUTED VS. NON-IMPUTED DATASET)
+
+```{r}
+imp_filtered_sens <- imp_dataset %>% filter(response_variable %in% response_variable)
+non_imp_filtered_sens <- non_imp_dataset %>% filter(response_variable %in% response_variable)
+
+imp_filtered_sens |> glimpse()
+non_imp_filtered_sens |> glimpse()
+```
+
+## Fit Base Models (Intercept-only) for Comparison
+
+```{r}
+# Global control parameters for optimization
+control_params <- list(
+  optimizer = "optim",
+  method = "BFGS",
+  iter.max = 10000,
+  rel.tol = 1e-12
+)
+
+# Function to fit only base model - ("base model" the multilevel model with intercept only)
+fit_base_model_sensitivity <- function(data, response, v_matrix, random_effects) {
+  tryCatch({
+    rma.mv(
+      yi = yi,
+      V = v_matrix,
+      mods = ~1,
+      random = random_effects,
+      data = data,
+      method = "REML",
+      control = control_params
+    )
+  }, error = function(e) {
+    message("Error for ", response, ": ", e$message)
+    NULL
+  })
+}
+
+# Get the list of response variables to loop over
+response_variables <- unique(imp_filtered_sens$response_variable)
+
+# Initialize results
+sensitivity_models <- list()
+
+# Loop through each response variable
+for (response in response_variables) {
+  cat("Fitting base models for:", response, "\n")
+  
+  imp_data <- imp_filtered_sens %>% filter(response_variable == response)
+  non_imp_data <- non_imp_filtered_sens %>% filter(response_variable == response)
+
+  imp_v <- calculate_v_matrix(imp_data)
+  non_imp_v <- calculate_v_matrix(non_imp_data)
+
+  random_effects <- list(~ 1 | id_article / location * experiment_year)   # experiment_site --> selected random effects structure
+
+  imp_model <- fit_base_model_sensitivity(imp_data, response, imp_v, random_effects)
+  non_imp_model <- fit_base_model_sensitivity(non_imp_data, response, non_imp_v, random_effects)
+
+  sensitivity_models[[response]] <- list(
+    imputed = imp_model,
+    non_imputed = non_imp_model
+  )
+}
+
+```
+
+## Summarize and Compare Results
+
+```{r}
+compare_results <- function(models, response) {
+  imp <- models$imputed
+  non_imp <- models$non_imputed
+
+  tibble(
+    response_variable = response,
+    source = c("Imputed", "Non-Imputed"),
+    ROM = c(if (!is.null(imp)) exp(imp$b), if (!is.null(non_imp)) exp(non_imp$b)),
+    ci.lb = c(if (!is.null(imp)) exp(imp$ci.lb), if (!is.null(non_imp)) exp(non_imp$ci.lb)),
+    ci.ub = c(if (!is.null(imp)) exp(imp$ci.ub), if (!is.null(non_imp)) exp(non_imp$ci.ub)),
+    tau2 = c(if (!is.null(imp)) sum(imp$tau2), if (!is.null(non_imp)) sum(non_imp$tau2)),
+    k = c(if (!is.null(imp)) imp$k, if (!is.null(non_imp)) non_imp$k),
+    AIC = c(if (!is.null(imp)) AIC(imp), if (!is.null(non_imp)) AIC(non_imp)),
+    BIC = c(if (!is.null(imp)) BIC(imp), if (!is.null(non_imp)) BIC(non_imp))
+  )
+}
+
+sensitivity_summary <- purrr::map_dfr(names(sensitivity_models), function(response) {
+  compare_results(sensitivity_models[[response]], response)
+})
+
+sensitivity_summary
+```
+
+## Visualize Sensitivity Analysis Results
+
+```{r}
+ggplot(sensitivity_summary, aes(x = source, y = ROM, fill = source)) +
+  geom_col(position = position_dodge(), width = 0.6) +
+  geom_errorbar(aes(ymin = ci.lb, ymax = ci.ub), width = 0.2) +
+  facet_wrap(~ response_variable, scales = "free_y") +
+  labs(
+    title = "Sensitivity Analysis of Imputation Methods",
+    y = "Response Ratio (ROM)",
+    x = "Dataset"
+  ) +
+  theme_minimal()
+```
+
+```{r}
+# AIC
+ggplot(sensitivity_summary, aes(x = source, y = AIC, fill = source)) +
+  geom_col(position = position_dodge(), width = 0.6) +
+  facet_wrap(~ response_variable, scales = "free_y") +
+  labs(
+    title = "AIC Comparison: Imputed vs. Non-Imputed Models",
+    y = "Akaike Information Criterion (AIC)",
+    x = "Dataset"
+  ) +
+  theme_minimal()
+
+# BIC
+ggplot(sensitivity_summary, aes(x = source, y = BIC, fill = source)) +
+  geom_col(position = position_dodge(), width = 0.6) +
+  facet_wrap(~ response_variable, scales = "free_y") +
+  labs(
+    title = "BIC Comparison: Imputed vs. Non-Imputed Models",
+    y = "Bayesian Information Criterion (BIC)",
+    x = "Dataset"
+  ) +
+  theme_minimal()
+```
+
+```{r}
+# Assuming your long-format data is stored in `sensitivity_summary`
+aic_bic_summary <- sensitivity_summary %>%
+  select(response_variable, source, AIC, BIC) %>%
+  pivot_wider(
+    names_from = source,
+    values_from = c(AIC, BIC)
+  ) %>%
+  arrange(response_variable)
+```
+```{r}
+aic_bic_summary %>%
+  gt() %>%
+  tab_header(
+    title = "Model Fit Comparison: AIC and BIC (Imputed vs. Non-Imputed)"
+  ) %>%
+  cols_label(
+    AIC_Imputed = "AIC (Imputed)",
+    `AIC_Non-Imputed` = "AIC (Non-Imputed)",
+    BIC_Imputed = "BIC (Imputed)",
+    `BIC_Non-Imputed` = "BIC (Non-Imputed)",
+    response_variable = "Agroecosystem Service"
+  ) %>%
+  fmt_number(
+    columns = everything(),
+    decimals = 1
+  ) %>%
+  tab_style(
+    style = cell_text(weight = "bold"),
+    locations = cells_column_labels(everything())
+  ) %>%
+  tab_options(
+    table.font.size = "small",
+    column_labels.font.size = "medium",
+    data_row.padding = px(3)
+  )
+```
+```{r}
+aic_bic_summary %>%
+  gt() %>%
+  # same tab_header, cols_label etc. as above
+  data_color(
+    columns = c(AIC_Imputed, AIC_Non_Imputed),
+    colors = scales::col_numeric(
+      palette = c("white", "#DDEBF7"),
+      domain = range(c(aic_bic_summary$AIC_Imputed, aic_bic_summary$AIC_Non_Imputed))
+    )
+  ) %>%
+  data_color(
+    columns = c(BIC_Imputed, BIC_Non_Imputed),
+    colors = scales::col_numeric(
+      palette = c("white", "#FCE4D6"),
+      domain = range(c(aic_bic_summary$BIC_Imputed, aic_bic_summary$BIC_Non_Imputed))
+    )
+  )
+
+```
 
 
 
-# STEP 4 MODEL EVALUATION AND SELECTION
+
+
+
+
+
+
+# STEP 7 MODEL EVALUATION AND SELECTION
 
 ## Extracting individual base model results
 
@@ -1190,7 +1387,7 @@ model_fits %>% dplyr::arrange(response_variable, AIC)
 
 
 
-# STEP 6 ANOVA CONTRAST OF MULTI-MODEL EFFECTS ESTIMATES
+# STEP 8 ANOVA CONTRAST OF MULTI-MODEL EFFECTS ESTIMATES
 
 anova(res, X=rbind(c(1,0,0),c(0,1,0),c(0,0,1)))
 
@@ -1297,7 +1494,7 @@ anova(mod, X = contrast_season)
 
 
 
-# STEP 7 BACK-TRANSFORM MODEL RESULTS FROM LOG-ROM TO PERCENTAGE FOR ALL RESPONSE VARIABLES
+# STEP 9 BACK-TRANSFORM MODEL RESULTS FROM LOG-ROM TO PERCENTAGE FOR ALL RESPONSE VARIABLES
 
 ## Function for extracting and back-transforming model evaluation results (base models)
 
@@ -1655,7 +1852,7 @@ Overall, these results suggest that agroforestry can deliver clear benefits for 
 
 
 
-# STEP 7 META-ANALYSIS MODEL DIAGNOSTICS - HETEROGENEITY STATISTICS
+# STEP 10 META-ANALYSIS MODEL DIAGNOSTICS - HETEROGENEITY STATISTICS
 
 ```{r}
 # model_results |> str()
@@ -1789,7 +1986,7 @@ The consistently high I² across most models underscores the complexity of agroe
 
 
 
-# STEP 8 FOREST PLOTS FOR THE MINIMAL RANDOM EFFECTS MODEL (NOT THE FINAL FOREST PLOT)
+# STEP 11 FOREST PLOTS FOR THE MINIMAL RANDOM EFFECTS MODEL (NOT THE FINAL FOREST PLOT)
 
 ## Simple Forest plot
 
@@ -1948,11 +2145,11 @@ ggplot() +
  
  
  
-# STEP 9 EXTRACT MODEL WEIGHTS PER RESPONSE VARIABLE 
+# STEP 12 EXTRACT MODEL WEIGHTS PER RESPONSE VARIABLE 
 
  
 
-# STEP 10 SAVING DATASETS AND MODEL OBJECTS
+# STEP 13 SAVING DATASETS AND MODEL OBJECTS
 
  
  

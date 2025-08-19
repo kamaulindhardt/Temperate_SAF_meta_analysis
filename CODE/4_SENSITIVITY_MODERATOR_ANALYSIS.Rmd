@@ -2695,6 +2695,37 @@ ggplot(filtered_data, aes(x = Moderator, y = MeanPEH, fill = Moderator)) +
 proportion_of_explained_heterogenity_plot
 ```
 
+## Stacked Bar Plot of PEH Contributions
+
+```{r}
+# Ensure correct factor levels for ordered display
+bootstrap_results_df <- bootstrap_results_df %>%
+  mutate(
+    ResponseVariable = factor(ResponseVariable, levels = unique(ResponseVariable)),
+    Moderator = factor(Moderator, levels = unique(Moderator))
+  )
+
+# Normalize PEH per response variable to max 100% total (for stacked plot only)
+normalized_peh <- bootstrap_results_df %>%
+  group_by(ResponseVariable) %>%
+  mutate(PEH_Sum = sum(MeanPEH, na.rm = TRUE),
+         MeanPEH_Normalized = MeanPEH / PEH_Sum * 100) %>%
+  ungroup()
+
+# Stacked bar plot (piled) of PEH by response variable
+stacked_peh_plot <- ggplot(normalized_peh, aes(x = ResponseVariable, y = MeanPEH_Normalized, fill = Moderator)) +
+  geom_bar(stat = "identity", position = "stack", color = "black", alpha = 0.9) +
+  coord_flip() +
+  labs(
+    title = "Normalized Stacked Proportion of Explained Heterogeneity (PEH)",
+    y = "Relative Contribution (%)",
+    x = "Response Variable",
+    fill = "Moderator"
+  ) +
+  theme_minimal()
+
+stacked_peh_plot
+```
 
 
 

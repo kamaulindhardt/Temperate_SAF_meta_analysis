@@ -370,7 +370,13 @@ database_clean <- database |>
       !is.na(location) ~ location,
       TRUE ~ NA_character_
     )
-  ) 
+  ) |> 
+  # Rename  crop_genus == "Mazie" ~ "Maize", and crop_genus == "Peas" ~ "Pea"
+  mutate(
+    crop_genus = recode(crop_genus,
+                        "Mazie" = "Maize",
+                        "Peas" = "Pea")
+  )
 ```
 
 
