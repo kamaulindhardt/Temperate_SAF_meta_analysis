@@ -2542,6 +2542,8 @@ cat("\nTotal time taken:", time.taken, units(time.taken), "\n")
 # Total time taken: 1.006638 hours 
 # Last go (12/05-2025) 
 # Total time taken: 52.94761 secs 
+# Last go (20/8-2025)
+# Total time taken: 10.87276 mins 
 ```
 
 ### Load the bootstrapped results
@@ -2727,6 +2729,156 @@ stacked_peh_plot <- ggplot(normalized_peh, aes(x = ResponseVariable, y = MeanPEH
 stacked_peh_plot
 ```
 
+```{r}
+# Define moderators and response variables of interest
+moderators_to_keep <- c("tree_type", "crop_type", "season", "alley_width", "age_system", "tree_height")
+aes_to_keep <- c("Biodiversity", "Crop yield", "Soil quality")
+
+# Define final level order: specific moderators first, "Others" last
+moderator_order <- c(moderators_to_keep, "Others")
+
+
+
+# Prepare data
+normalized_peh <- bootstrap_results_df %>%
+  filter(ResponseVariable %in% aes_to_keep) %>%
+  mutate(
+    Moderator = as.character(Moderator),
+    Moderator = ifelse(Moderator %in% moderators_to_keep, Moderator, "Others"),
+    Moderator = fct_relevel(Moderator, moderators_to_keep, after = Inf),  
+    ResponseVariable = factor(ResponseVariable, levels = aes_to_keep)
+  ) %>%
+  group_by(ResponseVariable) %>%
+  mutate(
+    PEH_Sum = sum(MeanPEH, na.rm = TRUE),
+    MeanPEH_Normalized = MeanPEH / PEH_Sum * 100
+  ) %>%
+  ungroup()
+
+# Collapse all "Others" into one entry per ResponseVariable
+normalized_peh_collapsed <- normalized_peh %>%
+  group_by(ResponseVariable, Moderator) %>%
+  summarise(
+    MeanPEH = sum(MeanPEH, na.rm = TRUE),
+    PEH_Sum = first(PEH_Sum),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    MeanPEH_Normalized = MeanPEH / PEH_Sum * 100
+  )
+
+
+
+# Custom colors (gray for Others)
+custom_colors <- c(
+  "tree_type"    = "#F8766D",
+  "crop_type"    = "#00BA38",
+  "season"       = "#619CFF",
+  "alley_width"  = "#D89000",
+  "age_system"   = "#A3A500",
+  "tree_height"  = "#00BFC4",
+  "Others"       = "gray70"
+)
+
+# Generate plot
+stacked_peh_plot <- ggplot(normalized_peh_collapsed, aes(x = ResponseVariable, y = MeanPEH_Normalized, fill = Moderator)) +
+  geom_bar(stat = "identity", position = "stack", color = "black", alpha = 0.9) +
+  coord_flip() +
+  scale_fill_manual(values = custom_colors, drop = FALSE) +  # Prevent dropping "Others"
+  guides(fill = guide_legend(reverse = TRUE)) +
+  labs(
+    title = "Normalized Proportion of Explained Heterogeneity (PEH)",
+    y = "Relative Contribution (%)",
+    x = "Agroecosystem Service (AES)",
+    fill = "Moderator"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.y = element_text(size = 12),
+    axis.title = element_text(size = 13),
+    plot.title = element_text(size = 14, face = "bold"),
+    legend.position = "right"
+  )
+
+stacked_peh_plot
+```
+
+```{r}
+stacked_peh_plot <- ggplot(normalized_peh_collapsed, aes(x = ResponseVariable, y = MeanPEH_Normalized, fill = Moderator)) +
+  geom_bar(stat = "identity", position = "stack", color = "black", alpha = 0.9) +
+  coord_flip() +
+  scale_fill_manual(
+    values = custom_colors,
+    breaks = moderators_to_keep,  # Exclude "Others" from legend
+    drop = FALSE
+  ) +
+  guides(fill = guide_legend(reverse = TRUE)) +
+  labs(
+    title = "Normalized Proportion of Explained Heterogeneity (PEH)",
+    y = "Relative Contribution (%)",
+    x = NULL  # or use: x = "", or leave out to keep default
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.y = element_text(size = 12),
+    axis.title.y = element_blank(),  # Remove y-axis label
+    axis.title.x = element_text(size = 13),
+    plot.title = element_text(size = 14, face = "bold"),
+    legend.position = "right"
+  )
+
+stacked_peh_plot
+```
+
+```{r}
+# Define moderators and response variables of interest
+moderators_to_keep <- c("tree_type", "crop_type", "season", "alley_width", "age_system", "tree_height")
+aes_to_keep <- c("Biodiversity", "Crop yield", "Soil quality")
+
+# Prepare data: Filter only selected moderators and AES
+filtered_peh <- bootstrap_results_df %>%
+  filter(
+    ResponseVariable %in% aes_to_keep,
+    Moderator %in% moderators_to_keep
+  ) %>%
+  mutate(
+    Moderator = factor(Moderator, levels = moderators_to_keep),
+    ResponseVariable = factor(ResponseVariable, levels = aes_to_keep)
+  )
+
+# Custom colors
+custom_colors <- c(
+  "tree_type"    = "#F8766D",
+  "crop_type"    = "#00BA38",
+  "season"       = "#619CFF",
+  "alley_width"  = "#D89000",
+  "age_system"   = "#A3A500",
+  "tree_height"  = "#00BFC4"
+)
+
+# Generate stacked bar plot without normalization
+stacked_peh_plot <- ggplot(filtered_peh, aes(x = ResponseVariable, y = MeanPEH, fill = Moderator)) +
+  geom_bar(stat = "identity", position = "stack", color = "black", alpha = 0.9) +
+  coord_flip() +
+  scale_fill_manual(values = custom_colors, drop = FALSE) +
+  guides(fill = guide_legend(reverse = TRUE)) +
+  labs(
+    title = "Proportion of Explained Heterogeneity (PEH)",
+    y = "Proportion Explained (%)",
+    x = NULL,  # Remove y-axis title
+    fill = "Moderator"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.y = element_text(size = 12),
+    axis.title.y = element_blank(),  # Ensure y-label is removed
+    axis.title.x = element_text(size = 13),
+    plot.title = element_text(size = 14, face = "bold"),
+    legend.position = "right"
+  )
+
+stacked_peh_plot
+```
 
 
 # STEP 6 MODERATOR ANALYSIS - STATISTICAL ANALYSIS OF MODERATORS' EFFECTS FOR EACH RESPONSE VARIABLE - VISUALISED WITH FOREST PLOTS
